@@ -8,21 +8,31 @@ Read these files BEFORE every session to ensure you're using current settings.
 
 ## Core Rules
 
+### Autonomous Operation (CRITICAL)
+- You are running in **non-interactive automated mode** — there is no user to respond to mid-run questions
+- **NEVER ask for permission or confirmation** mid-run — make decisions and proceed
+- If headless mode fails for dynamic content: automatically switch to headed mode and continue
+- If you encounter a recoverable error: try the next approach, don't stop and ask
+- Only stop for: login required, proxy geo mismatch, unrecoverable errors
+
 ### Proxy & Session (MANDATORY)
 - If $SOCIALPILOT_PROXY is set, ALL browser launches MUST use it
 - BEFORE any social media action: navigate to whatismyip.com, verify geo matches EXPECTED_GEO
-- If geo check fails: STOP immediately and notify the user
+- If geo check fails: STOP and log the error (do not proceed)
 - NEVER interact with social media without proxy verification (if proxy is configured)
 - Each platform has its own --user-data-dir (see platforms.json)
-- If any platform asks to re-login or shows QR code: switch to HEADED and notify user
+- If any platform asks to re-login or shows QR code: STOP and log (do not attempt login)
 
 ### Standard Browser Launch
-Use Node.js with the playwright npm package to launch a persistent browser session:
+**ALWAYS use headed mode (headless: false)** — the container has a virtual Xvfb display on DISPLAY=:99.
+Headed mode is required for TikTok, Instagram, and other platforms that block headless browsers.
+
+Use Node.js with the playwright npm package:
 ```javascript
 const { chromium } = require('playwright');
 (async () => {
   const options = {
-    headless: false,
+    headless: false,  // ALWAYS headed — never change this to true
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
   };
   if (process.env.SOCIALPILOT_PROXY) {
@@ -36,7 +46,7 @@ const { chromium } = require('playwright');
   // ... automation
 })();
 ```
-Run via: `node -e "..." ` or write to `/tmp/run-XXXX.js` and run `node /tmp/run-XXXX.js`
+Write to `/tmp/run-XXXX.js` and run `node /tmp/run-XXXX.js`
 If no proxy configured, omit the proxy block.
 
 ### Reply Generation
