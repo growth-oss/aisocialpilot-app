@@ -475,7 +475,7 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
 
   let proc;
   try {
-    proc = spawn('claude', ['--dangerously-skip-permissions'], {
+    proc = spawn('claude', ['--print', '--dangerously-skip-permissions'], {
       cwd: clientDir,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
