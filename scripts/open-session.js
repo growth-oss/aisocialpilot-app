@@ -3,6 +3,8 @@
 // Launches a headed browser for manual login. Stays open until killed.
 
 const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
 
 const [,, url, userDataDir, proxyUrl] = process.argv;
 
@@ -10,6 +12,12 @@ if (!url || !userDataDir) {
   console.error('Usage: open-session.js <url> <user_data_dir> [proxy_url]');
   process.exit(1);
 }
+
+// Remove stale Chromium lock files left by a previous crashed session
+['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+  const p = path.join(userDataDir, f);
+  if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`✦ Removed stale ${f}`); }
+});
 
 (async () => {
   const options = {
