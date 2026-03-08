@@ -484,6 +484,10 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const tmpScript = `/tmp/claude-run-${runId}.sh`;
   fs.writeFileSync(tmpScript, [
     '#!/bin/bash',
+    // Inherit root's PATH so node, playwright, etc. are all findable by claude_runner
+    `export PATH=${se(process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}`,
+    `export NODE_PATH=${se(process.env.NODE_PATH || '')}`,
+    `export PLAYWRIGHT_BROWSERS_PATH=${se(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
     `export ANTHROPIC_API_KEY=${se(env.ANTHROPIC_API_KEY)}`,
     `export ANTHROPIC_MODEL=${se(env.ANTHROPIC_MODEL)}`,
     `export HOME=/home/claude_runner`,
@@ -493,23 +497,11 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
     `cd ${se(clientDir)}`,
-    `echo "[DEBUG] Running as: $(id)"`,
-    `echo "[DEBUG] Script starting claude..."`,
     `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
-    `echo "[DEBUG] claude exited: $?"`,
   ].join('\n') + '\n', { mode: 0o755 });
-
-  // Pre-spawn sanity: confirm su + claude_runner + uid all work
-  const suTest = (() => {
-    try { return execSync(`su -s /bin/bash claude_runner -c 'id'`, { encoding: 'utf8', timeout: 5000 }).trim(); }
-    catch (e) { return `FAILED: ${e.message}`; }
-  })();
-  send('output', { text: `> [DEBUG] su id test: ${suTest}\n` });
-  send('output', { text: `> [DEBUG] Prompt: ${prompt.length} chars | Script: ${tmpScript}\n` });
 
   let proc;
   try {
-    // Run the script as claude_runner via su
     proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -519,8 +511,6 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     res.end();
     return;
   }
-
-  send('output', { text: `> [DEBUG] PID: ${proc.pid} | spawned at +${Date.now() - t0}ms\n` });
 
   runningProcesses.set(runId, { proc, clientId: req.params.id, command, startedAt });
 
@@ -542,10 +532,7 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
     const elapsed = Date.now() - t0;
 
-    const exitMsg = signal
-      ? `\n[Process killed by signal: ${signal} after ${elapsed}ms]\n`
-      : `\n[Process exited code=${code} after ${elapsed}ms]\n`;
-    send('output', { text: exitMsg });
+    if (signal) send('output', { text: `\n[Process killed by signal: ${signal}]\n` });
     console.log(`[run ${runId}] close: code=${code} signal=${signal} elapsed=${elapsed}ms`);
 
     const logFile = path.join(clientDir, 'logs', 'runs.json');

@@ -17,13 +17,27 @@ Read these files BEFORE every session to ensure you're using current settings.
 - If any platform asks to re-login or shows QR code: switch to HEADED and notify user
 
 ### Standard Browser Launch
+Use Node.js with the playwright npm package to launch a persistent browser session:
+```javascript
+const { chromium } = require('playwright');
+(async () => {
+  const options = {
+    headless: false,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
+  };
+  if (process.env.SOCIALPILOT_PROXY) {
+    const u = new URL(process.env.SOCIALPILOT_PROXY.includes('://') ? process.env.SOCIALPILOT_PROXY : 'http://' + process.env.SOCIALPILOT_PROXY);
+    options.proxy = { server: u.protocol + '//' + u.host };
+    if (u.username) options.proxy.username = decodeURIComponent(u.username);
+    if (u.password) options.proxy.password = decodeURIComponent(u.password);
+  }
+  const context = await chromium.launchPersistentContext(SESSION_DIR, options);
+  const page = context.pages()[0] || await context.newPage();
+  // ... automation
+})();
 ```
-playwright-cli open \
-  --proxy-server=$SOCIALPILOT_PROXY \
-  --user-data-dir=[session_dir from platforms.json] \
-  [URL]
-```
-If no proxy configured, omit --proxy-server.
+Run via: `node -e "..." ` or write to `/tmp/run-XXXX.js` and run `node /tmp/run-XXXX.js`
+If no proxy configured, omit the proxy block.
 
 ### Reply Generation
 1. Read config/brand-voice.md for tone, language, and rules
