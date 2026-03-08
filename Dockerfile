@@ -29,9 +29,6 @@ RUN chmod +x scripts/start.sh
 # Create data directory (overridden by volume mount in production)
 RUN mkdir -p /app/data/clients /app/data/logs
 
-# Volume for ALL persistent data (config, sessions, logs)
-VOLUME ["/app/data"]
-
 # Environment
 ENV PORT=3000
 ENV DATA_DIR=/app/data
