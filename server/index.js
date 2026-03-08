@@ -475,6 +475,7 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
       cwd: clientDir,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,   // own process group — won't be killed by Railway SIGTERM to server
     });
   } catch (err) {
     send('error', { text: `Failed to start Claude CLI: ${err.message}\nEnsure the container has claude installed.` });
@@ -618,6 +619,14 @@ server.on('upgrade', (req, socket, head) => {
   if (req.url.startsWith('/vnc')) {
     vncProxy.ws(req, socket, head);
   }
+});
+
+// Graceful shutdown — let in-flight claude runs finish before exiting
+process.on('SIGTERM', () => {
+  console.log('  ✦ SIGTERM received — waiting for running jobs to finish');
+  server.close(() => process.exit(0));
+  // If still running after 25s, force exit (Railway's timeout is 30s)
+  setTimeout(() => process.exit(0), 25000);
 });
 
 server.listen(PORT, '0.0.0.0', () => {
