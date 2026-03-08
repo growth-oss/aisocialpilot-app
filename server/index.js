@@ -476,12 +476,18 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   let proc;
   try {
     // Claude Code 2.x blocks --dangerously-skip-permissions when running as root.
-    // Spawn as claude_runner (uid 1001) instead.
+    // Spawn as claude_runner (non-root) instead. Look up uid/gid at runtime.
+    let claudeUid, claudeGid;
+    try {
+      claudeUid = parseInt(execSync('id -u claude_runner', { encoding: 'utf8' }).trim(), 10);
+      claudeGid = parseInt(execSync('id -g claude_runner', { encoding: 'utf8' }).trim(), 10);
+    } catch (e) {
+      send('output', { text: `⚠ claude_runner user not found: ${e.message}\n` });
+    }
     proc = spawn('claude', ['--print', '--dangerously-skip-permissions'], {
       cwd: clientDir,
       env: { ...env, HOME: '/home/claude_runner' },
-      uid: 1001,
-      gid: 1001,
+      ...(claudeUid != null ? { uid: claudeUid, gid: claudeGid } : {}),
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     });

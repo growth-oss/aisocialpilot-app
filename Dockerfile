@@ -31,7 +31,7 @@ RUN mkdir -p /app/data/clients /app/data/logs
 
 # Create non-root user for running Claude CLI
 # Claude Code 2.x blocks --dangerously-skip-permissions when running as root
-RUN useradd -m -u 1001 -s /bin/bash claude_runner && \
+RUN useradd -m -s /bin/bash claude_runner && \
     mkdir -p /home/claude_runner/.claude
 
 # Environment
