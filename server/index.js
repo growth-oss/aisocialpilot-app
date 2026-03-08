@@ -458,6 +458,16 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     CLIENT_ID: clientConfig.clientId,
   };
 
+  // Pre-flight: verify claude CLI is available
+  const claudePath = (() => { try { return execSync('which claude', { encoding: 'utf8' }).trim(); } catch { return null; } })();
+  if (!claudePath) {
+    send('output', { text: '✗ claude CLI not found in PATH. Check Docker build logs.\n' });
+    send('done', { code: 1, runId, status: 'failed' });
+    res.end();
+    return;
+  }
+  send('output', { text: `> claude: ${claudePath}\n` });
+
   let proc;
   try {
     proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions'], {
@@ -478,15 +488,18 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   proc.stderr.on('data', chunk => send('progress', { text: chunk.toString() }));
   proc.on('error', err => send('error', { text: `Process error: ${err.message}` }));
 
-  proc.on('close', code => {
+  proc.on('close', (code, signal) => {
     runningProcesses.delete(runId);
     const completedAt = new Date().toISOString();
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
 
+    // Show signal name in terminal to help diagnose OOM kills etc.
+    if (signal) send('output', { text: `\n[Process killed by signal: ${signal}]\n` });
+
     const logFile = path.join(clientDir, 'logs', 'runs.json');
     let runs = [];
     try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
-    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code });
+    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code, signal });
     fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
 
     send('done', { code, runId, status });
