@@ -475,11 +475,15 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
 
   let proc;
   try {
+    // Claude Code 2.x blocks --dangerously-skip-permissions when running as root.
+    // Spawn as claude_runner (uid 1001) instead.
     proc = spawn('claude', ['--print', '--dangerously-skip-permissions'], {
       cwd: clientDir,
-      env,
+      env: { ...env, HOME: '/home/claude_runner' },
+      uid: 1001,
+      gid: 1001,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,   // own process group — won't be killed by Railway SIGTERM to server
+      detached: true,
     });
     proc.stdin.write(prompt);
     proc.stdin.end();
@@ -617,18 +621,19 @@ app.get('/api/debug-claude', (req, res) => {
   try { results.which = execSync('which claude', { encoding: 'utf8' }).trim(); } catch (e) { results.which = `ERR: ${e.message}`; }
   try { results.version = execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { results.version = `ERR: ${e.message}`; }
 
-  // 2. Check settings file
-  try { results.settings = JSON.parse(fs.readFileSync('/root/.claude/settings.json', 'utf8')); } catch (e) { results.settings = `ERR: ${e.message}`; }
+  // 2. Check settings files
+  try { results.settingsRoot = JSON.parse(fs.readFileSync('/root/.claude/settings.json', 'utf8')); } catch (e) { results.settingsRoot = `ERR: ${e.message}`; }
+  try { results.settingsRunner = JSON.parse(fs.readFileSync('/home/claude_runner/.claude/settings.json', 'utf8')); } catch (e) { results.settingsRunner = `ERR: ${e.message}`; }
 
   // 3. Check API key present
   results.apiKeyPresent = !!(config.anthropicApiKey);
   results.apiKeyPrefix = config.anthropicApiKey ? config.anthropicApiKey.substring(0, 10) + '...' : 'MISSING';
 
-  // 4. Run a minimal test via shell (captures both stdout and stderr)
+  // 4. Run a minimal test as claude_runner (non-root) via su
   try {
     const out = execSync(
-      `echo "Say the word HELLO and nothing else." | timeout 30 claude --print --dangerously-skip-permissions 2>&1`,
-      { encoding: 'utf8', timeout: 35000, env: { ...process.env, ANTHROPIC_API_KEY: config.anthropicApiKey, HOME: '/root', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } }
+      `su -s /bin/bash claude_runner -c 'echo "Say the word HELLO and nothing else." | timeout 30 claude --print --dangerously-skip-permissions 2>&1'`,
+      { encoding: 'utf8', timeout: 35000, env: { ...process.env, ANTHROPIC_API_KEY: config.anthropicApiKey, HOME: '/home/claude_runner', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } }
     );
     results.testRun = { success: true, output: out.substring(0, 500) };
   } catch (e) {

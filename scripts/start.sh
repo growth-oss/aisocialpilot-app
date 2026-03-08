@@ -35,9 +35,9 @@ else
 fi
 echo "  ✦ noVNC proxy started on :6080"
 
-# Pre-initialize Claude Code config — always overwrite to ensure correct bypass settings
-mkdir -p /root/.claude
-cat > /root/.claude/settings.json << 'SETTINGS_EOF'
+# Pre-initialize Claude Code config for claude_runner user (non-root — required for --dangerously-skip-permissions)
+mkdir -p /home/claude_runner/.claude
+cat > /home/claude_runner/.claude/settings.json << 'SETTINGS_EOF'
 {
   "autoUpdaterStatus": "disabled",
   "hasCompletedOnboarding": true,
@@ -47,7 +47,11 @@ cat > /root/.claude/settings.json << 'SETTINGS_EOF'
   "permissionMode": "bypassPermissions"
 }
 SETTINGS_EOF
+chown -R claude_runner:claude_runner /home/claude_runner/.claude
 echo "  ✦ Claude Code config initialised"
+
+# Allow claude_runner to read/write client data directories
+chmod -R 777 /app/data 2>/dev/null || true
 
 # Start the Express admin server
 exec node server/index.js
