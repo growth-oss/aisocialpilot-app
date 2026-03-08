@@ -473,12 +473,13 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const claudeVersion = (() => { try { return execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { return `error: ${e.message}`; } })();
   send('output', { text: `> claude: ${claudePath} (${claudeVersion})\n` });
 
-  // Write prompt to a temp file so it doesn't need to be passed through a shell command line
+  const t0 = Date.now();
+
+  // Write prompt to a temp file
   const tmpPromptFile = `/tmp/claude-prompt-${runId}.txt`;
   fs.writeFileSync(tmpPromptFile, prompt, { mode: 0o644 });
 
   // Write a shell script that exports all env vars and runs claude as claude_runner.
-  // This mirrors exactly what /api/debug-claude confirmed works.
   const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`; // single-quote shell escape
   const tmpScript = `/tmp/claude-run-${runId}.sh`;
   fs.writeFileSync(tmpScript, [
@@ -492,26 +493,43 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
     `cd ${se(clientDir)}`,
+    `echo "[DEBUG] Running as: $(id)"`,
+    `echo "[DEBUG] Script starting claude..."`,
     `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
+    `echo "[DEBUG] claude exited: $?"`,
   ].join('\n') + '\n', { mode: 0o755 });
+
+  // Pre-spawn sanity: confirm su + claude_runner + uid all work
+  const suTest = (() => {
+    try { return execSync(`su -s /bin/bash claude_runner -c 'id'`, { encoding: 'utf8', timeout: 5000 }).trim(); }
+    catch (e) { return `FAILED: ${e.message}`; }
+  })();
+  send('output', { text: `> [DEBUG] su id test: ${suTest}\n` });
+  send('output', { text: `> [DEBUG] Prompt: ${prompt.length} chars | Script: ${tmpScript}\n` });
 
   let proc;
   try {
-    // Run the script as claude_runner via su (non-root — required by Claude Code 2.x)
+    // Run the script as claude_runner via su
     proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
-    send('error', { text: `Failed to start Claude CLI: ${err.message}\nEnsure the container has claude installed.` });
+    send('error', { text: `Failed to start: ${err.message}` });
     send('done', { code: 1, runId });
     res.end();
     return;
   }
 
+  send('output', { text: `> [DEBUG] PID: ${proc.pid} | spawned at +${Date.now() - t0}ms\n` });
+
   runningProcesses.set(runId, { proc, clientId: req.params.id, command, startedAt });
 
   proc.stdout.on('data', chunk => send('output', { text: chunk.toString() }));
-  proc.stderr.on('data', chunk => send('progress', { text: chunk.toString() }));
+  proc.stderr.on('data', chunk => {
+    const txt = chunk.toString();
+    console.log(`[run ${runId}] stderr: ${txt.substring(0, 200)}`);
+    send('progress', { text: txt });
+  });
   proc.on('error', err => send('error', { text: `Process error: ${err.message}` }));
 
   proc.on('close', (code, signal) => {
@@ -522,9 +540,13 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     runningProcesses.delete(runId);
     const completedAt = new Date().toISOString();
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
+    const elapsed = Date.now() - t0;
 
-    // Show signal name in terminal to help diagnose OOM kills etc.
-    if (signal) send('output', { text: `\n[Process killed by signal: ${signal}]\n` });
+    const exitMsg = signal
+      ? `\n[Process killed by signal: ${signal} after ${elapsed}ms]\n`
+      : `\n[Process exited code=${code} after ${elapsed}ms]\n`;
+    send('output', { text: exitMsg });
+    console.log(`[run ${runId}] close: code=${code} signal=${signal} elapsed=${elapsed}ms`);
 
     const logFile = path.join(clientDir, 'logs', 'runs.json');
     let runs = [];
@@ -536,10 +558,22 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     res.end();
   });
 
-  // Clean up if browser closes tab mid-run
+  // Kill process if SSE connection drops — but only after 10s grace period to avoid
+  // killing on Railway proxy reconnects. Railway often drops/re-establishes SSE.
   req.on('close', () => {
+    const elapsed = Date.now() - t0;
+    console.log(`[run ${runId}] req.close at ${elapsed}ms`);
     const entry = runningProcesses.get(runId);
-    if (entry) { entry.proc.kill('SIGTERM'); runningProcesses.delete(runId); }
+    if (entry) {
+      if (elapsed < 10000) {
+        // Too early — likely a Railway proxy reconnect, not a genuine user disconnect
+        send('output', { text: `\n[DEBUG: req.close at ${elapsed}ms — ignoring (grace period)]\n` });
+        console.log(`[run ${runId}] req.close IGNORED (grace period, ${elapsed}ms < 10s)`);
+      } else {
+        entry.proc.kill('SIGTERM');
+        runningProcesses.delete(runId);
+      }
+    }
   });
 });
 
