@@ -608,14 +608,6 @@ app.get('/api/clients/:id/sessions', requireLicense, (req, res) => {
   res.json(status);
 });
 
-// ─── Catch-all: serve admin panel ───
-app.get('*', (req, res) => {
-  const indexFile = fs.existsSync(path.join(__dirname, '../admin/public/index.html'))
-    ? path.join(__dirname, '../admin/public/index.html')
-    : path.join(__dirname, 'index.html');
-  res.sendFile(indexFile);
-});
-
 // ─── Debug: test claude CLI in the actual container environment ───
 app.get('/api/debug-claude', (req, res) => {
   const config = loadConfig();
@@ -644,6 +636,14 @@ app.get('/api/debug-claude', (req, res) => {
   }
 
   res.json(results);
+});
+
+// ─── Catch-all: serve admin panel ───
+app.get('*', (req, res) => {
+  const indexFile = fs.existsSync(path.join(__dirname, '../admin/public/index.html'))
+    ? path.join(__dirname, '../admin/public/index.html')
+    : path.join(__dirname, 'index.html');
+  res.sendFile(indexFile);
 });
 
 // ─── Start server ───
