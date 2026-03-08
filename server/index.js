@@ -475,12 +475,14 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
 
   let proc;
   try {
-    proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions'], {
+    proc = spawn('claude', ['--dangerously-skip-permissions'], {
       cwd: clientDir,
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,   // own process group — won't be killed by Railway SIGTERM to server
     });
+    proc.stdin.write(prompt);
+    proc.stdin.end();
   } catch (err) {
     send('error', { text: `Failed to start Claude CLI: ${err.message}\nEnsure the container has claude installed.` });
     send('done', { code: 1, runId });
