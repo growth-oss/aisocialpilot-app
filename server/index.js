@@ -456,6 +456,10 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
     EXPECTED_GEO: clientConfig.proxy?.geo || '',
     CLIENT_ID: clientConfig.clientId,
+    // Ensure HOME is set so Claude Code can find/create ~/.claude config dir
+    HOME: process.env.HOME || '/root',
+    // Disable Claude Code auto-update check (causes issues in containers)
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   };
 
   // Pre-flight: verify claude CLI is available
