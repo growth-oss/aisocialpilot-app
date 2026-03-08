@@ -23,7 +23,19 @@ if (!url || !userDataDir) {
   };
 
   if (proxyUrl) {
-    options.proxy = { server: proxyUrl };
+    // Playwright needs credentials separated — parse user:pass@host:port or http://user:pass@host:port
+    let proxyStr = proxyUrl;
+    if (!proxyStr.includes('://')) proxyStr = 'http://' + proxyStr;
+    try {
+      const parsed = new URL(proxyStr);
+      options.proxy = { server: `${parsed.protocol}//${parsed.host}` };
+      if (parsed.username) options.proxy.username = decodeURIComponent(parsed.username);
+      if (parsed.password) options.proxy.password = decodeURIComponent(parsed.password);
+      console.log(`✦ Proxy: ${parsed.host} (credentials set)`);
+    } catch {
+      // Fallback: pass as-is
+      options.proxy = { server: proxyUrl };
+    }
   }
 
   console.log(`✦ Opening browser → ${url}`);
