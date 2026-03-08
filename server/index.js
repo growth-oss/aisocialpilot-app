@@ -466,7 +466,8 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     res.end();
     return;
   }
-  send('output', { text: `> claude: ${claudePath}\n` });
+  const claudeVersion = (() => { try { return execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { return `error: ${e.message}`; } })();
+  send('output', { text: `> claude: ${claudePath} (${claudeVersion})\n` });
 
   let proc;
   try {
