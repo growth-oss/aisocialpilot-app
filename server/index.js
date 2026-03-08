@@ -188,19 +188,41 @@ app.post('/api/license/activate', async (req, res) => {
 
 // ─── Setup (API keys + model preferences) ───
 app.post('/api/setup', async (req, res) => {
-  const { anthropicApiKey, openaiApiKey, aiProvider, anthropicModel, openaiModel } = req.body;
-  if (!anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key required (needed for browser automation)' });
-
+  const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel } = req.body;
   const config = loadConfig();
-  config.anthropicApiKey = anthropicApiKey;
-  config.openaiApiKey = openaiApiKey || '';
-  config.aiProvider = aiProvider || 'anthropic';          // 'anthropic' | 'openai'
-  config.anthropicModel = anthropicModel || 'claude-haiku-4-5-20251001';
-  config.openaiModel = openaiModel || 'gpt-4o-mini';
+
+  // Allow updating without re-entering existing key (Settings page flow)
+  const resolvedAnthropicKey = anthropicApiKey || (keepAnthropicKey ? config.anthropicApiKey : '');
+  if (!resolvedAnthropicKey) return res.status(400).json({ error: 'Anthropic API key required (needed for browser automation)' });
+
+  config.anthropicApiKey = resolvedAnthropicKey;
+  if (openaiApiKey) config.openaiApiKey = openaiApiKey;   // only overwrite if a new key was provided
+  config.aiProvider = aiProvider || config.aiProvider || 'anthropic';
+  config.anthropicModel = anthropicModel || config.anthropicModel || 'claude-haiku-4-5-20251001';
+  config.openaiModel = openaiModel || config.openaiModel || 'gpt-4o-mini';
   config.setupComplete = true;
   saveConfig(config);
 
   res.json({ success: true });
+});
+
+// ─── Settings (read current config for the Settings page) ───
+app.get('/api/settings', requireLicense, (req, res) => {
+  const config = loadConfig();
+  // Return config, masking keys partially (last 4 chars visible)
+  function mask(key) {
+    if (!key) return '';
+    return key.length > 8 ? key.slice(0, 4) + '••••••••' + key.slice(-4) : '••••••••';
+  }
+  res.json({
+    anthropicApiKeyMasked: mask(config.anthropicApiKey),
+    openaiApiKeyMasked:    mask(config.openaiApiKey),
+    anthropicModel: config.anthropicModel || 'claude-haiku-4-5-20251001',
+    openaiModel:    config.openaiModel    || 'gpt-4o-mini',
+    aiProvider:     config.aiProvider     || 'anthropic',
+    hasAnthropicKey: !!config.anthropicApiKey,
+    hasOpenaiKey:    !!config.openaiApiKey,
+  });
 });
 
 // ─── Clients CRUD ───

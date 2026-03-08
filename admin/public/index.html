@@ -427,7 +427,10 @@
       <div class="logo-mark">AI</div>
       <div class="logo-text">AI Social<span>Pilot</span></div>
     </div>
-    <div id="license-badge"></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="license-badge"></div>
+      <button class="btn btn-ghost btn-sm" onclick="openSettings()" title="Settings" style="padding:6px 10px;font-size:16px;">⚙</button>
+    </div>
   </div>
 
   <!-- App content rendered by JS -->
@@ -564,9 +567,10 @@ function render() {
     case 'loading': app.innerHTML = renderLoading(); break;
     case 'license': app.innerHTML = renderLicense(); break;
     case 'setup': app.innerHTML = renderSetup(); break;
+    case 'settings': app.innerHTML = renderSettings(); populateSettings(); break;
     case 'dashboard': app.innerHTML = renderDashboard(); loadAllSessionDots(); break;
     case 'client-new': app.innerHTML = renderClientForm(); break;
-    case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); break;
+    case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); loadClientLogs(state.editingClient.clientId); break;
   }
 }
 
@@ -659,6 +663,142 @@ function renderSetup() {
   `;
 }
 
+function renderSettings() {
+  return `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <button class="btn btn-ghost btn-sm" onclick="goBack()">← Back</button>
+      <h2 style="font-size:18px;font-weight:600">Settings</h2>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔑 AI Providers</div>
+      <div class="card-desc">Update your API keys and model preferences. Leave a key field blank to keep the current value.</div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">Anthropic (Required — Browser Automation)</p>
+        <div class="field">
+          <label>Anthropic API Key</label>
+          <input type="password" id="s-anthropic-key" placeholder="Leave blank to keep current key" spellcheck="false" autocomplete="off">
+          <div class="field-hint" id="s-anthropic-status"></div>
+        </div>
+        <div class="field">
+          <label>Claude Model</label>
+          <select id="s-anthropic-model">
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 — Fastest &amp; cheapest (recommended)</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6 — Balanced capability</option>
+            <option value="claude-opus-4-6">claude-opus-4-6 — Most capable</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">OpenAI (Optional — Text Generation)</p>
+        <div class="field">
+          <label>OpenAI API Key <span style="color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input type="password" id="s-openai-key" placeholder="Leave blank to keep current key" spellcheck="false" autocomplete="off">
+          <div class="field-hint" id="s-openai-status"></div>
+        </div>
+        <div class="field">
+          <label>GPT Model</label>
+          <select id="s-openai-model">
+            <option value="gpt-4o-mini">gpt-4o-mini — Cheapest, great quality</option>
+            <option value="gpt-4o">gpt-4o — More capable</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Default Provider for Text Generation</label>
+        <select id="s-ai-provider">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+        </select>
+        <div class="field-hint">Browser automation always uses Anthropic. This sets the default for reply/caption generation.</div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-ghost" onclick="goBack()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">🔐 License</div>
+      <div id="settings-license-info" style="font-size:13px;color:var(--text-dim);margin-bottom:16px;"></div>
+      <div class="field">
+        <label>License Key</label>
+        <input type="text" id="s-license-key" placeholder="SP-XXXX-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="reactivateLicense()">Re-activate</button>
+      </div>
+    </div>
+  `;
+}
+
+async function populateSettings() {
+  const s = await api('GET', '/settings');
+  if (s.hasAnthropicKey) document.getElementById('s-anthropic-status').textContent = `Current key: ${s.anthropicApiKeyMasked}`;
+  if (s.hasOpenaiKey) document.getElementById('s-openai-status').textContent = `Current key: ${s.openaiApiKeyMasked}`;
+  const selAM = document.getElementById('s-anthropic-model');
+  [...selAM.options].forEach(o => { if (o.value === s.anthropicModel) o.selected = true; });
+  const selOM = document.getElementById('s-openai-model');
+  [...selOM.options].forEach(o => { if (o.value === s.openaiModel) o.selected = true; });
+  const selProv = document.getElementById('s-ai-provider');
+  [...selProv.options].forEach(o => { if (o.value === s.aiProvider) o.selected = true; });
+  const li = document.getElementById('settings-license-info');
+  if (state.status?.licenseValid) {
+    li.textContent = `Plan: ${state.status.licensePlan || 'Active'} · ${state.status.clientCount}/${state.status.maxClients} clients`;
+    li.style.color = 'var(--green)';
+  } else {
+    li.textContent = 'No active license';
+    li.style.color = 'var(--red)';
+  }
+}
+
+async function saveSettings() {
+  const anthropicKey = document.getElementById('s-anthropic-key').value.trim();
+  const openaiKey    = document.getElementById('s-openai-key').value.trim();
+  const anthropicModel = document.getElementById('s-anthropic-model').value;
+  const openaiModel    = document.getElementById('s-openai-model').value;
+  const aiProvider     = document.getElementById('s-ai-provider').value;
+
+  // Load current settings to fill in blanks
+  const current = await api('GET', '/settings');
+  if (!anthropicKey && !current.hasAnthropicKey) return showToast('Anthropic API key is required', 'error');
+  if (aiProvider === 'openai' && !openaiKey && !current.hasOpenaiKey) return showToast('Add an OpenAI key or switch default provider to Anthropic', 'error');
+
+  // POST to /setup — it requires anthropicApiKey, so send placeholder if keeping existing
+  const body = { anthropicModel, openaiModel, aiProvider };
+  if (anthropicKey) body.anthropicApiKey = anthropicKey;
+  else body.keepAnthropicKey = true;
+  if (openaiKey) body.openaiApiKey = openaiKey;
+
+  const result = await api('POST', '/setup', body);
+  if (result.error) return showToast(result.error, 'error');
+  showToast('Settings saved');
+  await goBack();
+}
+
+async function reactivateLicense() {
+  const key = document.getElementById('s-license-key').value.trim();
+  if (!key) return showToast('Enter a license key', 'error');
+  const result = await api('POST', '/license/activate', { licenseKey: key });
+  if (result.valid) {
+    showToast('License activated!');
+    state.status = await api('GET', '/status');
+    updateLicenseBadge();
+    showToast(`Plan: ${result.plan}`);
+  } else {
+    showToast(result.message || 'Invalid license key', 'error');
+  }
+}
+
+function openSettings() {
+  state.currentView = 'settings';
+  render();
+}
+
 function renderDashboard() {
   const clientCards = state.clients.length > 0
     ? state.clients.map(c => `
@@ -715,6 +855,7 @@ function renderClientForm(client) {
       <div class="tab" onclick="switchTab(this, 'tab-platforms')">Platforms</div>
       <div class="tab" onclick="switchTab(this, 'tab-brand')">Brand Voice</div>
       <div class="tab" onclick="switchTab(this, 'tab-proxy')">Proxy</div>
+      ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-logs')">Logs</div>` : ''}
     </div>
 
     <!-- General -->
@@ -813,6 +954,15 @@ function renderClientForm(client) {
         </div>
       </div>
     </div>
+
+    ${isEdit ? `
+    <!-- Logs -->
+    <div id="tab-logs" class="card hidden">
+      <div class="card-desc">Last 20 automation runs for this client.</div>
+      <div id="runs-table" style="font-size:13px;">
+        <div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading...</div>
+      </div>
+    </div>` : ''}
 
     <div class="btn-row">
       <button class="btn btn-primary" onclick="saveClient(${isEdit ? `'${c.clientId}'` : ''})">
@@ -1030,6 +1180,50 @@ async function loadAllSessionDots() {
       return `<span title="${p}: ${label}" style="font-size:11px;display:flex;align-items:center;gap:3px;color:${color}">${icon}<span style="width:5px;height:5px;border-radius:50%;background:${color};display:inline-block"></span></span>`;
     }).join('');
   }
+}
+
+// ─── Client run logs ───
+async function loadClientLogs(clientId) {
+  const el = document.getElementById('runs-table');
+  if (!el) return;
+  const runs = await api('GET', `/clients/${clientId}/runs`);
+  if (!runs || runs.length === 0) {
+    el.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:20px 0">No runs yet. Hit Run on the dashboard to start.</div>`;
+    return;
+  }
+  const cmdLabels = {
+    'check-all': 'Check All Platforms', 'reply-instagram': 'Reply — Instagram',
+    'reply-tiktok': 'Reply — TikTok', 'reply-x': 'Reply — X',
+    'check-whatsapp': 'WhatsApp Inbox', 'outreach': 'Competitor Outreach',
+    'ambassador': 'Ambassador Session',
+  };
+  const statusColor = { completed: 'var(--green)', failed: 'var(--red)', stopped: 'var(--amber)' };
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);color:var(--text-dim)">
+          <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Command</th>
+          <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Status</th>
+          <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Duration</th>
+          <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Started</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${runs.map(r => {
+          const dur = r.startedAt && r.completedAt
+            ? Math.round((new Date(r.completedAt) - new Date(r.startedAt)) / 1000) + 's'
+            : '—';
+          const started = r.startedAt ? new Date(r.startedAt).toLocaleString() : '—';
+          const color = statusColor[r.status] || 'var(--text-dim)';
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:10px;color:var(--text)">${cmdLabels[r.command] || r.command}</td>
+            <td style="padding:10px;color:${color};font-weight:500">${r.status}</td>
+            <td style="padding:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:12px">${dur}</td>
+            <td style="padding:10px;color:var(--text-muted);font-size:12px">${started}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ─── Command definitions ───
