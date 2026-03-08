@@ -471,6 +471,42 @@
   </div>
 </div>
 
+<!-- Session picker -->
+<div id="session-overlay" class="cmd-overlay hidden">
+  <div class="cmd-box">
+    <div class="cmd-header">🔐 Login Sessions — <span id="session-client-name"></span></div>
+    <div style="padding:12px 20px 4px;font-size:12px;color:var(--text-dim);line-height:1.5;">
+      Open a browser for each platform and log in manually. The session is saved automatically so automations can run without re-logging in.
+    </div>
+    <div class="cmd-list">
+      <button class="cmd-item" onclick="startSession('instagram')">
+        <span class="cmd-item-icon">📸</span>
+        <div class="cmd-item-text"><strong>Instagram</strong><span id="session-status-instagram">Checking...</span></div>
+        <span id="session-indicator-instagram" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
+      <button class="cmd-item" onclick="startSession('tiktok')">
+        <span class="cmd-item-icon">🎵</span>
+        <div class="cmd-item-text"><strong>TikTok</strong><span id="session-status-tiktok">Checking...</span></div>
+        <span id="session-indicator-tiktok" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
+      <button class="cmd-item" onclick="startSession('x')">
+        <span class="cmd-item-icon">𝕏</span>
+        <div class="cmd-item-text"><strong>X / Twitter</strong><span id="session-status-x">Checking...</span></div>
+        <span id="session-indicator-x" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
+      <button class="cmd-item" onclick="startSession('whatsapp')">
+        <span class="cmd-item-icon">💬</span>
+        <div class="cmd-item-text"><strong>WhatsApp</strong><span id="session-status-whatsapp">Checking...</span></div>
+        <span id="session-indicator-whatsapp" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
+    </div>
+    <div class="cmd-cancel" style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-ghost btn-sm" id="session-done-btn" onclick="stopSession()" style="display:none">✓ Done — Close Browser</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeSessionPicker()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const app = document.getElementById('app');
 const toast = document.getElementById('toast');
@@ -528,7 +564,7 @@ function render() {
     case 'loading': app.innerHTML = renderLoading(); break;
     case 'license': app.innerHTML = renderLicense(); break;
     case 'setup': app.innerHTML = renderSetup(); break;
-    case 'dashboard': app.innerHTML = renderDashboard(); break;
+    case 'dashboard': app.innerHTML = renderDashboard(); loadAllSessionDots(); break;
     case 'client-new': app.innerHTML = renderClientForm(); break;
     case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); break;
   }
@@ -634,8 +670,10 @@ function renderDashboard() {
               <span>${c.platforms ? Object.entries(c.platforms).filter(([k,v]) => v.enabled).map(([k]) => k).join(', ') || 'No platforms' : '—'}</span>
               <span>${c.status || 'setup'}</span>
             </div>
+            <div id="session-dots-${c.clientId}" class="session-dots" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
           </div>
           <div class="client-actions">
+            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); openSessionPicker('${c.clientId}', '${c.name}')" title="Set up browser sessions">🔐 Login</button>
             <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openCmdPicker('${c.clientId}', '${c.name}')">Run ▾</button>
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); editClient('${c.clientId}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteClient('${c.clientId}', '${c.name}')">✕</button>
@@ -895,6 +933,103 @@ async function deleteClient(id, name) {
   showToast(`${name} deleted`);
   state.clients = await api('GET', '/clients');
   render();
+}
+
+// ─── Session setup ───
+let _sessionClientId = null;
+let _activeSessionPlatform = null;
+
+async function openSessionPicker(clientId, clientName) {
+  _sessionClientId = clientId;
+  _activeSessionPlatform = null;
+  document.getElementById('session-client-name').textContent = clientName;
+  document.getElementById('session-done-btn').style.display = 'none';
+  document.getElementById('session-overlay').classList.remove('hidden');
+  await refreshSessionStatus(clientId);
+}
+
+function closeSessionPicker() {
+  document.getElementById('session-overlay').classList.add('hidden');
+  _sessionClientId = null;
+  _activeSessionPlatform = null;
+}
+
+async function refreshSessionStatus(clientId) {
+  const status = await api('GET', `/clients/${clientId}/sessions`);
+  const platforms = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
+  for (const [platform] of Object.entries(platforms)) {
+    const dot = document.getElementById(`session-indicator-${platform}`);
+    const label = document.getElementById(`session-status-${platform}`);
+    if (!dot || !label) continue;
+    const s = status[platform];
+    if (s?.isActive) {
+      dot.style.background = '#f59e0b';
+      label.textContent = 'Browser open — log in now';
+    } else if (s?.hasSession) {
+      dot.style.background = '#22c55e';
+      label.textContent = 'Session saved ✓';
+    } else {
+      dot.style.background = 'var(--text-muted)';
+      label.textContent = 'Not logged in';
+    }
+  }
+}
+
+async function startSession(platform) {
+  if (!_sessionClientId) return;
+  // Stop previous session if different platform
+  if (_activeSessionPlatform && _activeSessionPlatform !== platform) {
+    await api('POST', `/clients/${_sessionClientId}/session/stop`, { platform: _activeSessionPlatform });
+  }
+  _activeSessionPlatform = platform;
+  const result = await api('POST', `/clients/${_sessionClientId}/session/start`, { platform });
+  if (result.error) return showToast(result.error, 'error');
+
+  // Show Done button and open VNC
+  document.getElementById('session-done-btn').style.display = 'inline-flex';
+  showToast(`Browser opened — log into ${platform} in the Live View`);
+  await refreshSessionStatus(_sessionClientId);
+
+  // Open VNC panel so they can see the browser
+  closeSessionPicker();
+  openRunPanel(`🔐 Login — ${platform}`);
+  document.getElementById('run-stop-btn').style.display = 'none';
+  document.getElementById('run-watch-btn').style.display = 'none';
+  appendTerminal(`> Browser opened at ${platform}\n`, 't-meta');
+  appendTerminal(`> Log in using the Live View button, then click Done below\n`, 't-progress');
+
+  // Re-open session picker with Done button visible after a moment
+  setTimeout(() => {
+    document.getElementById('session-overlay').classList.remove('hidden');
+    document.getElementById('session-done-btn').style.display = 'inline-flex';
+    toggleVnc();
+  }, 500);
+}
+
+async function stopSession() {
+  if (!_sessionClientId || !_activeSessionPlatform) return;
+  await api('POST', `/clients/${_sessionClientId}/session/stop`, { platform: _activeSessionPlatform });
+  showToast(`${_activeSessionPlatform} session saved ✓`);
+  _activeSessionPlatform = null;
+  document.getElementById('session-done-btn').style.display = 'none';
+  await refreshSessionStatus(_sessionClientId);
+  // Refresh session dots on dashboard cards
+  loadAllSessionDots();
+}
+
+async function loadAllSessionDots() {
+  for (const client of state.clients) {
+    const dotsEl = document.getElementById(`session-dots-${client.clientId}`);
+    if (!dotsEl) continue;
+    const status = await api('GET', `/clients/${client.clientId}/sessions`);
+    const icons = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
+    dotsEl.innerHTML = Object.entries(icons).map(([p, icon]) => {
+      const s = status[p];
+      const color = s?.isActive ? '#f59e0b' : s?.hasSession ? '#22c55e' : '#3f3f46';
+      const label = s?.hasSession ? 'logged in' : 'needs login';
+      return `<span title="${p}: ${label}" style="font-size:11px;display:flex;align-items:center;gap:3px;color:${color}">${icon}<span style="width:5px;height:5px;border-radius:50%;background:${color};display:inline-block"></span></span>`;
+    }).join('');
+  }
 }
 
 // ─── Command definitions ───

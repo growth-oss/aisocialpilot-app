@@ -30,6 +30,10 @@ RUN chmod +x scripts/start.sh
 RUN mkdir -p /app/data/clients /app/data/logs
 
 # Environment
+# Skip browser download — browsers already installed in the base image
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 ENV PORT=3000
 ENV DATA_DIR=/app/data
 ENV NODE_ENV=production

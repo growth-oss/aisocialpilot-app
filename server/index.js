@@ -8,6 +8,15 @@ const crypto = require('crypto');
 
 // Track in-flight automation processes keyed by runId
 const runningProcesses = new Map();
+// Track active session browser processes keyed by "clientId:platform"
+const sessionProcesses = new Map();
+
+const PLATFORM_URLS = {
+  instagram: 'https://www.instagram.com',
+  tiktok:    'https://www.tiktok.com',
+  x:         'https://www.x.com',
+  whatsapp:  'https://web.whatsapp.com',
+};
 
 const app = express();
 // VNC proxy — forwards /vnc/* to noVNC on port 6080 (live browser view)
@@ -319,31 +328,6 @@ app.get('/api/clients/:id/logs', requireLicense, (req, res) => {
   }
 });
 
-// ─── Session status per client ───
-app.get('/api/clients/:id/sessions', requireLicense, (req, res) => {
-  const sessionsDir = path.join(CLIENTS_DIR, req.params.id, 'browser-sessions');
-  if (!fs.existsSync(sessionsDir)) return res.json({});
-
-  const platforms = fs.readdirSync(sessionsDir).filter(f =>
-    fs.statSync(path.join(sessionsDir, f)).isDirectory()
-  );
-
-  const sessions = {};
-  platforms.forEach(p => {
-    const dir = path.join(sessionsDir, p);
-    const files = fs.readdirSync(dir);
-    sessions[p] = {
-      hasSession: files.length > 0,
-      fileCount: files.length,
-      lastModified: files.length > 0
-        ? fs.statSync(path.join(dir, files[0])).mtime.toISOString()
-        : null,
-    };
-  });
-
-  res.json(sessions);
-});
-
 // ─── Build Claude prompt per command ───
 function buildPrompt(command, clientConfig) {
   const platforms = Object.entries(clientConfig.platforms || {})
@@ -512,6 +496,73 @@ app.get('/api/clients/:id/runs', requireLicense, (req, res) => {
   if (!fs.existsSync(logFile)) return res.json([]);
   try { res.json(JSON.parse(fs.readFileSync(logFile, 'utf8')).reverse().slice(0, 20)); }
   catch { res.json([]); }
+});
+
+// ─── Session setup: open a headed browser for manual login ───
+app.post('/api/clients/:id/session/start', requireLicense, (req, res) => {
+  const { platform } = req.body;
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const url = PLATFORM_URLS[platform];
+  if (!url) return res.status(400).json({ error: `Unknown platform: ${platform}` });
+
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+  const sessionDir = path.join(clientDir, 'browser-sessions', platform);
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  // Kill any existing session for this platform
+  const key = `${req.params.id}:${platform}`;
+  if (sessionProcesses.has(key)) {
+    try { sessionProcesses.get(key).kill('SIGTERM'); } catch {}
+    sessionProcesses.delete(key);
+  }
+
+  const scriptPath = path.join(__dirname, '../scripts/open-session.js');
+  const proxyUrl = clientConfig.proxy?.url || '';
+  const args = [scriptPath, url, sessionDir];
+  if (proxyUrl) args.push(proxyUrl);
+
+  let proc;
+  try {
+    proc = spawn('node', args, {
+      env: { ...process.env, DISPLAY: ':99' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to launch browser: ${err.message}` });
+  }
+
+  sessionProcesses.set(key, proc);
+  proc.stdout.on('data', chunk => console.log(`[session:${platform}] ${chunk.toString().trim()}`));
+  proc.stderr.on('data', chunk => console.error(`[session:${platform}] ${chunk.toString().trim()}`));
+  proc.on('close', () => sessionProcesses.delete(key));
+
+  res.json({ success: true, platform, message: `Browser opened at ${url}` });
+});
+
+// ─── Session setup: close the browser and mark session as saved ───
+app.post('/api/clients/:id/session/stop', requireLicense, (req, res) => {
+  const { platform } = req.body;
+  const key = `${req.params.id}:${platform}`;
+  if (sessionProcesses.has(key)) {
+    try { sessionProcesses.get(key).kill('SIGTERM'); } catch {}
+    sessionProcesses.delete(key);
+  }
+  res.json({ success: true });
+});
+
+// ─── Session status: which platforms have saved sessions ───
+app.get('/api/clients/:id/sessions', requireLicense, (req, res) => {
+  const sessionsDir = path.join(CLIENTS_DIR, req.params.id, 'browser-sessions');
+  const status = {};
+  for (const platform of Object.keys(PLATFORM_URLS)) {
+    const dir = path.join(sessionsDir, platform);
+    const hasFiles = fs.existsSync(dir) && fs.readdirSync(dir).length > 0;
+    const isActive = sessionProcesses.has(`${req.params.id}:${platform}`);
+    status[platform] = { hasSession: hasFiles, isActive };
+  }
+  res.json(status);
 });
 
 // ─── Catch-all: serve admin panel ───
