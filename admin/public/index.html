@@ -1283,7 +1283,7 @@ function toggleVnc() {
   if (_vncOpen) {
     pane.style.display = 'block';
     if (!frame.src || frame.src === window.location.href) {
-      frame.src = '/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&show_dot=1';
+      frame.src = '/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&path=vnc/';
     }
     document.getElementById('run-watch-btn').textContent = '👁 Hide Live';
   } else {

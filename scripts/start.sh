@@ -10,12 +10,29 @@ sleep 1
 echo "  ✦ Virtual display started on :99"
 
 # Start VNC server (localhost only — proxied through Express at /vnc/)
-x11vnc -display :99 -nopw -listen localhost -xkb -forever -quiet &
+x11vnc -display :99 -nopw -listen localhost -xkb -forever -shared -quiet &
 sleep 1
 echo "  ✦ VNC server started on :5900"
 
-# Start noVNC websocket proxy (localhost only)
-websockify --web /usr/share/novnc 6080 localhost:5900 &
+# Find noVNC web directory (path differs by Ubuntu version / install method)
+NOVNC_DIR=""
+for d in /usr/share/novnc /usr/share/novnc/utils/novnc /opt/novnc /usr/local/novnc; do
+  if [ -f "$d/vnc.html" ] || [ -f "$d/vnc_lite.html" ]; then
+    NOVNC_DIR="$d"
+    break
+  fi
+done
+
+if [ -z "$NOVNC_DIR" ]; then
+  echo "  ⚠ noVNC web files not found — live browser view unavailable"
+  websockify 6080 localhost:5900 &
+else
+  echo "  ✦ noVNC found at $NOVNC_DIR"
+  # Ensure vnc.html exists (some installs only have vnc_lite.html)
+  [ ! -f "$NOVNC_DIR/vnc.html" ] && [ -f "$NOVNC_DIR/vnc_lite.html" ] && \
+    cp "$NOVNC_DIR/vnc_lite.html" "$NOVNC_DIR/vnc.html"
+  websockify --web "$NOVNC_DIR" 6080 localhost:5900 &
+fi
 echo "  ✦ noVNC proxy started on :6080"
 
 # Start the Express admin server
