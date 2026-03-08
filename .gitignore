@@ -1,0 +1,10 @@
+data/
+node_modules/
+.env
+*.env
+config.json
+license.json
+package-lock.json
+.DS_Store
+logs/
+*.log

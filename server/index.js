@@ -1,0 +1,554 @@
+const express = require('express');
+const http = require('http');
+const httpProxy = require('http-proxy');
+const fs = require('fs');
+const path = require('path');
+const { execSync, spawn } = require('child_process');
+const crypto = require('crypto');
+
+// Track in-flight automation processes keyed by runId
+const runningProcesses = new Map();
+
+const app = express();
+// VNC proxy — forwards /vnc/* to noVNC on port 6080 (live browser view)
+const vncProxy = httpProxy.createProxyServer({ target: 'http://localhost:6080', ws: true });
+app.use('/vnc', (req, res) => {
+  req.url = req.url === '' ? '/' : req.url;
+  vncProxy.web(req, res);
+});
+app.use(express.json());
+// Serve admin panel — works whether index.js is at root or in server/ subdir
+const ADMIN_DIR = fs.existsSync(path.join(__dirname, '../admin/public'))
+  ? path.join(__dirname, '../admin/public')   // Docker: server/index.js → ../admin/public
+  : __dirname;                                 // Local dev: flat structure, serve from root
+app.use(express.static(ADMIN_DIR));
+
+// ─── Data paths ───
+// Docker: /app/data (volume mounted). Local dev: ./data next to index.js
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const LICENSE_FILE = path.join(DATA_DIR, 'license.json');
+const CLIENTS_DIR = path.join(DATA_DIR, 'clients');
+const LOGS_DIR = path.join(DATA_DIR, 'logs');
+
+// Ensure directories exist
+[DATA_DIR, CLIENTS_DIR, LOGS_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// ─── Default config ───
+function loadConfig() {
+  if (!fs.existsSync(CONFIG_FILE)) {
+    const defaults = {
+      setupComplete: false,
+      anthropicApiKey: '',
+      licenseKey: '',
+      licenseValid: false,
+      licenseLastCheck: null,
+    };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaults, null, 2));
+    return defaults;
+  }
+  return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+}
+
+function saveConfig(config) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+// ─── License validation ───
+const LICENSE_SERVER = process.env.LICENSE_SERVER || 'https://license.socialpilot.ai';
+const LICENSE_CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+
+async function validateLicense(key) {
+  // Dev bypass — remove before production
+  if (key === 'SP-DEV-LOCAL-2026') {
+    return { valid: true, plan: 'pro', maxClients: 99, expiresAt: null, message: 'Dev mode' };
+  }
+
+  try {
+    const machineId = getMachineId();
+    const res = await fetch(`${LICENSE_SERVER}/api/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        licenseKey: key,
+        machineId,
+        product: 'socialpilot-ai',
+        version: getVersion(),
+      }),
+    });
+    const data = await res.json();
+    return {
+      valid: data.valid === true,
+      plan: data.plan || 'starter',
+      maxClients: data.maxClients || 3,
+      expiresAt: data.expiresAt || null,
+      message: data.message || '',
+    };
+  } catch (err) {
+    console.error('License check failed:', err.message);
+    // Grace period: if we've validated before, allow continued use for 7 days
+    const config = loadConfig();
+    if (config.licenseValid && config.licenseLastCheck) {
+      const daysSinceCheck = (Date.now() - new Date(config.licenseLastCheck).getTime()) / 86400000;
+      if (daysSinceCheck < 7) {
+        return { valid: true, plan: 'grace', maxClients: 99, message: 'Offline grace period' };
+      }
+    }
+    return { valid: false, message: 'Cannot reach license server' };
+  }
+}
+
+function getMachineId() {
+  try {
+    return execSync('cat /etc/machine-id 2>/dev/null || hostname').toString().trim();
+  } catch {
+    return crypto.randomBytes(16).toString('hex');
+  }
+}
+
+function getVersion() {
+  try {
+    const pkgPath = fs.existsSync(path.join(__dirname, '../package.json'))
+      ? path.join(__dirname, '../package.json')
+      : path.join(__dirname, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.version || '1.0.0';
+  } catch {
+    return '1.0.0';
+  }
+}
+
+// Periodic license check
+setInterval(async () => {
+  const config = loadConfig();
+  if (config.licenseKey) {
+    const result = await validateLicense(config.licenseKey);
+    config.licenseValid = result.valid;
+    config.licenseLastCheck = new Date().toISOString();
+    config.licensePlan = result.plan;
+    config.maxClients = result.maxClients;
+    saveConfig(config);
+  }
+}, LICENSE_CHECK_INTERVAL);
+
+// ─── Middleware: license check ───
+function requireLicense(req, res, next) {
+  const config = loadConfig();
+  if (!config.licenseValid) {
+    return res.status(403).json({ error: 'Invalid or missing license. Please activate your license key.' });
+  }
+  next();
+}
+
+// ═══════════════════════════════════════
+// API ROUTES
+// ═══════════════════════════════════════
+
+// ─── Status ───
+app.get('/api/status', (req, res) => {
+  const config = loadConfig();
+  const clients = getClients();
+  res.json({
+    setupComplete: config.setupComplete,
+    licenseValid: config.licenseValid,
+    licensePlan: config.licensePlan || null,
+    maxClients: config.maxClients || 3,
+    clientCount: clients.length,
+    version: getVersion(),
+  });
+});
+
+// ─── License ───
+app.post('/api/license/activate', async (req, res) => {
+  const { licenseKey } = req.body;
+  if (!licenseKey) return res.status(400).json({ error: 'License key required' });
+
+  const result = await validateLicense(licenseKey);
+  const config = loadConfig();
+  config.licenseKey = licenseKey;
+  config.licenseValid = result.valid;
+  config.licenseLastCheck = new Date().toISOString();
+  config.licensePlan = result.plan;
+  config.maxClients = result.maxClients;
+  saveConfig(config);
+
+  res.json(result);
+});
+
+// ─── Setup (API keys + model preferences) ───
+app.post('/api/setup', async (req, res) => {
+  const { anthropicApiKey, openaiApiKey, aiProvider, anthropicModel, openaiModel } = req.body;
+  if (!anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key required (needed for browser automation)' });
+
+  const config = loadConfig();
+  config.anthropicApiKey = anthropicApiKey;
+  config.openaiApiKey = openaiApiKey || '';
+  config.aiProvider = aiProvider || 'anthropic';          // 'anthropic' | 'openai'
+  config.anthropicModel = anthropicModel || 'claude-haiku-4-5-20251001';
+  config.openaiModel = openaiModel || 'gpt-4o-mini';
+  config.setupComplete = true;
+  saveConfig(config);
+
+  res.json({ success: true });
+});
+
+// ─── Clients CRUD ───
+function getClients() {
+  if (!fs.existsSync(CLIENTS_DIR)) return [];
+  return fs.readdirSync(CLIENTS_DIR)
+    .filter(f => fs.existsSync(path.join(CLIENTS_DIR, f, 'config.json')))
+    .map(f => {
+      const clientConfig = JSON.parse(fs.readFileSync(path.join(CLIENTS_DIR, f, 'config.json'), 'utf8'));
+      const logFile = path.join(CLIENTS_DIR, f, 'logs', 'activity.json');
+      let lastActivity = null;
+      if (fs.existsSync(logFile)) {
+        try {
+          const logs = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+          const dates = Object.keys(logs).sort().reverse();
+          if (dates.length > 0) lastActivity = dates[0];
+        } catch {}
+      }
+      return { id: f, ...clientConfig, lastActivity };
+    });
+}
+
+app.get('/api/clients', requireLicense, (req, res) => {
+  res.json(getClients());
+});
+
+app.post('/api/clients', requireLicense, (req, res) => {
+  const config = loadConfig();
+  const clients = getClients();
+  if (clients.length >= (config.maxClients || 3)) {
+    return res.status(403).json({ error: `Client limit reached (${config.maxClients}). Upgrade your license for more.` });
+  }
+
+  const { name, platforms, proxy, geo, brandVoice } = req.body;
+  if (!name) return res.status(400).json({ error: 'Client name required' });
+
+  const clientId = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+  const clientDir = path.join(CLIENTS_DIR, clientId);
+
+  if (fs.existsSync(clientDir)) {
+    return res.status(409).json({ error: 'Client already exists' });
+  }
+
+  // Create client directory structure
+  fs.mkdirSync(path.join(clientDir, 'browser-sessions'), { recursive: true });
+  fs.mkdirSync(path.join(clientDir, 'logs', 'screenshots'), { recursive: true });
+  fs.mkdirSync(path.join(clientDir, 'config'), { recursive: true });
+
+  // Save client config
+  const clientConfig = {
+    name,
+    clientId,
+    createdAt: new Date().toISOString(),
+    platforms: platforms || {
+      instagram: { handle: '', enabled: false },
+      tiktok: { handle: '', enabled: false },
+      x: { handle: '', enabled: false },
+      whatsapp: { numbers: [], enabled: false },
+    },
+    proxy: proxy || { url: '', type: 'residential', geo: geo || 'US' },
+    brandVoice: brandVoice || {
+      personality: '',
+      tone: '',
+      emojiMax: 2,
+      languages: ['English'],
+      neverSay: [],
+      alwaysDo: [],
+    },
+    rateLimits: {
+      instagram: { delayMin: 10000, delayMax: 20000, maxPerHour: 15, maxPerDay: 50 },
+      tiktok: { delayMin: 15000, delayMax: 25000, maxPerHour: 12, maxPerDay: 40 },
+      x: { delayMin: 5000, delayMax: 12000, maxPerHour: 20, maxPerDay: 50 },
+      whatsapp: { delayMin: 5000, delayMax: 10000, maxPerHour: null, maxPerDay: null },
+    },
+    status: 'setup', // setup | active | paused
+  };
+
+  fs.writeFileSync(path.join(clientDir, 'config.json'), JSON.stringify(clientConfig, null, 2));
+  // Also write brand-voice.md for Claude Code
+  fs.writeFileSync(path.join(clientDir, 'config', 'brand-voice.md'),
+    `# Brand Voice: ${name}\n\n## Personality\n${brandVoice?.personality || 'Warm and helpful'}\n\n## Tone\n${brandVoice?.tone || 'Conversational, not corporate'}\n`
+  );
+
+  res.json({ success: true, clientId, client: clientConfig });
+});
+
+app.put('/api/clients/:id', requireLicense, (req, res) => {
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) {
+    return res.status(404).json({ error: 'Client not found' });
+  }
+
+  const existing = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+  const updated = { ...existing, ...req.body, clientId: req.params.id };
+  fs.writeFileSync(path.join(clientDir, 'config.json'), JSON.stringify(updated, null, 2));
+
+  // Update brand-voice.md if brand voice changed
+  if (req.body.brandVoice) {
+    const bv = req.body.brandVoice;
+    fs.writeFileSync(path.join(clientDir, 'config', 'brand-voice.md'),
+      `# Brand Voice: ${updated.name}\n\n## Personality\n${bv.personality || ''}\n\n## Tone\n${bv.tone || ''}\n\n## Emoji\nMax per reply: ${bv.emojiMax || 2}\n\n## Languages\n${(bv.languages || []).join(', ')}\n\n## Never Say\n${(bv.neverSay || []).map(s => `- ${s}`).join('\n')}\n\n## Always Do\n${(bv.alwaysDo || []).map(s => `- ${s}`).join('\n')}\n`
+    );
+  }
+
+  res.json({ success: true, client: updated });
+});
+
+app.delete('/api/clients/:id', requireLicense, (req, res) => {
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) {
+    return res.status(404).json({ error: 'Client not found' });
+  }
+  fs.rmSync(clientDir, { recursive: true });
+  res.json({ success: true });
+});
+
+// ─── Client logs ───
+app.get('/api/clients/:id/logs', requireLicense, (req, res) => {
+  const logFile = path.join(CLIENTS_DIR, req.params.id, 'logs', 'activity.json');
+  if (!fs.existsSync(logFile)) return res.json({});
+  try {
+    res.json(JSON.parse(fs.readFileSync(logFile, 'utf8')));
+  } catch {
+    res.json({});
+  }
+});
+
+// ─── Session status per client ───
+app.get('/api/clients/:id/sessions', requireLicense, (req, res) => {
+  const sessionsDir = path.join(CLIENTS_DIR, req.params.id, 'browser-sessions');
+  if (!fs.existsSync(sessionsDir)) return res.json({});
+
+  const platforms = fs.readdirSync(sessionsDir).filter(f =>
+    fs.statSync(path.join(sessionsDir, f)).isDirectory()
+  );
+
+  const sessions = {};
+  platforms.forEach(p => {
+    const dir = path.join(sessionsDir, p);
+    const files = fs.readdirSync(dir);
+    sessions[p] = {
+      hasSession: files.length > 0,
+      fileCount: files.length,
+      lastModified: files.length > 0
+        ? fs.statSync(path.join(dir, files[0])).mtime.toISOString()
+        : null,
+    };
+  });
+
+  res.json(sessions);
+});
+
+// ─── Build Claude prompt per command ───
+function buildPrompt(command, clientConfig) {
+  const platforms = Object.entries(clientConfig.platforms || {})
+    .filter(([, v]) => v.enabled).map(([k]) => k);
+  const ctx = `You are managing social media for the brand "${clientConfig.name}".
+Enabled platforms: ${platforms.join(', ') || 'none configured'}.
+Always read config/brand-voice.md before drafting any reply.
+Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
+
+`;
+  const commands = {
+    'check-all': ctx + `Check ALL enabled platforms for new activity. Order: Instagram → TikTok → X → WhatsApp.
+For each platform:
+1. Open it and check for new comments, mentions, and DMs since last session
+2. Draft replies following the brand voice — never send identical replies
+3. Check escalation-rules.md — flag anything that needs human review
+4. Present ALL drafts to the user before posting anything
+5. Log every action
+Finish with a summary: how many items found, replied, escalated, skipped.`,
+
+    'reply-instagram': ctx + `Check Instagram for new activity.
+1. Open https://instagram.com — verify you are logged in as ${clientConfig.platforms?.instagram?.handle || 'the brand account'}
+2. Check all recent posts for new comments (last 24h)
+3. Check DM inbox for unread messages
+4. Draft replies in the brand voice per reply-templates.md
+5. Show ALL drafts before posting. Do not post without approval.`,
+
+    'reply-tiktok': ctx + `Check TikTok for new activity.
+1. Open https://tiktok.com — verify login as ${clientConfig.platforms?.tiktok?.handle || 'the brand account'}
+2. Check recent videos for new comments
+3. Draft replies — keep under 150 characters, punchy and natural
+4. Show all drafts before posting.`,
+
+    'reply-x': ctx + `Check X (Twitter) for new activity.
+1. Open https://x.com — verify login as ${clientConfig.platforms?.x?.handle || 'the brand account'}
+2. Check mentions and DMs
+3. Draft replies — concise, brand voice, no hashtags in replies
+4. Show all drafts before posting.`,
+
+    'check-whatsapp': ctx + `Check WhatsApp inbox.
+1. Open https://web.whatsapp.com
+2. Identify all unread conversations
+3. Categorise each: complaint / booking / product_question / support / general
+4. Process in order: complaints → bookings → product questions → general
+5. Flag voice notes and images — cannot process these, mark for manual review
+6. Star conversations from: bulk orders, complaints, VIPs
+7. Draft replies and show ALL of them before sending anything.`,
+
+    'outreach': ctx + `Run competitor audience outreach.
+1. Read competitors.json and outreach-rules.json
+2. For each enabled competitor, open their profile and collect recent post commenters/likers
+3. Score each target per the scoring table in outreach-rules.json
+4. Skip anyone below min_score_to_engage
+5. Execute the engagement ladder in order (story view → likes → follow → comment → DM on followback)
+6. Stay within daily limits in rate-limits.json outreach section
+7. Log all actions to logs/outreach-log.json`,
+
+    'ambassador': ctx + `Run ambassador network session.
+1. Read ambassadors.json, ambassador-content.json, ambassador-rules.json
+2. Find briefs with status = "approved" in ambassador-content.json
+3. For each target account in the brief, adapt the caption in that ambassador's voice and niche angle
+4. Show ALL adapted captions to the user — do not post without approval
+5. Once approved, post with natural staggered timing
+6. Run cross-engagement after posts go live`,
+  };
+  return commands[command] || (ctx + command);
+}
+
+// ─── Run automation (SSE streaming) ───
+app.post('/api/clients/:id/run', requireLicense, (req, res) => {
+  const { command } = req.body;
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+
+  if (clientConfig.status === 'paused') {
+    return res.status(400).json({ error: 'Client is paused. Set status to Active first.' });
+  }
+  if (!config.anthropicApiKey) {
+    return res.status(400).json({ error: 'Anthropic API key not configured. Complete setup first.' });
+  }
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (type, data) => {
+    try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {}
+  };
+
+  const runId = crypto.randomBytes(4).toString('hex');
+  const startedAt = new Date().toISOString();
+  send('start', { runId, command, clientName: clientConfig.name, startedAt });
+
+  const prompt = buildPrompt(command, clientConfig);
+  const env = {
+    ...process.env,
+    ANTHROPIC_API_KEY: config.anthropicApiKey,
+    ANTHROPIC_MODEL: config.anthropicModel || 'claude-haiku-4-5-20251001',
+    SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
+    EXPECTED_GEO: clientConfig.proxy?.geo || '',
+    CLIENT_ID: clientConfig.clientId,
+  };
+
+  let proc;
+  try {
+    proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions'], {
+      cwd: clientDir,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    send('error', { text: `Failed to start Claude CLI: ${err.message}\nEnsure the container has claude installed.` });
+    send('done', { code: 1, runId });
+    res.end();
+    return;
+  }
+
+  runningProcesses.set(runId, { proc, clientId: req.params.id, command, startedAt });
+
+  proc.stdout.on('data', chunk => send('output', { text: chunk.toString() }));
+  proc.stderr.on('data', chunk => send('progress', { text: chunk.toString() }));
+  proc.on('error', err => send('error', { text: `Process error: ${err.message}` }));
+
+  proc.on('close', code => {
+    runningProcesses.delete(runId);
+    const completedAt = new Date().toISOString();
+    const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
+
+    const logFile = path.join(clientDir, 'logs', 'runs.json');
+    let runs = [];
+    try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code });
+    fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+    send('done', { code, runId, status });
+    res.end();
+  });
+
+  // Clean up if browser closes tab mid-run
+  req.on('close', () => {
+    const entry = runningProcesses.get(runId);
+    if (entry) { entry.proc.kill('SIGTERM'); runningProcesses.delete(runId); }
+  });
+});
+
+// ─── Stop a running automation ───
+app.post('/api/clients/:id/run/stop', requireLicense, (req, res) => {
+  const { runId } = req.body;
+  const entry = runningProcesses.get(runId);
+  if (!entry || entry.clientId !== req.params.id) {
+    return res.status(404).json({ error: 'No running process found' });
+  }
+  entry.proc.kill('SIGTERM');
+  runningProcesses.delete(runId);
+  res.json({ success: true });
+});
+
+// ─── Run history for a client ───
+app.get('/api/clients/:id/runs', requireLicense, (req, res) => {
+  const logFile = path.join(CLIENTS_DIR, req.params.id, 'logs', 'runs.json');
+  if (!fs.existsSync(logFile)) return res.json([]);
+  try { res.json(JSON.parse(fs.readFileSync(logFile, 'utf8')).reverse().slice(0, 20)); }
+  catch { res.json([]); }
+});
+
+// ─── Catch-all: serve admin panel ───
+app.get('*', (req, res) => {
+  const indexFile = fs.existsSync(path.join(__dirname, '../admin/public/index.html'))
+    ? path.join(__dirname, '../admin/public/index.html')
+    : path.join(__dirname, 'index.html');
+  res.sendFile(indexFile);
+});
+
+// ─── Start server ───
+const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+
+// Proxy WebSocket upgrades for noVNC live view
+server.on('upgrade', (req, socket, head) => {
+  if (req.url.startsWith('/vnc')) {
+    vncProxy.ws(req, socket, head);
+  }
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n  ✦ AI Social Pilot — Admin Panel`);
+  console.log(`  ✦ Running on http://0.0.0.0:${PORT}`);
+  console.log(`  ✦ Data directory: ${DATA_DIR}`);
+  console.log(`  ✦ Live browser view: http://0.0.0.0:${PORT}/vnc/\n`);
+
+  // Initial license check
+  const config = loadConfig();
+  if (config.licenseKey) {
+    validateLicense(config.licenseKey).then(result => {
+      config.licenseValid = result.valid;
+      config.licenseLastCheck = new Date().toISOString();
+      config.licensePlan = result.plan;
+      config.maxClients = result.maxClients;
+      saveConfig(config);
+      console.log(`  ✦ License: ${result.valid ? '✅ Valid' : '❌ Invalid'} (${result.plan || 'none'})\n`);
+    });
+  }
+});

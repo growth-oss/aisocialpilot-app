@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Social Pilot — Admin</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg-deep: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-hover: #1a1a26;
+    --bg-input: #0e0e16;
+    --border: #1e1e2e;
+    --border-focus: #6366f1;
+    --text: #e4e4e7;
+    --text-dim: #71717a;
+    --text-muted: #52525b;
+    --accent: #6366f1;
+    --accent-glow: rgba(99, 102, 241, 0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34, 197, 94, 0.1);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.1);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245, 158, 11, 0.1);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    background: var(--bg-deep);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ─── Layout ─── */
+  .shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-mark {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    color: white;
+  }
+
+  .logo-text {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .logo-text span { color: var(--text-dim); font-weight: 400; }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .badge-green { background: var(--green-dim); color: var(--green); }
+  .badge-red { background: var(--red-dim); color: var(--red); }
+  .badge-amber { background: var(--amber-dim); color: var(--amber); }
+
+  /* ─── Cards ─── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 20px;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+
+  /* ─── Forms ─── */
+  .field {
+    margin-bottom: 16px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .field input, .field select, .field textarea {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  .field textarea {
+    min-height: 80px;
+    resize: vertical;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .field input::placeholder { color: var(--text-muted); }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* ─── Buttons ─── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: #5558e6; transform: translateY(-1px); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+
+  .btn-danger {
+    background: var(--red-dim);
+    color: var(--red);
+    border: 1px solid transparent;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+  .btn-sm { padding: 6px 14px; font-size: 12px; }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  /* ─── Client list ─── */
+  .client-grid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .client-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: border-color 0.2s;
+    cursor: pointer;
+  }
+  .client-card:hover { border-color: var(--border-focus); }
+
+  .client-info { flex: 1; }
+
+  .client-name {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .client-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 16px;
+  }
+
+  .client-platforms {
+    display: flex;
+    gap: 6px;
+  }
+
+  .platform-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .platform-dot.active { background: var(--green); }
+
+  .client-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* ─── Tabs ─── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+
+  .tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ─── Steps (onboarding) ─── */
+  .step-indicator {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+  }
+
+  .step-dot {
+    width: 32px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.3s;
+  }
+  .step-dot.done { background: var(--green); }
+  .step-dot.current { background: var(--accent); }
+
+  /* ─── Message / toast ─── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 1000;
+    animation: slideUp 0.3s ease;
+    display: none;
+  }
+  .toast.show { display: block; }
+  .toast.success { background: var(--green-dim); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .toast.error { background: var(--red-dim); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* ─── Empty state ─── */
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .empty-icon { font-size: 40px; margin-bottom: 16px; opacity: 0.3; }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+
+  /* ─── Utilities ─── */
+  .hidden { display: none !important; }
+  .mt-2 { margin-top: 8px; }
+  .mt-4 { margin-top: 16px; }
+  .text-dim { color: var(--text-dim); }
+  .text-sm { font-size: 12px; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* ─── Run modal ─── */
+  .run-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 200; display: flex; align-items: flex-end;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+  .run-panel {
+    width: 100%; max-height: 70vh; background: #0d0d14;
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp { from { transform: translateY(30px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+
+  .run-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .run-panel-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .run-spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .run-body {
+    flex: 1; display: flex; overflow: hidden; min-height: 0;
+  }
+
+  .run-terminal {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    line-height: 1.7; color: #a0a0b0; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .run-terminal .t-output { color: #d4d4e0; }
+  .run-terminal .t-progress { color: #6366f1; }
+  .run-terminal .t-error { color: var(--red); }
+  .run-terminal .t-done-ok { color: var(--green); font-weight: 600; }
+  .run-terminal .t-done-fail { color: var(--red); font-weight: 600; }
+  .run-terminal .t-meta { color: #52525b; font-size: 11px; }
+
+  /* ─── Command picker ─── */
+  .cmd-overlay {
+    position: fixed; inset: 0; z-index: 150; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6);
+    animation: fadeIn 0.15s ease;
+  }
+  .cmd-box {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); width: 400px; overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+    animation: slideUp 0.15s ease;
+  }
+  .cmd-header { padding: 16px 20px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text-dim); }
+  .cmd-list { display: flex; flex-direction: column; }
+  .cmd-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px; cursor: pointer; transition: background 0.15s;
+    border: none; background: none; width: 100%; text-align: left;
+    color: var(--text);
+  }
+  .cmd-item:hover { background: var(--bg-hover); }
+  .cmd-item-icon { font-size: 18px; width: 24px; text-align: center; }
+  .cmd-item-text strong { display: block; font-size: 13px; font-weight: 600; }
+  .cmd-item-text span { font-size: 11px; color: var(--text-dim); }
+  .cmd-cancel { padding: 12px 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-mark">AI</div>
+      <div class="logo-text">AI Social<span>Pilot</span></div>
+    </div>
+    <div id="license-badge"></div>
+  </div>
+
+  <!-- App content rendered by JS -->
+  <div id="app"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- Run output panel -->
+<div id="run-overlay" class="run-overlay hidden">
+  <div class="run-panel">
+    <div class="run-panel-header">
+      <div class="run-panel-title">
+        <div id="run-spinner" class="run-spinner"></div>
+        <span id="run-title">Running...</span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" id="run-watch-btn" onclick="toggleVnc()" title="Watch the browser live">👁 Watch Live</button>
+        <button class="btn btn-ghost btn-sm" id="run-stop-btn" onclick="stopRun()">Stop</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeRunPanel()">Close</button>
+      </div>
+    </div>
+    <div class="run-body">
+      <div id="run-terminal" class="run-terminal"></div>
+      <div id="run-vnc" style="width:520px;flex-shrink:0;border-left:1px solid var(--border);background:#000;display:none;position:relative;">
+        <div style="position:absolute;top:8px;left:12px;font-size:10px;color:#52525b;font-family:'JetBrains Mono',monospace;z-index:10;pointer-events:none;">LIVE BROWSER</div>
+        <iframe id="vnc-frame" src="" style="width:100%;height:100%;border:none;" allow="clipboard-read; clipboard-write"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Command picker -->
+<div id="cmd-overlay" class="cmd-overlay hidden">
+  <div class="cmd-box">
+    <div class="cmd-header">Choose automation to run</div>
+    <div class="cmd-list" id="cmd-list"></div>
+    <div class="cmd-cancel">
+      <button class="btn btn-ghost btn-sm" onclick="closeCmdPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const app = document.getElementById('app');
+const toast = document.getElementById('toast');
+
+// ─── State ───
+let state = {
+  status: null,
+  clients: [],
+  currentView: 'loading', // loading | license | setup | dashboard | client-edit | client-new
+  editingClient: null,
+};
+
+// ─── API helpers ───
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`/api${path}`, opts);
+  return res.json();
+}
+
+function showToast(msg, type = 'success') {
+  toast.textContent = msg;
+  toast.className = `toast show ${type}`;
+  setTimeout(() => toast.className = 'toast', 3000);
+}
+
+// ─── Init ───
+async function init() {
+  state.status = await api('GET', '/status');
+  updateLicenseBadge();
+
+  if (!state.status.licenseValid) {
+    state.currentView = 'license';
+  } else if (!state.status.setupComplete) {
+    state.currentView = 'setup';
+  } else {
+    state.clients = await api('GET', '/clients');
+    state.currentView = 'dashboard';
+  }
+  render();
+}
+
+function updateLicenseBadge() {
+  const el = document.getElementById('license-badge');
+  if (state.status?.licenseValid) {
+    el.innerHTML = `<span class="badge badge-green">${state.status.licensePlan || 'Active'} · ${state.status.clientCount}/${state.status.maxClients} clients</span>`;
+  } else {
+    el.innerHTML = `<span class="badge badge-red">No License</span>`;
+  }
+}
+
+// ─── Render router ───
+function render() {
+  switch (state.currentView) {
+    case 'loading': app.innerHTML = renderLoading(); break;
+    case 'license': app.innerHTML = renderLicense(); break;
+    case 'setup': app.innerHTML = renderSetup(); break;
+    case 'dashboard': app.innerHTML = renderDashboard(); break;
+    case 'client-new': app.innerHTML = renderClientForm(); break;
+    case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); break;
+  }
+}
+
+// ─── Views ───
+
+function renderLoading() {
+  return `<div class="empty"><div class="empty-icon">⟳</div><div class="empty-title">Loading...</div></div>`;
+}
+
+function renderLicense() {
+  return `
+    <div class="step-indicator">
+      <div class="step-dot current"></div>
+      <div class="step-dot"></div>
+      <div class="step-dot"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">⚡ Activate License</div>
+      <div class="card-desc">Enter the license key from your purchase email to get started.</div>
+      <div class="field">
+        <label>License Key</label>
+        <input type="text" id="license-key" placeholder="SP-XXXX-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="activateLicense()">Activate</button>
+      </div>
+      <p class="field-hint mt-4">Don't have a license? <a href="https://aisocialpilot.com" target="_blank" style="color:var(--accent)">Purchase at aisocialpilot.com</a></p>
+    </div>
+  `;
+}
+
+function renderSetup() {
+  return `
+    <div class="step-indicator">
+      <div class="step-dot done"></div>
+      <div class="step-dot current"></div>
+      <div class="step-dot"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🔑 AI Provider Setup</div>
+      <div class="card-desc">Configure your AI providers. Anthropic is required for browser automation. Add OpenAI to reduce text-generation costs.</div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">Anthropic (Required — Browser Automation)</p>
+        <div class="field">
+          <label>Anthropic API Key</label>
+          <input type="password" id="anthropic-key" placeholder="sk-ant-..." spellcheck="false" autocomplete="off">
+          <div class="field-hint">Required for all browser automation. Get at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent)">console.anthropic.com</a></div>
+        </div>
+        <div class="field">
+          <label>Claude Model</label>
+          <select id="anthropic-model">
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5 — Fastest &amp; cheapest (recommended)</option>
+            <option value="claude-sonnet-4-6">claude-sonnet-4-6 — Balanced capability</option>
+            <option value="claude-opus-4-6">claude-opus-4-6 — Most capable</option>
+          </select>
+          <div class="field-hint">Haiku is ~20× cheaper than Sonnet with great results for social media replies.</div>
+        </div>
+      </div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">OpenAI (Optional — Text Generation)</p>
+        <div class="field">
+          <label>OpenAI API Key <span style="color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input type="password" id="openai-key" placeholder="sk-..." spellcheck="false" autocomplete="off">
+          <div class="field-hint">Add to use GPT models for caption/reply generation. Get at <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent)">platform.openai.com</a></div>
+        </div>
+        <div class="field">
+          <label>GPT Model</label>
+          <select id="openai-model">
+            <option value="gpt-4o-mini">gpt-4o-mini — Cheapest, great quality</option>
+            <option value="gpt-4o">gpt-4o — More capable</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Default Provider for Text Generation</label>
+        <select id="ai-provider">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+        </select>
+        <div class="field-hint">Browser automation always uses Anthropic. This sets the default for reply/caption generation.</div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSetup()">Save &amp; Continue</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboard() {
+  const clientCards = state.clients.length > 0
+    ? state.clients.map(c => `
+        <div class="client-card" onclick="editClient('${c.clientId}')">
+          <div class="client-info">
+            <div class="client-name">${c.name}</div>
+            <div class="client-meta">
+              <span>${c.proxy?.geo || '—'}</span>
+              <span>${c.platforms ? Object.entries(c.platforms).filter(([k,v]) => v.enabled).map(([k]) => k).join(', ') || 'No platforms' : '—'}</span>
+              <span>${c.status || 'setup'}</span>
+            </div>
+          </div>
+          <div class="client-actions">
+            <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openCmdPicker('${c.clientId}', '${c.name}')">Run ▾</button>
+            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); editClient('${c.clientId}')">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteClient('${c.clientId}', '${c.name}')">✕</button>
+          </div>
+        </div>
+      `).join('')
+    : `<div class="empty">
+        <div class="empty-icon">📱</div>
+        <div class="empty-title">No clients yet</div>
+        <p class="text-dim text-sm">Add your first client to start automating their social media.</p>
+      </div>`;
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+      <h2 style="font-size:20px;font-weight:600">Clients</h2>
+      <button class="btn btn-primary" onclick="newClient()" ${state.clients.length >= (state.status?.maxClients || 3) ? 'disabled title="Client limit reached"' : ''}>
+        + Add Client
+      </button>
+    </div>
+    <div class="client-grid">${clientCards}</div>
+  `;
+}
+
+function renderClientForm(client) {
+  const isEdit = !!client;
+  const c = client || {};
+  const p = c.platforms || {};
+  const bv = c.brandVoice || {};
+  const proxy = c.proxy || {};
+
+  return `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <button class="btn btn-ghost btn-sm" onclick="goBack()">← Back</button>
+      <h2 style="font-size:18px;font-weight:600">${isEdit ? `Edit: ${c.name}` : 'New Client'}</h2>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(this, 'tab-general')">General</div>
+      <div class="tab" onclick="switchTab(this, 'tab-platforms')">Platforms</div>
+      <div class="tab" onclick="switchTab(this, 'tab-brand')">Brand Voice</div>
+      <div class="tab" onclick="switchTab(this, 'tab-proxy')">Proxy</div>
+    </div>
+
+    <!-- General -->
+    <div id="tab-general" class="card">
+      <div class="field">
+        <label>Client Name</label>
+        <input type="text" id="f-name" value="${c.name || ''}" placeholder="Acme Corp" ${isEdit ? 'disabled' : ''}>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Status</label>
+          <select id="f-status">
+            <option value="setup" ${c.status === 'setup' ? 'selected' : ''}>Setup</option>
+            <option value="active" ${c.status === 'active' ? 'selected' : ''}>Active</option>
+            <option value="paused" ${c.status === 'paused' ? 'selected' : ''}>Paused</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Geo Region</label>
+          <input type="text" id="f-geo" value="${proxy.geo || 'US'}" placeholder="US, AE, DE...">
+        </div>
+      </div>
+    </div>
+
+    <!-- Platforms -->
+    <div id="tab-platforms" class="card hidden">
+      <div class="card-desc">Enter the handles for each platform. Leave empty to disable.</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Instagram Handle</label>
+          <input type="text" id="f-ig" value="${p.instagram?.handle || ''}" placeholder="@yourbrand">
+        </div>
+        <div class="field">
+          <label>TikTok Handle</label>
+          <input type="text" id="f-tt" value="${p.tiktok?.handle || ''}" placeholder="@yourbrand">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>X (Twitter) Handle</label>
+          <input type="text" id="f-x" value="${p.x?.handle || ''}" placeholder="@yourbrand">
+        </div>
+        <div class="field">
+          <label>WhatsApp Number</label>
+          <input type="text" id="f-wa" value="${p.whatsapp?.numbers?.[0]?.number || ''}" placeholder="+971544445460">
+        </div>
+      </div>
+    </div>
+
+    <!-- Brand Voice -->
+    <div id="tab-brand" class="card hidden">
+      <div class="field">
+        <label>Brand Personality</label>
+        <textarea id="f-personality" placeholder="Warm, premium, helpful — like a knowledgeable friend">${bv.personality || ''}</textarea>
+      </div>
+      <div class="field">
+        <label>Tone Guidelines</label>
+        <textarea id="f-tone" placeholder="Conversational, not corporate. Match the customer's energy.">${bv.tone || ''}</textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Max Emoji Per Reply</label>
+          <input type="number" id="f-emoji" value="${bv.emojiMax || 2}" min="0" max="5">
+        </div>
+        <div class="field">
+          <label>Languages (comma-separated)</label>
+          <input type="text" id="f-langs" value="${(bv.languages || ['English']).join(', ')}" placeholder="English, Arabic">
+        </div>
+      </div>
+      <div class="field">
+        <label>Never Say (one per line)</label>
+        <textarea id="f-never" placeholder="Don't mention competitors&#10;Don't post prices publicly">${(bv.neverSay || []).join('\n')}</textarea>
+      </div>
+    </div>
+
+    <!-- Proxy -->
+    <div id="tab-proxy" class="card hidden">
+      <div class="card-desc">Residential proxy ensures all actions appear from the client's region. Required for Instagram.</div>
+      <div class="field">
+        <label>Proxy URL</label>
+        <input type="text" id="f-proxy" value="${proxy.url || ''}" placeholder="socks5://user:pass@host:port">
+        <div class="field-hint">Supports socks5://, http://, https://</div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Proxy Type</label>
+          <select id="f-proxy-type">
+            <option value="residential" ${proxy.type === 'residential' ? 'selected' : ''}>Residential</option>
+            <option value="datacenter" ${proxy.type === 'datacenter' ? 'selected' : ''}>Datacenter</option>
+            <option value="none" ${proxy.type === 'none' ? 'selected' : ''}>None</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Expected Country Code</label>
+          <input type="text" id="f-proxy-geo" value="${proxy.geo || 'US'}" placeholder="US">
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveClient(${isEdit ? `'${c.clientId}'` : ''})">
+        ${isEdit ? 'Save Changes' : 'Create Client'}
+      </button>
+      <button class="btn btn-ghost" onclick="goBack()">Cancel</button>
+    </div>
+  `;
+}
+
+// ─── Tab switching ───
+function switchTab(el, tabId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.card[id^="tab-"]').forEach(c => c.classList.add('hidden'));
+  document.getElementById(tabId).classList.remove('hidden');
+}
+
+// ─── Actions ───
+async function activateLicense() {
+  const key = document.getElementById('license-key').value.trim();
+  if (!key) return showToast('Enter a license key', 'error');
+  const result = await api('POST', '/license/activate', { licenseKey: key });
+  if (result.valid) {
+    showToast('License activated!');
+    state.status = await api('GET', '/status');
+    updateLicenseBadge();
+    state.currentView = state.status.setupComplete ? 'dashboard' : 'setup';
+    if (state.currentView === 'dashboard') state.clients = await api('GET', '/clients');
+    render();
+  } else {
+    showToast(result.message || 'Invalid license key', 'error');
+  }
+}
+
+async function saveSetup() {
+  const anthropicKey = document.getElementById('anthropic-key').value.trim();
+  if (!anthropicKey) return showToast('Anthropic API key is required', 'error');
+  const openaiKey = document.getElementById('openai-key').value.trim();
+  const anthropicModel = document.getElementById('anthropic-model').value;
+  const openaiModel = document.getElementById('openai-model').value;
+  const aiProvider = document.getElementById('ai-provider').value;
+  if (aiProvider === 'openai' && !openaiKey) return showToast('Add an OpenAI key or switch default provider to Anthropic', 'error');
+  await api('POST', '/setup', { anthropicApiKey: anthropicKey, openaiApiKey: openaiKey, aiProvider, anthropicModel, openaiModel });
+  showToast('Setup complete!');
+  state.status = await api('GET', '/status');
+  state.clients = await api('GET', '/clients');
+  state.currentView = 'dashboard';
+  render();
+}
+
+function newClient() {
+  state.currentView = 'client-new';
+  state.editingClient = null;
+  render();
+}
+
+function editClient(id) {
+  state.editingClient = state.clients.find(c => c.clientId === id);
+  state.currentView = 'client-edit';
+  render();
+}
+
+async function goBack() {
+  state.clients = await api('GET', '/clients');
+  state.currentView = 'dashboard';
+  render();
+}
+
+async function saveClient(existingId) {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) return showToast('Client name required', 'error');
+
+  const body = {
+    name,
+    status: document.getElementById('f-status').value,
+    platforms: {
+      instagram: { handle: document.getElementById('f-ig').value.trim(), enabled: !!document.getElementById('f-ig').value.trim() },
+      tiktok: { handle: document.getElementById('f-tt').value.trim(), enabled: !!document.getElementById('f-tt').value.trim() },
+      x: { handle: document.getElementById('f-x').value.trim(), enabled: !!document.getElementById('f-x').value.trim() },
+      whatsapp: {
+        numbers: document.getElementById('f-wa').value.trim() ? [{ number: document.getElementById('f-wa').value.trim(), label: 'Main' }] : [],
+        enabled: !!document.getElementById('f-wa').value.trim(),
+      },
+    },
+    proxy: {
+      url: document.getElementById('f-proxy')?.value.trim() || '',
+      type: document.getElementById('f-proxy-type')?.value || 'residential',
+      geo: document.getElementById('f-proxy-geo')?.value.trim() || document.getElementById('f-geo')?.value.trim() || 'US',
+    },
+    brandVoice: {
+      personality: document.getElementById('f-personality')?.value.trim() || '',
+      tone: document.getElementById('f-tone')?.value.trim() || '',
+      emojiMax: parseInt(document.getElementById('f-emoji')?.value) || 2,
+      languages: (document.getElementById('f-langs')?.value || 'English').split(',').map(s => s.trim()),
+      neverSay: (document.getElementById('f-never')?.value || '').split('\n').filter(Boolean),
+    },
+  };
+
+  let result;
+  if (existingId) {
+    result = await api('PUT', `/clients/${existingId}`, body);
+  } else {
+    result = await api('POST', '/clients', body);
+  }
+
+  if (result.error) {
+    showToast(result.error, 'error');
+  } else {
+    showToast(existingId ? 'Client updated' : 'Client created');
+    await goBack();
+  }
+}
+
+async function deleteClient(id, name) {
+  if (!confirm(`Delete "${name}" and all their data? This cannot be undone.`)) return;
+  await api('DELETE', `/clients/${id}`);
+  showToast(`${name} deleted`);
+  state.clients = await api('GET', '/clients');
+  render();
+}
+
+// ─── Command definitions ───
+const COMMANDS = [
+  { id: 'check-all',      icon: '⚡', label: 'Check All Platforms',   desc: 'Instagram, TikTok, X & WhatsApp in one session' },
+  { id: 'reply-instagram',icon: '📸', label: 'Reply — Instagram',      desc: 'Comments and DMs only' },
+  { id: 'reply-tiktok',   icon: '🎵', label: 'Reply — TikTok',         desc: 'Comments on recent videos' },
+  { id: 'reply-x',        icon: '𝕏',  label: 'Reply — X / Twitter',    desc: 'Mentions and DMs' },
+  { id: 'check-whatsapp', icon: '💬', label: 'WhatsApp Inbox',          desc: 'Categorise and reply to unread messages' },
+  { id: 'outreach',       icon: '🎯', label: 'Competitor Outreach',     desc: 'Scrape, score, and engage competitor audience' },
+  { id: 'ambassador',     icon: '🤝', label: 'Ambassador Session',      desc: 'Adapt briefs, schedule posts, cross-engage' },
+];
+
+// ─── Command picker ───
+let _cmdClientId = null;
+function openCmdPicker(clientId, clientName) {
+  _cmdClientId = clientId;
+  document.getElementById('cmd-list').innerHTML = COMMANDS.map(c => `
+    <button class="cmd-item" onclick="runClient('${clientId}', '${c.id}', '${c.label}')">
+      <span class="cmd-item-icon">${c.icon}</span>
+      <div class="cmd-item-text"><strong>${c.label}</strong><span>${c.desc}</span></div>
+    </button>`).join('');
+  document.getElementById('cmd-overlay').classList.remove('hidden');
+}
+function closeCmdPicker() {
+  document.getElementById('cmd-overlay').classList.add('hidden');
+}
+
+// ─── Run panel ───
+let _currentRunId = null;
+let _currentRunClientId = null;
+
+function openRunPanel(label) {
+  document.getElementById('run-overlay').classList.remove('hidden');
+  document.getElementById('run-title').textContent = label;
+  document.getElementById('run-terminal').innerHTML = '';
+  document.getElementById('run-spinner').style.display = 'block';
+  document.getElementById('run-stop-btn').style.display = 'inline-flex';
+  document.getElementById('run-watch-btn').style.display = 'inline-flex';
+  document.getElementById('run-watch-btn').textContent = '👁 Watch Live';
+  document.getElementById('run-vnc').style.display = 'none';
+  document.getElementById('vnc-frame').src = '';
+  _vncOpen = false;
+}
+function closeRunPanel() {
+  document.getElementById('run-overlay').classList.add('hidden');
+  document.getElementById('vnc-frame').src = '';
+  document.getElementById('run-vnc').style.display = 'none';
+  _currentRunId = null;
+}
+
+let _vncOpen = false;
+function toggleVnc() {
+  const pane = document.getElementById('run-vnc');
+  const frame = document.getElementById('vnc-frame');
+  _vncOpen = !_vncOpen;
+  if (_vncOpen) {
+    pane.style.display = 'block';
+    if (!frame.src || frame.src === window.location.href) {
+      frame.src = '/vnc/vnc.html?autoconnect=1&reconnect=1&resize=scale&show_dot=1';
+    }
+    document.getElementById('run-watch-btn').textContent = '👁 Hide Live';
+  } else {
+    pane.style.display = 'none';
+    document.getElementById('run-watch-btn').textContent = '👁 Watch Live';
+  }
+}
+function appendTerminal(text, cls) {
+  const el = document.getElementById('run-terminal');
+  const span = document.createElement('span');
+  span.className = cls || 't-output';
+  span.textContent = text;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function stopRun() {
+  if (!_currentRunId || !_currentRunClientId) return;
+  await api('POST', `/clients/${_currentRunClientId}/run/stop`, { runId: _currentRunId });
+  appendTerminal('\n[Session stopped by user]\n', 't-error');
+  document.getElementById('run-spinner').style.display = 'none';
+  document.getElementById('run-stop-btn').style.display = 'none';
+  _currentRunId = null;
+}
+
+// ─── Main run function — streams SSE output ───
+async function runClient(clientId, command, label) {
+  closeCmdPicker();
+  openRunPanel(`${label || command} — running`);
+  _currentRunClientId = clientId;
+
+  appendTerminal(`> Starting: ${label || command}\n`, 't-meta');
+
+  let response;
+  try {
+    response = await fetch(`/api/clients/${clientId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    });
+  } catch (err) {
+    appendTerminal(`\n[Network error: ${err.message}]\n`, 't-error');
+    document.getElementById('run-spinner').style.display = 'none';
+    return;
+  }
+
+  // Handle non-SSE error responses (e.g. 400, 403)
+  if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+    const data = await response.json();
+    appendTerminal(`\n[Error: ${data.error || 'Unknown error'}]\n`, 't-error');
+    document.getElementById('run-spinner').style.display = 'none';
+    document.getElementById('run-stop-btn').style.display = 'none';
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    let chunk;
+    try { chunk = await reader.read(); } catch { break; }
+    if (chunk.done) break;
+
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      let event;
+      try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+      if (event.type === 'output')   appendTerminal(event.text, 't-output');
+      if (event.type === 'progress') appendTerminal(event.text, 't-progress');
+      if (event.type === 'error')    appendTerminal(event.text, 't-error');
+      if (event.type === 'start') {
+        _currentRunId = event.runId;
+        appendTerminal(`[Run ID: ${event.runId}]\n`, 't-meta');
+      }
+      if (event.type === 'done') {
+        _currentRunId = null;
+        document.getElementById('run-spinner').style.display = 'none';
+        document.getElementById('run-stop-btn').style.display = 'none';
+        document.getElementById('run-title').textContent = `${label || command} — ${event.status || (event.code === 0 ? 'completed' : 'failed')}`;
+        appendTerminal(
+          event.code === 0 ? `\n✓ Session completed successfully\n` : `\n✗ Session ended with errors (code ${event.code})\n`,
+          event.code === 0 ? 't-done-ok' : 't-done-fail'
+        );
+        // Refresh client list to update last-activity
+        state.clients = await api('GET', '/clients');
+      }
+    }
+  }
+}
+
+// Close overlays on backdrop click
+document.getElementById('cmd-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeCmdPicker(); });
+document.getElementById('run-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeRunPanel(); });
+
+// ─── Boot ───
+init();
+</script>
+</body>
+</html>

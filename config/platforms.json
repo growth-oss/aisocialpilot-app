@@ -1,0 +1,32 @@
+{
+  "instagram": {
+    "handle": "@yourbrand",
+    "enabled": true,
+    "session_dir": "./browser-sessions/instagram",
+    "url": "https://instagram.com"
+  },
+  "tiktok": {
+    "handle": "@yourbrand",
+    "enabled": true,
+    "session_dir": "./browser-sessions/tiktok",
+    "url": "https://tiktok.com"
+  },
+  "x": {
+    "handle": "@yourbrand",
+    "enabled": true,
+    "session_dir": "./browser-sessions/x-twitter",
+    "url": "https://x.com",
+    "mentions_url": "https://x.com/notifications/mentions"
+  },
+  "whatsapp": {
+    "enabled": true,
+    "url": "https://web.whatsapp.com",
+    "numbers": [
+      {
+        "label": "Main",
+        "number": "+1234567890",
+        "session_dir": "./browser-sessions/whatsapp-main"
+      }
+    ]
+  }
+}
