@@ -13,10 +13,11 @@ if (!url || !userDataDir) {
   process.exit(1);
 }
 
-// Remove stale Chromium lock files left by a previous crashed session
+// Remove stale Chromium lock files — use unlinkSync directly because
+// SingletonLock is a symlink and fs.existsSync returns false for broken symlinks
 ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
-  const p = path.join(userDataDir, f);
-  if (fs.existsSync(p)) { fs.unlinkSync(p); console.log(`✦ Removed stale ${f}`); }
+  try { fs.unlinkSync(path.join(userDataDir, f)); console.log(`✦ Removed stale ${f}`); }
+  catch (e) { if (e.code !== 'ENOENT') console.log(`✦ Note: could not remove ${f}: ${e.code}`); }
 });
 
 (async () => {
