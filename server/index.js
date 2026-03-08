@@ -362,41 +362,45 @@ Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
 `;
   const commands = {
     'check-all': ctx + `Check ALL enabled platforms for new activity. Order: Instagram → TikTok → X → WhatsApp.
+IMPORTANT: You are running autonomously — do not ask for approval, post replies directly.
 For each platform:
 1. Open it and check for new comments, mentions, and DMs since last session
-2. Draft replies following the brand voice — never send identical replies
-3. Check escalation-rules.md — flag anything that needs human review
-4. Present ALL drafts to the user before posting anything
-5. Log every action
+2. Draft and POST replies following the brand voice — never send identical replies
+3. Check escalation-rules.md — flag only genuine escalations (complaints, legal threats)
+4. Log every action
 Finish with a summary: how many items found, replied, escalated, skipped.`,
 
     'reply-instagram': ctx + `Check Instagram for new activity.
+IMPORTANT: You are running autonomously — draft replies and post them directly, do not wait for approval.
 1. Open https://instagram.com — verify you are logged in as ${clientConfig.platforms?.instagram?.handle || 'the brand account'}
 2. Check all recent posts for new comments (last 24h)
 3. Check DM inbox for unread messages
-4. Draft replies in the brand voice per reply-templates.md
-5. Show ALL drafts before posting. Do not post without approval.`,
+4. For each comment/DM: draft a reply in the brand voice per reply-templates.md, then post it immediately
+5. Log all actions. Output a summary of what was replied to.`,
 
     'reply-tiktok': ctx + `Check TikTok for new activity.
+IMPORTANT: You are running autonomously — draft replies and post them directly, do not wait for approval.
 1. Open https://tiktok.com — verify login as ${clientConfig.platforms?.tiktok?.handle || 'the brand account'}
 2. Check recent videos for new comments
-3. Draft replies — keep under 150 characters, punchy and natural
-4. Show all drafts before posting.`,
+3. For each unanswered comment: draft a reply (under 150 characters, punchy and natural), then post it immediately
+4. Log all actions. Output a summary of what was replied to.`,
 
     'reply-x': ctx + `Check X (Twitter) for new activity.
+IMPORTANT: You are running autonomously — draft replies and post them directly, do not wait for approval.
 1. Open https://x.com — verify login as ${clientConfig.platforms?.x?.handle || 'the brand account'}
 2. Check mentions and DMs
-3. Draft replies — concise, brand voice, no hashtags in replies
-4. Show all drafts before posting.`,
+3. For each new mention/DM: draft a reply in brand voice (concise, no hashtags), then post it immediately
+4. Log all actions. Output a summary of what was replied to.`,
 
     'check-whatsapp': ctx + `Check WhatsApp inbox.
+IMPORTANT: You are running autonomously — draft replies and send them directly, do not wait for approval.
 1. Open https://web.whatsapp.com
 2. Identify all unread conversations
 3. Categorise each: complaint / booking / product_question / support / general
 4. Process in order: complaints → bookings → product questions → general
-5. Flag voice notes and images — cannot process these, mark for manual review
-6. Star conversations from: bulk orders, complaints, VIPs
-7. Draft replies and show ALL of them before sending anything.`,
+5. Flag voice notes and images — mark for manual review, skip them
+6. For each text message: draft and send a reply in brand voice immediately
+7. Log all actions. Output a summary.`,
 
     'outreach': ctx + `Run competitor audience outreach.
 1. Read competitors.json and outreach-rules.json
@@ -496,6 +500,8 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
     `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
+    // Clear Claude Code session history so each run starts fresh (not continuing previous conversation)
+    `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
     `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
   ].join('\n') + '\n', { mode: 0o755 });
