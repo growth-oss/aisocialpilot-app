@@ -35,12 +35,19 @@ else
 fi
 echo "  ✦ noVNC proxy started on :6080"
 
-# Pre-initialize Claude Code config so first-run wizard doesn't block in non-interactive mode
+# Pre-initialize Claude Code config — always overwrite to ensure correct bypass settings
 mkdir -p /root/.claude
-if [ ! -f /root/.claude/settings.json ]; then
-  echo '{"autoUpdaterStatus":"disabled","hasCompletedOnboarding":true,"bypassPermissionsModeAccepted":true}' > /root/.claude/settings.json
-  echo "  ✦ Claude Code config initialised"
-fi
+cat > /root/.claude/settings.json << 'SETTINGS_EOF'
+{
+  "autoUpdaterStatus": "disabled",
+  "hasCompletedOnboarding": true,
+  "bypassPermissionsModeAccepted": true,
+  "dangerouslySkipPermissionsAcknowledged": true,
+  "skipPermissionsConfirmed": true,
+  "permissionMode": "bypassPermissions"
+}
+SETTINGS_EOF
+echo "  ✦ Claude Code config initialised"
 
 # Start the Express admin server
 exec node server/index.js

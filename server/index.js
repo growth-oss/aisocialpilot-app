@@ -616,6 +616,36 @@ app.get('*', (req, res) => {
   res.sendFile(indexFile);
 });
 
+// ─── Debug: test claude CLI in the actual container environment ───
+app.get('/api/debug-claude', (req, res) => {
+  const config = loadConfig();
+  const results = {};
+
+  // 1. Check binary
+  try { results.which = execSync('which claude', { encoding: 'utf8' }).trim(); } catch (e) { results.which = `ERR: ${e.message}`; }
+  try { results.version = execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { results.version = `ERR: ${e.message}`; }
+
+  // 2. Check settings file
+  try { results.settings = JSON.parse(fs.readFileSync('/root/.claude/settings.json', 'utf8')); } catch (e) { results.settings = `ERR: ${e.message}`; }
+
+  // 3. Check API key present
+  results.apiKeyPresent = !!(config.anthropicApiKey);
+  results.apiKeyPrefix = config.anthropicApiKey ? config.anthropicApiKey.substring(0, 10) + '...' : 'MISSING';
+
+  // 4. Run a minimal test via shell (captures both stdout and stderr)
+  try {
+    const out = execSync(
+      `echo "Say the word HELLO and nothing else." | timeout 30 claude --print --dangerously-skip-permissions 2>&1`,
+      { encoding: 'utf8', timeout: 35000, env: { ...process.env, ANTHROPIC_API_KEY: config.anthropicApiKey, HOME: '/root', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } }
+    );
+    results.testRun = { success: true, output: out.substring(0, 500) };
+  } catch (e) {
+    results.testRun = { success: false, code: e.status, signal: e.signal, output: (e.stdout || '') + (e.stderr || '') + e.message };
+  }
+
+  res.json(results);
+});
+
 // ─── Start server ───
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
