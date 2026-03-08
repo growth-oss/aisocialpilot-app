@@ -473,26 +473,34 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const claudeVersion = (() => { try { return execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { return `error: ${e.message}`; } })();
   send('output', { text: `> claude: ${claudePath} (${claudeVersion})\n` });
 
+  // Write prompt to a temp file so it doesn't need to be passed through a shell command line
+  const tmpPromptFile = `/tmp/claude-prompt-${runId}.txt`;
+  fs.writeFileSync(tmpPromptFile, prompt, { mode: 0o644 });
+
+  // Write a shell script that exports all env vars and runs claude as claude_runner.
+  // This mirrors exactly what /api/debug-claude confirmed works.
+  const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`; // single-quote shell escape
+  const tmpScript = `/tmp/claude-run-${runId}.sh`;
+  fs.writeFileSync(tmpScript, [
+    '#!/bin/bash',
+    `export ANTHROPIC_API_KEY=${se(env.ANTHROPIC_API_KEY)}`,
+    `export ANTHROPIC_MODEL=${se(env.ANTHROPIC_MODEL)}`,
+    `export HOME=/home/claude_runner`,
+    `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
+    `export DISPLAY=${se(env.DISPLAY || ':99')}`,
+    `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
+    `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
+    `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
+    `cd ${se(clientDir)}`,
+    `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
+  ].join('\n') + '\n', { mode: 0o755 });
+
   let proc;
   try {
-    // Claude Code 2.x blocks --dangerously-skip-permissions when running as root.
-    // Spawn as claude_runner (non-root) instead. Look up uid/gid at runtime.
-    let claudeUid, claudeGid;
-    try {
-      claudeUid = parseInt(execSync('id -u claude_runner', { encoding: 'utf8' }).trim(), 10);
-      claudeGid = parseInt(execSync('id -g claude_runner', { encoding: 'utf8' }).trim(), 10);
-    } catch (e) {
-      send('output', { text: `⚠ claude_runner user not found: ${e.message}\n` });
-    }
-    proc = spawn('claude', ['--print', '--dangerously-skip-permissions'], {
-      cwd: clientDir,
-      env: { ...env, HOME: '/home/claude_runner' },
-      ...(claudeUid != null ? { uid: claudeUid, gid: claudeGid } : {}),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
+    // Run the script as claude_runner via su (non-root — required by Claude Code 2.x)
+    proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    proc.stdin.write(prompt);
-    proc.stdin.end();
   } catch (err) {
     send('error', { text: `Failed to start Claude CLI: ${err.message}\nEnsure the container has claude installed.` });
     send('done', { code: 1, runId });
@@ -507,6 +515,10 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   proc.on('error', err => send('error', { text: `Process error: ${err.message}` }));
 
   proc.on('close', (code, signal) => {
+    // Clean up temp files
+    try { fs.unlinkSync(tmpPromptFile); } catch {}
+    try { fs.unlinkSync(tmpScript); } catch {}
+
     runningProcesses.delete(runId);
     const completedAt = new Date().toISOString();
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
