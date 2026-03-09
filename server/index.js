@@ -416,6 +416,51 @@ IMPORTANT: You are running autonomously — draft replies and send them directly
 
     'leadgen': buildLeadGenPrompt(clientConfig, DATA_DIR),
 
+    'leadgen-report': (() => {
+      const lgDir  = path.join(CLIENTS_DIR, clientConfig.clientId, 'leadgen');
+      const leads  = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir, 'leads.json'), 'utf8')); } catch { return []; } })();
+      const active = leads.filter(l => !l.is_do_not_engage);
+      const STAGE_LABELS = ['Discovered','Story Viewed','Liked','Followed','Commented','Replied Q','DM Sent'];
+      const byStage = STAGE_LABELS.map((label, i) => `  Stage ${i} (${label}): ${active.filter(l => l.engagement_stage === i).length}`).join('\n');
+      const hotLeads = active.filter(l => l.total_score >= 60 && !l.is_converted)
+        .sort((a,b) => b.total_score - a.total_score)
+        .slice(0, 10)
+        .map(l => `  @${l.username} (${l.platform}) score=${l.total_score} stage=${l.engagement_stage} followers=${l.follower_count}`)
+        .join('\n');
+      return `Generate a pipeline health report for "${clientConfig.name}" lead gen system.
+Do NOT open any browser. Read only from the data below.
+
+PIPELINE SNAPSHOT:
+Total leads: ${active.length}
+Converted: ${leads.filter(l=>l.is_converted).length}
+DND / removed: ${leads.filter(l=>l.is_do_not_engage).length}
+DM Pivots attempted: ${leads.filter(l=>l.dm_pivot_attempted).length}
+Coupons sent: ${leads.filter(l=>l.coupon_referenced).length}
+Influencers: ${active.filter(l=>l.is_influencer).length}
+
+BY STAGE:
+${byStage}
+
+TOP HOT LEADS (score ≥ 60, not yet converted):
+${hotLeads || '  None yet.'}
+
+RECENT ACTIONS (last 10 log entries):
+${(() => { try {
+  return fs.readFileSync(path.join(lgDir, 'outreach-log.ndjson'), 'utf8')
+    .split('\n').filter(Boolean).slice(-10).reverse()
+    .map(l => { try { const r = JSON.parse(l); return `  ${r.timestamp?.slice(0,16)} @${r.username} ${r.action_type} (${r.platform}) ${r.success ? '✓' : '✗'}`; } catch { return ''; } })
+    .filter(Boolean).join('\n');
+} catch { return '  No actions logged yet.'; } })()}
+
+YOUR TASK:
+1. Print a clean, readable pipeline summary with the above data
+2. Highlight leads that are ready for the next stage (e.g., followers who need a DM, DMs that could get a coupon)
+3. Calculate conversion rate: ${leads.filter(l=>l.is_converted).length} / ${active.length} = ${active.length ? ((leads.filter(l=>l.is_converted).length / active.length) * 100).toFixed(1) : 0}%
+4. Flag any leads stuck in stage 3 (followed, waiting for follow-back) for more than 3 days
+5. Suggest 2-3 specific next actions to improve conversion
+6. Estimate how many DMs are ready to send based on pipeline data`;
+    })(),
+
     'ambassador': ctx + `Run ambassador network session.
 1. Read ambassadors.json, ambassador-content.json, ambassador-rules.json
 2. Find briefs with status = "approved" in ambassador-content.json
@@ -596,6 +641,7 @@ const SCHEDULE_COMMAND_MAP = {
   tiktok:    'reply-tiktok',
   x:         'reply-x',
   whatsapp:  'check-whatsapp',
+  leadgen:   'leadgen',
 };
 
 // Tracks already-triggered scheduled runs: "clientId:command:YYYY-MM-DD:HH:MM"
@@ -626,6 +672,15 @@ setInterval(() => {
       if (!Array.isArray(times) || times.length === 0) continue;
       const command = SCHEDULE_COMMAND_MAP[platform];
       if (!command) continue;
+
+      // Lead gen: honour days-of-week filter (client.leadgenSchedule.days, 0=Sun…6=Sat)
+      if (platform === 'leadgen') {
+        const allowedDays = client.leadgenSchedule?.days;
+        if (Array.isArray(allowedDays) && allowedDays.length > 0) {
+          const todayDow = now.getUTCDay();
+          if (!allowedDays.includes(todayDow)) continue;
+        }
+      }
 
       for (const hhmm of times) {
         if (hhmm !== currentHHMM) continue;
@@ -988,6 +1043,33 @@ app.delete('/api/clients/:id/leadgen/leads/:leadId', requireLicense, (req, res) 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/clients/:id/leadgen/next-run — next scheduled lead gen UTC time
+app.get('/api/clients/:id/leadgen/next-run', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const cfg   = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8'));
+  const times = cfg.schedule?.leadgen;
+  if (!Array.isArray(times) || !times.length) return res.json({ nextRun: null, times: [] });
+
+  const now  = new Date();
+  const cur  = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const parsed = times.map(t => {
+    const [h, m] = t.split(':').map(Number);
+    return { hhmm: t, minutes: h * 60 + m };
+  }).filter(x => !isNaN(x.minutes)).sort((a, b) => a.minutes - b.minutes);
+
+  const upcoming = parsed.find(t => t.minutes > cur);
+  const nextRun  = upcoming ? upcoming.hhmm + ' UTC' : (parsed[0]?.hhmm + ' UTC (+1d)');
+
+  // Days filter
+  const days = cfg.leadgenSchedule?.days;
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const daysLabel = Array.isArray(days) && days.length ? days.map(d => DAY_NAMES[d]).join(', ') : 'every day';
+
+  res.json({ nextRun, times, daysLabel, enabled: true });
 });
 
 // GET /api/clients/:id/leadgen/log?limit=&offset=

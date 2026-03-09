@@ -1219,6 +1219,33 @@ function renderClientForm(client) {
           <button class="btn btn-primary" onclick="saveLeadGenConfig('${c.clientId}')">Save Config</button>
         </div>
         <div id="lg-cfg-status" style="margin-top:10px;font-size:13px;"></div>
+
+        <div style="border-top:1px solid var(--border);margin-top:24px;padding-top:20px">
+          <div class="card-title" style="margin-bottom:6px">Automated Schedule</div>
+          <div class="card-desc" style="margin-bottom:14px">Run Lead Gen automatically at a fixed UTC time. Respects cooldowns — will not double-fire if a run is already active.</div>
+          <div class="field-row" style="align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:120px">
+              <label>Run time (UTC)</label>
+              <input type="time" id="lg-schedule-time" style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;width:100%">
+            </div>
+            <div class="field" style="flex:2;min-width:200px">
+              <label>Days of week</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d,i) =>
+                  `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+                    <input type="checkbox" class="lg-day-cb" value="${i}" style="accent-color:var(--accent)"> ${d}
+                  </label>`
+                ).join('')}
+              </div>
+            </div>
+          </div>
+          <div id="lg-next-run" style="font-size:12px;color:var(--text-dim);margin-top:8px;margin-bottom:12px"></div>
+          <div class="btn-row" style="margin-bottom:0">
+            <button class="btn btn-ghost" onclick="saveLeadGenSchedule('${c.clientId}')">Save Schedule</button>
+            <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="clearLeadGenSchedule('${c.clientId}')">Disable Schedule</button>
+          </div>
+          <div id="lg-schedule-status" style="margin-top:10px;font-size:13px;"></div>
+        </div>
       </div>
 
       <!-- Sources -->
@@ -1531,6 +1558,7 @@ const COMMANDS = [
   { id: 'reply-x',        icon: '𝕏',  label: 'Reply — X / Twitter',    desc: 'Mentions and DMs' },
   { id: 'check-whatsapp', icon: '💬', label: 'WhatsApp Inbox',          desc: 'Categorise and reply to unread messages' },
   { id: 'leadgen',        icon: '🚀', label: 'Lead Gen — Scrape & Engage', desc: 'Mine competitors/hashtags → score → 6-step ladder' },
+  { id: 'leadgen-report', icon: '📊', label: 'Lead Gen — Pipeline Report',  desc: 'Health check: stage breakdown, hot leads, next actions' },
   { id: 'outreach',       icon: '🎯', label: 'Competitor Outreach',     desc: 'Legacy: uses competitors.json + outreach-rules.json' },
   { id: 'ambassador',     icon: '🤝', label: 'Ambassador Session',      desc: 'Adapt briefs, schedule posts, cross-engage' },
 ];
@@ -1693,6 +1721,7 @@ async function loadLeadGenTab(clientId) {
     renderLeadStats(clientId),
     renderLeadTable(clientId),
     loadLeadGenConfigFields(clientId),
+    loadLeadGenScheduleFields(clientId),
   ]);
 }
 
@@ -1885,6 +1914,69 @@ function fmtNum(n) {
   if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
   if (n >= 1000) return (n/1000).toFixed(1) + 'K';
   return n;
+}
+
+async function loadLeadGenScheduleFields(clientId) {
+  try {
+    const d = await api('GET', `/clients/${clientId}/leadgen/next-run`);
+    const timeEl = document.getElementById('lg-schedule-time');
+    const nextEl = document.getElementById('lg-next-run');
+    if (timeEl && d.times?.length) timeEl.value = d.times[0];
+    // Check day checkboxes
+    document.querySelectorAll('.lg-day-cb').forEach(cb => {
+      cb.checked = !d.daysLabel || d.daysLabel === 'every day'
+        ? true
+        : (d.times?.length && d.daysLabel?.includes(cb.parentElement?.textContent?.trim()));
+    });
+    if (nextEl) {
+      nextEl.textContent = d.nextRun
+        ? `Next run: ${d.nextRun} · ${d.daysLabel}`
+        : 'No schedule set — runs are manual only.';
+    }
+  } catch {}
+}
+
+async function saveLeadGenSchedule(clientId) {
+  const st  = document.getElementById('lg-schedule-status');
+  const t   = document.getElementById('lg-schedule-time')?.value;
+  if (!t) { if (st) { st.textContent = 'Set a run time first'; st.style.color = 'var(--amber)'; } return; }
+
+  const days = [...document.querySelectorAll('.lg-day-cb:checked')].map(cb => parseInt(cb.value));
+
+  // Save to client config via PUT /api/clients/:id
+  const existing = state.clients.find(c => c.clientId === clientId) || {};
+  const body = {
+    ...existing,
+    schedule: { ...(existing.schedule || {}), leadgen: [t] },
+    leadgenSchedule: { days },
+  };
+  try {
+    await api('PUT', `/clients/${clientId}`, body);
+    // Refresh clients list
+    state.clients = await api('GET', '/clients');
+    if (st) { st.textContent = `✓ Saved — next run ${t} UTC on ${days.length === 7 || !days.length ? 'every day' : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].filter((_,i) => days.includes(i)).join(', ')}`; st.style.color = 'var(--green)'; }
+    loadLeadGenScheduleFields(clientId);
+  } catch (err) {
+    if (st) { st.textContent = '✗ ' + err.message; st.style.color = 'var(--red)'; }
+  }
+}
+
+async function clearLeadGenSchedule(clientId) {
+  const st = document.getElementById('lg-schedule-status');
+  const existing = state.clients.find(c => c.clientId === clientId) || {};
+  const schedule = { ...(existing.schedule || {}) };
+  delete schedule.leadgen;
+  try {
+    await api('PUT', `/clients/${clientId}`, { ...existing, schedule, leadgenSchedule: { days: [] } });
+    state.clients = await api('GET', '/clients');
+    if (st) { st.textContent = '✓ Schedule cleared — lead gen is manual only'; st.style.color = 'var(--text-dim)'; }
+    const timeEl = document.getElementById('lg-schedule-time');
+    const nextEl = document.getElementById('lg-next-run');
+    if (timeEl) timeEl.value = '';
+    if (nextEl) nextEl.textContent = 'No schedule set — runs are manual only.';
+  } catch (err) {
+    if (st) { st.textContent = '✗ ' + err.message; st.style.color = 'var(--red)'; }
+  }
 }
 
 // ─── Boot ───
