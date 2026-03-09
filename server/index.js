@@ -1013,6 +1013,37 @@ ${wrapperNote}
 [INTEL_DATA_END]`;
   }
 
+  if (command === 'competitor-hunt') {
+    // Targeted audience hunt for a single competitor — results go straight to leads.json
+    const { buildLeadGenPrompt } = require('./leadgen/prompt');
+    const clientConfig2 = JSON.parse(fs.readFileSync(path.join(CLIENTS_DIR, clientId, 'config.json'), 'utf8'));
+    const basePrompt = buildLeadGenPrompt(clientConfig2, DATA_DIR);
+
+    const name      = params.name      || 'Competitor';
+    const instagram = params.instagram || '';
+    const tiktok    = params.tiktok    || '';
+    const x         = params.x         || '';
+
+    const sources = [
+      instagram ? `- [instagram] competitor: ${instagram}` : '',
+      tiktok    ? `- [tiktok]    competitor: ${tiktok}` : '',
+      x         ? `- [x]         competitor: ${x}` : '',
+    ].filter(Boolean).join('\n') || `(no social handles configured for ${name})`;
+
+    // Inject a focused override at the start — overrides the HOT SOURCES section
+    return `${basePrompt}
+
+━━━ HUNT OVERRIDE ━━━
+This is a TARGETED hunt for ONE competitor: ${name}
+IGNORE all other sources from the HOT SOURCES section above.
+ONLY scrape audience from these accounts for this run:
+${sources}
+
+For each discovered user: set source_handle = "${instagram || tiktok || x || name}" in leads.json.
+After scraping, work PHASE B pipeline steps for any existing leads from this competitor (source_handle matches).
+Do NOT touch leads from other sources in this run.`;
+  }
+
   // Fallback
   return `Research intelligence for: ${command}\nParams: ${JSON.stringify(params)}\n${wrapperNote}`;
 }
@@ -2126,12 +2157,13 @@ function intelJobFinish(job) {
   }
 }
 
-const INTEL_COMMANDS = new Set(['products-scrape','competitor-research','sources-discover','keywords-research']);
+const INTEL_COMMANDS = new Set(['products-scrape','competitor-research','sources-discover','keywords-research','competitor-hunt']);
 const INTEL_LABELS = {
   'products-scrape':    'Products Scrape',
   'competitor-research':'Competitor Research',
   'sources-discover':   'Hot Sources Discovery',
   'keywords-research':  'Keywords Research',
+  'competitor-hunt':    'Audience Hunt',
 };
 
 // POST /api/clients/:id/intel/run  — start a background research job, stream via SSE
@@ -2166,7 +2198,19 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
       (runId, code, signal, startedAt, status) => {
         if (!job) return;
         let extracted = false, extractedSection = null, extractedCount = 0;
-        if (status === 'completed' || code === 0) {
+        if (command === 'competitor-hunt') {
+          // Hunt writes directly to leads.json — count new leads as extracted count
+          if (status === 'completed' || code === 0) {
+            try {
+              const lgDb = require('./leadgen/db');
+              const cDir = path.join(CLIENTS_DIR, req.params.id);
+              const leads = lgDb.getLeads(cDir, {});
+              extractedCount = leads.length;
+              extracted = true;
+              extractedSection = 'leads';
+            } catch {}
+          }
+        } else if (status === 'completed' || code === 0) {
           const parsed = parseIntelData(job.accOutput);
           if (parsed) {
             try {

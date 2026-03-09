@@ -2303,7 +2303,8 @@ function renderIntelCompetitors() {
         ${badgeHtml}
         <div class="comp-card-actions" onclick="event.stopPropagation()">
           <button class="btn btn-sm btn-ghost" style="color:#f59e0b;border-color:#f59e0b33" onclick="toggleCompCard(${i})" title="Expand to run AI Research">⚡ Research</button>
-          <button class="btn btn-sm btn-primary" onclick="openC360(${i})">🎯 360°</button>
+          <button class="btn btn-sm btn-ghost" style="color:#22c55e;border-color:#22c55e33" onclick="runCompHunt(${i})" id="hunt-btn-${i}" title="Scrape this competitor's audience and add to Lead Gen pipeline">🎯 Hunt</button>
+          <button class="btn btn-sm btn-primary" onclick="openC360(${i})">360°</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})">✕</button>
         </div>
@@ -2722,6 +2723,105 @@ async function runCompResearch(i) {
     showToast('Research error: ' + err.message, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '⚡ Run AI Research'; }
+  }
+}
+
+async function runCompHunt(i) {
+  const comp = window._intel.competitors[i];
+  if (!comp) return;
+  const clientId = window._intel.clientId;
+  const params = {
+    name:      comp.name,
+    instagram: comp.instagram || '',
+    tiktok:    comp.tiktok    || '',
+    x:         comp.x         || '',
+  };
+  if (!params.instagram && !params.tiktok && !params.x) {
+    showToast('Add at least one social handle to this competitor before hunting', 'error'); return;
+  }
+  const btn = document.getElementById(`hunt-btn-${i}`);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Hunting...'; }
+
+  // Expand the card so the terminal is visible
+  const body = document.getElementById(`comp-body-${i}`);
+  if (body && body.style.display === 'none') toggleCompCard(i);
+
+  let buffer = '', runId = null, termEl = null;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/intel/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'competitor-hunt', params }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      showToast(err.error || 'Hunt failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 Hunt'; }
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'start') {
+            runId = ev.runId;
+            const container = document.getElementById(`comp-jobs-${i}`);
+            if (container) {
+              container.innerHTML = `<div id="intel-job-${runId}" style="border-top:1px solid var(--border)">
+                <div id="intel-job-hdr-${runId}" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#0d1f13;font-size:12px;">
+                  <span style="color:#22c55e;font-size:14px">⏳</span>
+                  <span style="font-weight:600;color:var(--text);flex:1">🎯 Hunting ${params.name} audience</span>
+                  <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums;color:#22c55e;font-weight:600">${intelElapsed(ev.startedAt)}</span>
+                  <span style="color:var(--text-dim);font-size:11px">est. 5-10 min · safe to navigate away</span>
+                  <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('competitor-hunt','${runId}')">Stop</button>
+                </div>
+                <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:200px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
+              </div>`;
+              termEl = document.getElementById(`intel-job-term-${runId}`);
+            }
+            window._intelRuns[runId] = {
+              timer: setInterval(() => {
+                const el = document.getElementById(`intel-job-elapsed-${runId}`);
+                if (el) el.textContent = intelElapsed(ev.startedAt);
+              }, 1000),
+              startedAt: ev.startedAt, command: 'competitor-hunt',
+            };
+          }
+          if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
+            if (ev.text.trim()) { termEl.textContent += ev.text; termEl.scrollTop = termEl.scrollHeight; }
+          }
+          if (ev.type === 'done') {
+            if (runId && window._intelRuns[runId]) clearInterval(window._intelRuns[runId].timer);
+            const hdr = document.getElementById(`intel-job-hdr-${runId}`);
+            if (ev.status === 'cancelled') {
+              if (hdr) hdr.innerHTML = `<span style="color:#ef4444">✗</span> <span style="color:var(--text)">Hunt cancelled</span>`;
+            } else if (ev.code === 0 || ev.extracted) {
+              const count = ev.extractedCount || '?';
+              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Hunt complete — ${count} total leads in pipeline</span>\n`;
+              if (hdr) hdr.innerHTML = `<span style="color:#22c55e;font-size:14px">✓</span> <span style="font-weight:600;color:var(--text);flex:1">Hunt done — leads added to pipeline</span>`;
+              showToast(`✓ ${params.name} hunt complete — check Lead Gen tab`);
+            } else {
+              const msg = `Hunt failed (code ${ev.code ?? 'null'})`;
+              if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+              if (hdr) hdr.innerHTML = `<span style="color:#ef4444">✗</span> <span style="color:var(--text)">${msg}</span>`;
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
+    showToast('Hunt error: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🎯 Hunt'; }
   }
 }
 
