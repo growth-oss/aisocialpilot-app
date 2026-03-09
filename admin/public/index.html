@@ -506,6 +506,35 @@
   .cmd-item-text span { font-size: 11px; color: var(--text-dim); }
   .cmd-cancel { padding: 12px 20px; border-top: 1px solid var(--border); }
 
+  /* ─── Competitor expandable cards ─── */
+  .comp-card { border:1px solid var(--border); border-radius:var(--radius-sm); margin-bottom:8px; overflow:hidden; transition:border-color 0.15s; }
+  .comp-card:hover { border-color:var(--border-focus); }
+  .comp-card.is-expanded { border-color:var(--border-focus); }
+  .comp-card-head { display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; user-select:none; background:var(--bg-input); }
+  .comp-card-head:hover { background:var(--bg-hover); }
+  .comp-card-name { font-size:13px; font-weight:600; min-width:120px; }
+  .comp-card-meta { flex:1; display:flex; align-items:center; gap:12px; font-size:12px; color:var(--text-muted); overflow:hidden; }
+  .comp-card-channels { font-size:16px; letter-spacing:3px; flex-shrink:0; }
+  .comp-card-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .comp-expand-icon { font-size:10px; color:var(--text-dim); transition:transform 0.2s; margin-left:4px; }
+  .comp-card.is-expanded .comp-expand-icon { transform:rotate(180deg); }
+  .comp-weaknesses-strip { padding:4px 14px 6px; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border); background:rgba(239,68,68,0.04); }
+  .comp-expand-body { border-top:1px solid var(--border); background:var(--bg); }
+  .comp-research-mini { padding:14px; border-bottom:1px solid var(--border); }
+  .comp-research-mini-fields { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+  .comp-research-mini-field { display:flex; flex-direction:column; gap:3px; }
+  .comp-research-mini-field label { font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
+  .comp-research-mini-field input { background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); padding:5px 8px; font-size:12px; color:var(--text); }
+  .comp-research-mini-field input:focus { outline:none; border-color:var(--border-focus); }
+  .comp-intel-preview { padding:12px 14px; }
+  .comp-intel-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }
+  .comp-intel-chip { font-size:10px; padding:2px 7px; border-radius:10px; background:var(--bg-input); border:1px solid var(--border); color:var(--text-dim); }
+  .comp-intel-chip.hot { border-color:rgba(239,68,68,0.4); color:#ef4444; background:rgba(239,68,68,0.06); }
+  .comp-intel-chip.hash { border-color:var(--border-focus); color:var(--accent); }
+  .comp-badge-running { color:#f59e0b; font-size:11px; font-weight:600; }
+  .comp-badge-done    { color:#22c55e; font-size:11px; font-weight:600; }
+  .comp-badge-failed  { color:#ef4444; font-size:11px; font-weight:600; }
+
   /* ─── Competitor 360° modal ─── */
   .c360-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 300;
@@ -1667,25 +1696,6 @@ function renderClientForm(client) {
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('competitor')">+ Add Competitor</button>
         </div>
 
-        <!-- AI Research Panel -->
-        <details class="intel-research-panel" id="panel-competitors-ai">
-          <summary>AI Research — crawl a competitor's store, social accounts &amp; review data</summary>
-          <div class="panel-body">
-            <div class="field-row">
-              <div class="field"><label>Competitor Name *</label><input type="text" id="ai-comp-name" placeholder="CompetitorBrand Inc"></div>
-              <div class="field"><label>Store URL</label><input type="text" id="ai-comp-url" placeholder="https://competitor.com"></div>
-            </div>
-            <div class="field-row">
-              <div class="field"><label>Instagram handle</label><input type="text" id="ai-comp-ig" placeholder="@handle"></div>
-              <div class="field"><label>TikTok handle</label><input type="text" id="ai-comp-tt" placeholder="@handle"></div>
-              <div class="field"><label>X / Twitter</label><input type="text" id="ai-comp-x" placeholder="@handle"></div>
-            </div>
-            <div class="btn-row" style="margin-top:12px">
-              <button class="btn btn-sm btn-primary" onclick="runIntelResearch('competitor-research', {name: document.getElementById('ai-comp-name').value, storeUrl: document.getElementById('ai-comp-url').value, instagram: document.getElementById('ai-comp-ig').value, tiktok: document.getElementById('ai-comp-tt').value, x: document.getElementById('ai-comp-x').value})">⚡ Run AI Research</button>
-            </div>
-            <div id="intel-jobs-competitors" style="margin-top:8px"></div>
-          </div>
-        </details>
         <div id="intel-competitor-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
           <div class="field-row">
             <div class="field"><label>Name *</label><input type="text" id="ic-name" placeholder="Competitor Inc"></div>
@@ -1709,7 +1719,7 @@ function renderClientForm(client) {
             <button class="btn btn-sm btn-ghost" onclick="document.getElementById('intel-competitor-form').style.display='none'">Cancel</button>
           </div>
         </div>
-        <div id="intel-competitors-list"></div>
+        <div id="intel-competitors-list" style="margin-top:4px"></div>
       </div>
 
       <!-- Hot Sources -->
@@ -2255,32 +2265,74 @@ function renderIntelCompetitors() {
   if (ce) ce.textContent = comps.length ? `(${comps.length})` : '';
   const le = document.getElementById('intel-competitors-list');
   if (!le) return;
-  if (!comps.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No competitors added yet.</div>`; return; }
-  le.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
-    <thead><tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
-      <th style="text-align:left;padding:6px 0">Name</th>
-      <th style="text-align:left;padding:6px 0">Website</th>
-      <th style="text-align:left;padding:6px 0">Channels</th>
-      <th style="text-align:right;padding:6px 0"></th>
-    </tr></thead><tbody>
-    ${comps.map((comp, i) => `
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:10px 0;font-weight:500">${comp.name}</td>
-        <td style="padding:10px 0">${comp.website ? `<a href="${comp.website}" target="_blank" style="color:var(--accent);font-size:12px">${comp.website.replace(/^https?:\/\//,'').split('/')[0]}</a>` : '—'}</td>
-        <td style="padding:10px 0;font-size:18px;letter-spacing:4px">
-          ${comp.instagram ? '📸' : ''}${comp.tiktok ? '🎵' : ''}${comp.x ? '𝕏' : ''}${comp.facebook ? '📘' : ''}${comp.reddit ? '🤖' : ''}
-        </td>
-        <td style="padding:10px 0;text-align:right;white-space:nowrap">
-          <span id="comp-status-${CSS.escape(comp.name)}" style="margin-right:8px;display:inline-block">${(window._compResearchStatus[comp.name]?.status === 'running') ? '<span style="color:#f59e0b;font-size:11px">⏳ Researching…</span>' : (window._compResearchStatus[comp.name]?.status === 'done') ? '<span style="color:#22c55e;font-size:11px">✓ Researched</span>' : ''}</span>
-          <button class="btn btn-sm btn-primary" onclick="openC360(${i})" style="margin-right:4px">🎯 360° View</button>
-          <button class="btn btn-sm btn-ghost" onclick="prefillCompetitorResearch(${i})" style="margin-right:4px">⚡ Research</button>
+  if (!comps.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No competitors added yet. Click + Add Competitor to start.</div>`; return; }
+  le.innerHTML = comps.map((comp, i) => {
+    const status = window._compResearchStatus[comp.name] || {};
+    let badgeHtml = '';
+    if (status.status === 'running') badgeHtml = `<span class="comp-badge-running" id="comp-badge-${i}">⏳ ${intelElapsed(status.startedAt)}</span>`;
+    else if (status.status === 'done')    badgeHtml = `<span class="comp-badge-done"    id="comp-badge-${i}">✓ Researched</span>`;
+    else if (status.status === 'failed')  badgeHtml = `<span class="comp-badge-failed"  id="comp-badge-${i}">✗ Failed</span>`;
+    else badgeHtml = `<span id="comp-badge-${i}"></span>`;
+
+    const website = comp.website ? `<a href="${comp.website}" target="_blank" style="color:var(--accent)">${comp.website.replace(/^https?:\/\//,'').split('/')[0]}</a>` : '';
+    const channels = `${comp.instagram?'📸':''}${comp.tiktok?'🎵':''}${comp.x?'𝕏':''}${comp.facebook?'📘':''}`;
+
+    const weakStrip = comp.weaknesses?.length
+      ? `<div class="comp-weaknesses-strip">⚠ ${(comp.weaknesses.map(w => typeof w==='object'?w.text:w)).slice(0,3).join(' · ')}${comp.weaknesses.length>3?' …':''}</div>`
+      : '';
+
+    // Intel preview chips
+    const kws = (comp.complaint_keywords||[]).slice(0,5).map(k=>`<span class="comp-intel-chip hot">${typeof k==='string'?k:k.text||k}</span>`).join('');
+    const prods = (comp.top_products||[]).slice(0,3).map(p=>`<span class="comp-intel-chip">${typeof p==='string'?p:p.name||p}</span>`).join('');
+    const tags = (comp.hashtags||[]).slice(0,4).map(h=>`<span class="comp-intel-chip hash">${h}</span>`).join('');
+    const hasIntel = kws||prods||tags||comp.notes;
+    const intelPreview = hasIntel ? `<div class="comp-intel-preview">
+      ${prods ? `<div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Top Products</div><div class="comp-intel-chips">${prods}</div>` : ''}
+      ${kws ? `<div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 4px">🔥 Complaint Keywords</div><div class="comp-intel-chips">${kws}</div>` : ''}
+      ${tags ? `<div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 4px"># Hashtags</div><div class="comp-intel-chips">${tags}</div>` : ''}
+      ${comp.notes ? `<div style="font-size:11px;color:var(--text-dim);margin-top:8px;font-style:italic">${comp.notes.slice(0,200)}</div>` : ''}
+    </div>` : `<div style="padding:14px;font-size:12px;color:var(--text-dim)">No research data yet. Click ⚡ Run AI Research above to start.</div>`;
+
+    return `<div class="comp-card" id="comp-card-${i}">
+      <div class="comp-card-head" onclick="toggleCompCard(${i})">
+        <div class="comp-card-name">${comp.name}</div>
+        <div class="comp-card-meta">
+          ${website}
+          <span class="comp-card-channels">${channels}</span>
+        </div>
+        ${badgeHtml}
+        <div class="comp-card-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-primary" onclick="openC360(${i})">🎯 360°</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})" style="margin-left:4px">✕</button>
-        </td>
-      </tr>
-      ${comp.weaknesses?.length ? `<tr style="border-bottom:1px solid var(--border)"><td colspan="4" style="padding:2px 0 8px;font-size:12px;color:var(--text-dim)">⚠ ${comp.weaknesses.join(' · ')}${comp.notes ? ` — ${comp.notes}` : ''}</td></tr>` : ''}`
-    ).join('')}
-    </tbody></table>`;
+          <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})">✕</button>
+        </div>
+        <span class="comp-expand-icon">▾</span>
+      </div>
+      ${weakStrip}
+      <div class="comp-expand-body" id="comp-body-${i}" style="display:none">
+        <div class="comp-research-mini">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">⚡ AI Research</div>
+          <div class="comp-research-mini-fields">
+            <div class="comp-research-mini-field"><label>Store URL</label><input id="aci-url-${i}" value="${comp.website||''}" placeholder="https://..."></div>
+            <div class="comp-research-mini-field"><label>Instagram</label><input id="aci-ig-${i}" value="${comp.instagram||''}" placeholder="@handle"></div>
+            <div class="comp-research-mini-field"><label>TikTok</label><input id="aci-tt-${i}" value="${comp.tiktok||''}" placeholder="@handle"></div>
+            <div class="comp-research-mini-field"><label>X / Twitter</label><input id="aci-x-${i}" value="${comp.x||''}" placeholder="@handle"></div>
+          </div>
+          <button class="btn btn-sm btn-primary" id="aci-btn-${i}" onclick="runCompResearch(${i})">⚡ Run AI Research</button>
+        </div>
+        <div id="comp-jobs-${i}"></div>
+        ${intelPreview}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Restore any running timers for badges
+  for (const [name, s] of Object.entries(window._compResearchStatus || {})) {
+    if (s.status === 'running') {
+      const idx = comps.findIndex(c => c.name === name);
+      if (idx >= 0) startCompBadgeTimer(idx, name, s.startedAt);
+    }
+  }
 }
 
 // ── Competitor 360° View ──────────────────────────────────────────────────────
@@ -2522,39 +2574,157 @@ function relativeTime(iso) {
   return `${Math.floor(h/24)}d ago`;
 }
 
-// Update the status badge on a competitor's table row
+// Update the status badge on a competitor card
 function updateCompetitorRowBadge(compName, status, startedAt) {
-  const el = document.getElementById(`comp-status-${CSS.escape(compName)}`);
-  if (!el) return;
+  // Find the competitor index by name
+  const comps = window._intel.competitors || [];
+  const i = comps.findIndex(c => c.name === compName);
+  if (i < 0) return;
+  const badge = document.getElementById(`comp-badge-${i}`);
+  if (!badge) return;
   if (status === 'running') {
-    el.innerHTML = `<span style="color:#f59e0b;font-size:11px">⏳ Researching…</span>`;
-    // Tick elapsed inside badge
-    if (el._statusTimer) clearInterval(el._statusTimer);
-    el._statusTimer = setInterval(() => {
-      const span = el.querySelector('span');
-      if (span && startedAt) span.textContent = `⏳ ${intelElapsed(startedAt)}`;
-    }, 1000);
+    badge.className = 'comp-badge-running';
+    badge.textContent = `⏳ ${intelElapsed(startedAt)}`;
+    startCompBadgeTimer(i, compName, startedAt);
   } else if (status === 'done') {
-    if (el._statusTimer) clearInterval(el._statusTimer);
-    el.innerHTML = `<span style="color:#22c55e;font-size:11px">✓ Researched</span>`;
+    if (window._compBadgeTimers) clearInterval(window._compBadgeTimers[i]);
+    badge.className = 'comp-badge-done';
+    badge.textContent = '✓ Researched';
   } else {
-    if (el._statusTimer) clearInterval(el._statusTimer);
-    el.innerHTML = `<span style="color:#ef4444;font-size:11px">✗ ${status}</span>`;
+    if (window._compBadgeTimers) clearInterval(window._compBadgeTimers[i]);
+    badge.className = 'comp-badge-failed';
+    badge.textContent = `✗ ${status}`;
+  }
+}
+
+function toggleCompCard(i) {
+  const card = document.getElementById(`comp-card-${i}`);
+  const body = document.getElementById(`comp-body-${i}`);
+  if (!card || !body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  card.classList.toggle('is-expanded', !open);
+}
+
+function startCompBadgeTimer(idx, name, startedAt) {
+  if (window._compBadgeTimers) clearInterval(window._compBadgeTimers[idx]);
+  if (!window._compBadgeTimers) window._compBadgeTimers = {};
+  window._compBadgeTimers[idx] = setInterval(() => {
+    const el = document.getElementById(`comp-badge-${idx}`);
+    if (el && el.classList.contains('comp-badge-running')) el.textContent = `⏳ ${intelElapsed(startedAt)}`;
+  }, 1000);
+}
+
+async function runCompResearch(i) {
+  const comp = window._intel.competitors[i];
+  if (!comp) return;
+  const clientId = window._intel.clientId;
+  const params = {
+    name:      comp.name,
+    storeUrl:  document.getElementById(`aci-url-${i}`)?.value  || comp.website   || '',
+    instagram: document.getElementById(`aci-ig-${i}`)?.value   || comp.instagram || '',
+    tiktok:    document.getElementById(`aci-tt-${i}`)?.value   || comp.tiktok    || '',
+    x:         document.getElementById(`aci-x-${i}`)?.value    || comp.x         || '',
+  };
+  const btn = document.getElementById(`aci-btn-${i}`);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
+
+  let buffer = '', runId = null, termEl = null;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/intel/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'competitor-research', params }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      showToast(err.error || 'Research failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ Run AI Research'; }
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'start') {
+            runId = ev.runId;
+            // Create job card inside THIS competitor's body
+            const container = document.getElementById(`comp-jobs-${i}`);
+            if (container) {
+              container.innerHTML = `<div id="intel-job-${runId}" style="border-top:1px solid var(--border)">
+                <div id="intel-job-hdr-${runId}" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#12121f;font-size:12px;">
+                  <span style="color:#f59e0b;font-size:14px">⏳</span>
+                  <span style="font-weight:600;color:var(--text);flex:1">${params.name}</span>
+                  <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600">${intelElapsed(ev.startedAt)}</span>
+                  <span style="color:var(--text-dim);font-size:11px">est. 2-5 min · safe to navigate away</span>
+                  <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('competitor-research','${runId}')">Stop</button>
+                </div>
+                <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:200px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
+              </div>`;
+              termEl = document.getElementById(`intel-job-term-${runId}`);
+            }
+            window._intelRuns[runId] = {
+              timer: setInterval(() => {
+                const el = document.getElementById(`intel-job-elapsed-${runId}`);
+                if (el) el.textContent = intelElapsed(ev.startedAt);
+              }, 1000),
+              startedAt: ev.startedAt, command: 'competitor-research',
+            };
+            // Update per-competitor status
+            window._compResearchStatus[params.name] = { status: 'running', runId, startedAt: ev.startedAt };
+            const badge = document.getElementById(`comp-badge-${i}`);
+            if (badge) { badge.className = 'comp-badge-running'; badge.textContent = `⏳ ${intelElapsed(ev.startedAt)}`; }
+            startCompBadgeTimer(i, params.name, ev.startedAt);
+          }
+          if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
+            if (ev.text.trim()) { termEl.textContent += ev.text; termEl.scrollTop = termEl.scrollHeight; }
+          }
+          if (ev.type === 'done') {
+            const run = window._intelRuns[runId];
+            if (run) clearInterval(run.timer);
+            if (window._compBadgeTimers) clearInterval(window._compBadgeTimers[i]);
+            const hdr = document.getElementById(`intel-job-hdr-${runId}`);
+            const badge = document.getElementById(`comp-badge-${i}`);
+            if (ev.extracted) {
+              const section = ev.extractedSection;
+              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${ev.extractedCount} item(s) → saved</span>\n`;
+              if (hdr) hdr.innerHTML = `<span style="color:#22c55e;font-size:14px">✓</span> <span style="font-weight:600;color:var(--text);flex:1">Done — ${ev.extractedCount} items saved</span>`;
+              if (badge) { badge.className = 'comp-badge-done'; badge.textContent = '✓ Researched'; }
+              window._compResearchStatus[params.name] = { status: 'done', runId };
+              showToast(`✓ ${params.name}: ${ev.extractedCount} ${section} extracted`);
+              await handleIntelResult(clientId, section);
+            } else if (ev.status === 'cancelled') {
+              if (hdr) hdr.innerHTML = `<span style="color:#ef4444">✗</span> <span style="color:var(--text)">Cancelled</span>`;
+              if (badge) { badge.className = 'comp-badge-failed'; badge.textContent = '✗ Cancelled'; }
+              window._compResearchStatus[params.name] = { status: 'failed', runId };
+            } else {
+              const msg = `Failed (code ${ev.code ?? 'null'})`;
+              if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+              if (hdr) hdr.innerHTML = `<span style="color:#ef4444">✗</span> <span style="color:var(--text)">${msg}</span>`;
+              if (badge) { badge.className = 'comp-badge-failed'; badge.textContent = '✗ Failed'; }
+              window._compResearchStatus[params.name] = { status: 'failed', runId };
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
+    showToast('Research error: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ Run AI Research'; }
   }
 }
 
 function prefillCompetitorResearch(idx) {
-  const c = window._intel.competitors[idx];
-  // Pre-fill the AI Research panel with this competitor's saved data
-  document.getElementById('ai-comp-name').value  = c.name    || '';
-  document.getElementById('ai-comp-url').value   = c.website || '';
-  document.getElementById('ai-comp-ig').value    = c.instagram || '';
-  document.getElementById('ai-comp-tt').value    = c.tiktok  || '';
-  document.getElementById('ai-comp-x').value     = c.x       || '';
-  // Open the panel and scroll to it
-  const panel = document.getElementById('panel-competitors-ai');
-  if (panel) { panel.open = true; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
-}
 
 function editIntelCompetitor(idx) {
   const c = window._intel.competitors[idx];
