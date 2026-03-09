@@ -6,7 +6,8 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 const crypto = require('crypto');
 const backup = require('./backup');
-const lgDb   = require('./leadgen/db');
+const lgDb           = require('./leadgen/db');
+const { buildLeadGenPrompt } = require('./leadgen/prompt');
 
 // Track in-flight automation processes keyed by runId
 const runningProcesses = new Map();
@@ -412,6 +413,8 @@ IMPORTANT: You are running autonomously — draft replies and send them directly
 5. Execute the engagement ladder in order (story view → likes → follow → comment → DM on followback)
 6. Stay within daily limits in rate-limits.json outreach section
 7. Log all actions to logs/outreach-log.json`,
+
+    'leadgen': buildLeadGenPrompt(clientConfig, DATA_DIR),
 
     'ambassador': ctx + `Run ambassador network session.
 1. Read ambassadors.json, ambassador-content.json, ambassador-rules.json
