@@ -882,18 +882,32 @@ ${keyword ? `Keyword filter: only include products related to "${keyword}"` : 'N
 Max products: ${maxCount}
 
 STEPS:
-1. Open the store URL using Playwright (headed mode, headless:false)
-2. Navigate through catalog/collection pages to discover products
-3. Apply keyword filter if specified — skip non-matching products
-4. For each product (up to ${maxCount}):
-   a. Extract: name, price, product URL, description
-   b. Find all product images — flag lifestyle images as social_ready:true
-   c. Generate pain_points (problems this product solves) — 4-6 bullet points in English
-   d. Generate Arabic pain points: Gulf dialect (UAE/Saudi), Levantine (Lebanon/Jordan), Egyptian
-   e. Generate usps (key benefits and differentiators) — 4-6 bullet points
-   f. Generate target keywords for social monitoring — EN + AR with dialect variants
-   g. Note the product category
-5. Screenshot each product page to logs/screenshots/intel-product-{n}.png
+1. Open the store URL using Playwright (headed mode, headless:false).
+   - Print "Opening [URL]..." immediately so progress is visible
+   - Wait for networkidle (up to 15s) — many stores are JS-heavy
+   - If the URL has a language path (e.g. /ar, /en): also try the root domain to find the collection/shop page
+   - After load: scroll down the full page slowly (window.scrollBy 0→bottom in 500px steps, 300ms apart) to trigger lazy-loaded products
+   - Print "Page loaded, found [N] product links" after scanning
+
+2. Find product listing pages — try these in order until you find products:
+   - Current URL
+   - /collections/all, /shop, /products, /ar/collections/all, /en/collections/all
+   - Any navigation link containing "shop", "products", "متجر", "منتجات", "تسوق"
+   - Print which URL you're trying each time
+
+3. For each product page (up to ${maxCount}):
+   - Print "Scraping product [N]: [name]"
+   - Wait for page load + scroll to trigger images
+   - Extract: name, price, product URL, description
+   - Find product images — flag lifestyle/in-use images as social_ready:true
+   - If the page is in Arabic: extract the Arabic name and description as-is
+   - Generate pain_points (problems this product solves) — 4-6 bullet points in English
+   - Generate Arabic pain points in Gulf dialect (UAE) — casual, real language
+   - Generate usps (key benefits) — 4-6 bullet points
+   - Generate social monitoring keywords — EN + AR Gulf dialect variants
+   - Screenshot to logs/screenshots/intel-product-{n}.png
+
+4. If after trying all URLs you find 0 products: print "Could not find product listings — check if the store requires login or has a different URL structure" and output empty data array.
 
 ${knowledgeCtx ? 'Current brand context:\n' + knowledgeCtx : ''}
 ${wrapperNote}
