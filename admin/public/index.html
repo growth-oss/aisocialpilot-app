@@ -2919,6 +2919,13 @@ function downloadFollowerTemplate() {
 async function deleteIntelItem(section, idx) {
   const arr = section === 'hot-sources' ? window._intel['hot-sources'] : window._intel[section];
   if (!arr) return;
+  const item = arr[idx];
+  const label = section === 'competitors' ? (item?.name || 'this competitor')
+              : section === 'products'     ? (item?.name || 'this product')
+              : section === 'hot-sources'  ? (item?.handle_or_url || 'this source')
+              : section === 'keywords'     ? (item?.keyword || 'this keyword')
+              : 'this item';
+  if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
   arr.splice(idx, 1);
   await saveIntelSection(section);
   if (section === 'products') renderIntelProducts();
