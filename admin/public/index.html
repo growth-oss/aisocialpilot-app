@@ -266,6 +266,53 @@
     gap: 6px;
   }
 
+  /* ─── Budget bar ─── */
+  .budget-bar-wrap { margin-top: 8px; }
+  .budget-bar-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 3px;
+  }
+  .budget-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--green);
+    transition: width 0.4s ease;
+  }
+  .budget-bar-fill.warn  { background: var(--amber); }
+  .budget-bar-fill.over  { background: var(--red); }
+  .budget-label { font-size: 11px; color: var(--text-muted); }
+
+  /* ─── Cost widgets ─── */
+  .cost-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .cost-stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+  }
+  .cost-stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .cost-stat-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cost-day-bar { display: flex; align-items: flex-end; gap: 3px; height: 48px; margin-top: 4px; }
+  .cost-day-col { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; opacity: 0.7; transition: opacity 0.2s; }
+  .cost-day-col:hover { opacity: 1; }
+  .insight-tip {
+    background: var(--accent-glow);
+    border: 1px solid var(--border-focus);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+
   /* ─── Tabs ─── */
   .tabs {
     display: flex;
@@ -568,7 +615,7 @@ function render() {
     case 'license': app.innerHTML = renderLicense(); break;
     case 'setup': app.innerHTML = renderSetup(); break;
     case 'settings': app.innerHTML = renderSettings(); populateSettings(); break;
-    case 'dashboard': app.innerHTML = renderDashboard(); loadAllSessionDots(); break;
+    case 'dashboard': app.innerHTML = renderDashboard(); loadAllSessionDots(); loadDashboardCosts(); break;
     case 'client-new': app.innerHTML = renderClientForm(); break;
     case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); loadClientLogs(state.editingClient.clientId); break;
   }
@@ -717,8 +764,42 @@ function renderSettings() {
       </div>
 
       <div class="btn-row">
-        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-primary" onclick="saveSettings()">Save AI Settings</button>
         <button class="btn btn-ghost" onclick="goBack()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">✉️ Email Alerts (SMTP)</div>
+      <div class="card-desc">Used to send budget threshold alerts. Works with Gmail, Outlook, Postmark, or any SMTP provider.</div>
+      <div class="field-row">
+        <div class="field">
+          <label>SMTP Host</label>
+          <input type="text" id="s-smtp-host" placeholder="smtp.gmail.com" spellcheck="false">
+        </div>
+        <div class="field" style="max-width:120px">
+          <label>Port</label>
+          <input type="text" id="s-smtp-port" placeholder="587">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>SMTP Username</label>
+          <input type="text" id="s-smtp-user" placeholder="you@gmail.com" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>SMTP Password</label>
+          <input type="password" id="s-smtp-pass" placeholder="App password or SMTP key" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="field">
+        <label>From Address <span style="color:var(--text-muted);font-weight:400">(optional, defaults to SMTP user)</span></label>
+        <input type="text" id="s-smtp-from" placeholder="AI Social Pilot <alerts@yourdomain.com>" spellcheck="false">
+        <div class="field-hint" id="s-smtp-status"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-ghost" onclick="testSmtp()">Send Test Email</button>
       </div>
     </div>
 
@@ -792,6 +873,13 @@ async function populateSettings() {
   [...selOM.options].forEach(o => { if (o.value === s.openaiModel) o.selected = true; });
   const selProv = document.getElementById('s-ai-provider');
   [...selProv.options].forEach(o => { if (o.value === s.aiProvider) o.selected = true; });
+  // SMTP fields
+  if (s.smtpHost)  document.getElementById('s-smtp-host').value = s.smtpHost;
+  if (s.smtpPort)  document.getElementById('s-smtp-port').value = s.smtpPort;
+  if (s.smtpUser)  document.getElementById('s-smtp-user').value = s.smtpUser;
+  if (s.smtpFrom)  document.getElementById('s-smtp-from').value = s.smtpFrom;
+  if (s.hasSmtp)   document.getElementById('s-smtp-status').textContent = 'SMTP configured ✓';
+
   const li = document.getElementById('settings-license-info');
   if (state.status?.licenseValid) {
     li.textContent = `Plan: ${state.status.licensePlan || 'Active'} · ${state.status.clientCount}/${state.status.maxClients} clients`;
@@ -814,8 +902,16 @@ async function saveSettings() {
   if (!anthropicKey && !current.hasAnthropicKey) return showToast('Anthropic API key is required', 'error');
   if (aiProvider === 'openai' && !openaiKey && !current.hasOpenaiKey) return showToast('Add an OpenAI key or switch default provider to Anthropic', 'error');
 
+  const smtpHost = document.getElementById('s-smtp-host').value.trim();
+  const smtpPort = document.getElementById('s-smtp-port').value.trim();
+  const smtpUser = document.getElementById('s-smtp-user').value.trim();
+  const smtpPass = document.getElementById('s-smtp-pass').value.trim();
+  const smtpFrom = document.getElementById('s-smtp-from').value.trim();
+
   // POST to /setup — it requires anthropicApiKey, so send placeholder if keeping existing
-  const body = { anthropicModel, openaiModel, aiProvider };
+  const body = { anthropicModel, openaiModel, aiProvider,
+    smtpHost, smtpPort, smtpUser, smtpFrom };
+  if (smtpPass) body.smtpPass = smtpPass; // only send if changed (field is empty by default)
   if (anthropicKey) body.anthropicApiKey = anthropicKey;
   else body.keepAnthropicKey = true;
   if (openaiKey) body.openaiApiKey = openaiKey;
@@ -959,6 +1055,7 @@ function renderDashboard() {
             </div>
             <div id="session-dots-${c.clientId}" class="session-dots" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
             <div id="next-runs-${c.clientId}" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;"></div>
+            <div id="budget-bar-${c.clientId}" style="margin-top:6px"></div>
           </div>
           <div class="client-actions">
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); openSessionPicker('${c.clientId}', '${c.name}')" title="Set up browser sessions">🔐 Login</button>
@@ -1006,6 +1103,7 @@ function renderClientForm(client) {
       <div class="tab" onclick="switchTab(this, 'tab-schedule')">Schedule</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-logs')">Logs</div>` : ''}
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-leadgen'); loadLeadGenTab('${c.clientId}')">Lead Gen</div>` : ''}
+      ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-costs'); loadCostsTab('${c.clientId}')">Costs</div>` : ''}
     </div>
 
     <!-- General -->
@@ -1026,6 +1124,21 @@ function renderClientForm(client) {
         <div class="field">
           <label>Geo Region</label>
           <input type="text" id="f-geo" value="${proxy.geo || 'US'}" placeholder="US, AE, DE...">
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Budget & Alerts</p>
+        <div class="field-row">
+          <div class="field">
+            <label>Daily Budget (USD)</label>
+            <input type="number" id="f-budget" value="${c.daily_budget_usd || ''}" placeholder="0 = no limit" min="0" step="0.01">
+            <div class="field-hint">Blocks new runs when exceeded. Resets at midnight UTC.</div>
+          </div>
+          <div class="field">
+            <label>Alert Email</label>
+            <input type="email" id="f-budget-email" value="${c.budget_alert_email || ''}" placeholder="alerts@example.com">
+            <div class="field-hint">Alerts at 80% and 100% of budget. Requires SMTP in Settings.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1263,6 +1376,70 @@ function renderClientForm(client) {
 
     </div>` : ''}
 
+    ${isEdit ? `
+    <!-- Costs -->
+    <div id="tab-costs" class="hidden">
+      <div id="costs-loading" style="color:var(--text-muted);text-align:center;padding:32px 0">Loading cost data…</div>
+      <div id="costs-content" style="display:none">
+
+        <!-- Stats row -->
+        <div class="cost-overview" style="margin-bottom:16px">
+          <div class="cost-stat">
+            <div class="cost-stat-label">Today</div>
+            <div class="cost-stat-value" id="cost-today">—</div>
+          </div>
+          <div class="cost-stat">
+            <div class="cost-stat-label">Last 7 days</div>
+            <div class="cost-stat-value" id="cost-week">—</div>
+          </div>
+          <div class="cost-stat">
+            <div class="cost-stat-label">Last 30 days</div>
+            <div class="cost-stat-value" id="cost-month">—</div>
+          </div>
+          <div class="cost-stat">
+            <div class="cost-stat-label">Monthly forecast</div>
+            <div class="cost-stat-value" id="cost-forecast">—</div>
+          </div>
+        </div>
+
+        <!-- Budget bar -->
+        <div id="cost-budget-wrap" class="card" style="display:none;margin-bottom:16px;padding:16px 20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:13px;font-weight:600">Daily Budget</span>
+            <span style="font-size:13px" id="cost-budget-label">—</span>
+          </div>
+          <div class="budget-bar-track"><div class="budget-bar-fill" id="cost-budget-fill" style="width:0%"></div></div>
+        </div>
+
+        <!-- Insight tip -->
+        <div class="insight-tip" id="cost-tip" style="display:none"></div>
+
+        <!-- 14-day chart -->
+        <div class="card" style="margin-bottom:16px;padding:16px 20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:12px">Last 14 Days</div>
+          <div class="cost-day-bar" id="cost-chart"></div>
+          <div id="cost-chart-labels" style="display:flex;gap:3px;margin-top:4px;font-size:10px;color:var(--text-muted)"></div>
+        </div>
+
+        <!-- By-command table -->
+        <div class="card" style="padding:16px 20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:12px">By Command (30 days)</div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead>
+              <tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:6px 0">Command</th>
+                <th style="text-align:right;padding:6px 0">Runs</th>
+                <th style="text-align:right;padding:6px 0">Cost</th>
+                <th style="text-align:right;padding:6px 0">Avg/run</th>
+              </tr>
+            </thead>
+            <tbody id="cost-cmd-table"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>` : ''}
+
     <div class="btn-row">
       <button class="btn btn-primary" onclick="saveClient(${isEdit ? `'${c.clientId}'` : ''})">
         ${isEdit ? 'Save Changes' : 'Create Client'}
@@ -1276,8 +1453,104 @@ function renderClientForm(client) {
 function switchTab(el, tabId) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.querySelectorAll('.card[id^="tab-"]').forEach(c => c.classList.add('hidden'));
+  document.querySelectorAll('[id^="tab-"]').forEach(c => c.classList.add('hidden'));
   document.getElementById(tabId).classList.remove('hidden');
+}
+
+// ─── Cost analytics tab ───
+async function loadCostsTab(clientId) {
+  const loadEl = document.getElementById('costs-loading');
+  const contentEl = document.getElementById('costs-content');
+  if (!loadEl) return;
+  loadEl.style.display = 'block';
+  contentEl.style.display = 'none';
+
+  const d = await api('GET', `/clients/${clientId}/costs`);
+  if (d.error) { loadEl.textContent = 'Failed to load cost data.'; return; }
+
+  loadEl.style.display = 'none';
+  contentEl.style.display = 'block';
+
+  const fmt = v => v < 0.001 ? '$0.00' : `$${v.toFixed(v < 0.01 ? 4 : v < 1 ? 3 : 2)}`;
+
+  document.getElementById('cost-today').textContent    = fmt(d.todayCost);
+  document.getElementById('cost-week').textContent     = fmt(d.weekCost);
+  document.getElementById('cost-month').textContent    = fmt(d.monthCost);
+  document.getElementById('cost-forecast').textContent = fmt(d.forecast_monthly) + '/mo';
+
+  // Budget bar
+  const budgetWrap = document.getElementById('cost-budget-wrap');
+  if (d.budget > 0) {
+    budgetWrap.style.display = 'block';
+    const pct = Math.min(d.budgetPct, 1);
+    document.getElementById('cost-budget-label').textContent = `${fmt(d.todayCost)} / ${fmt(d.budget)} (${Math.round(pct*100)}%)`;
+    const fill = document.getElementById('cost-budget-fill');
+    fill.style.width = `${Math.round(pct * 100)}%`;
+    fill.className = 'budget-bar-fill' + (pct >= 1 ? ' over' : pct >= 0.8 ? ' warn' : '');
+  }
+
+  // Tip
+  if (d.tip) {
+    const tipEl = document.getElementById('cost-tip');
+    tipEl.style.display = 'block';
+    tipEl.textContent = '💡 ' + d.tip;
+  }
+
+  // 14-day chart
+  const maxDay = Math.max(...d.by_day.map(x => x.cost_usd), 0.0001);
+  const chartEl = document.getElementById('cost-chart');
+  const labelsEl = document.getElementById('cost-chart-labels');
+  chartEl.innerHTML = d.by_day.map(x => {
+    const h = Math.max(Math.round((x.cost_usd / maxDay) * 48), x.cost_usd > 0 ? 4 : 2);
+    return `<div class="cost-day-col" style="height:${h}px;${x.cost_usd === 0 ? 'opacity:0.2' : ''}" title="${x.date}: $${x.cost_usd.toFixed(4)}"></div>`;
+  }).join('');
+  labelsEl.innerHTML = d.by_day.map((x, i) => {
+    const label = i === 0 ? x.date.slice(5) : i === d.by_day.length - 1 ? 'today' : i % 7 === 0 ? x.date.slice(5) : '';
+    return `<div style="flex:1;text-align:center;overflow:hidden">${label}</div>`;
+  }).join('');
+
+  // By-command table
+  const tbody = document.getElementById('cost-cmd-table');
+  if (d.by_command.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text-muted);padding:12px 0;text-align:center">No runs with cost data yet</td></tr>`;
+  } else {
+    tbody.innerHTML = d.by_command.map(r => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 0;color:var(--text)">${r.command}</td>
+        <td style="text-align:right;color:var(--text-dim)">${r.runs}</td>
+        <td style="text-align:right;font-weight:600">${fmt(r.cost_usd)}</td>
+        <td style="text-align:right;color:var(--text-dim)">${fmt(r.cost_usd / r.runs)}</td>
+      </tr>`).join('');
+  }
+}
+
+// ─── Dashboard cost overview — populate budget bars on client cards ───
+async function loadDashboardCosts() {
+  const overview = await api('GET', '/costs/overview');
+  if (overview.error) return;
+  // Global total in header — if element exists
+  const totalEl = document.getElementById('dash-cost-today');
+  if (totalEl) totalEl.textContent = `$${overview.todayTotal.toFixed(overview.todayTotal < 0.01 ? 4 : 2)} today`;
+
+  for (const c of overview.clients) {
+    const el = document.getElementById(`budget-bar-${c.id}`);
+    if (!el) continue;
+    if (!c.budget || c.budget <= 0 || c.todayCost === 0) continue;
+    const pct = Math.min(c.budgetPct, 1);
+    const cls = pct >= 1 ? 'over' : pct >= 0.8 ? 'warn' : '';
+    el.innerHTML = `
+      <div class="budget-bar-track"><div class="budget-bar-fill ${cls}" style="width:${Math.round(pct*100)}%"></div></div>
+      <div class="budget-label">$${c.todayCost.toFixed(3)} / $${c.budget} budget</div>`;
+  }
+}
+
+// ─── SMTP test ───
+async function testSmtp() {
+  const to = prompt('Send test email to:');
+  if (!to) return;
+  const r = await api('POST', '/settings/smtp-test', { to });
+  if (r.error) showToast(r.error, 'error');
+  else showToast('Test email sent!');
 }
 
 // ─── Actions ───
@@ -1365,6 +1638,8 @@ async function saveClient(existingId) {
       x:         (document.getElementById('f-sched-x')?.value         || '').split(/\s+/).filter(Boolean),
       whatsapp:  (document.getElementById('f-sched-whatsapp')?.value  || '').split(/\s+/).filter(Boolean),
     },
+    daily_budget_usd:   parseFloat(document.getElementById('f-budget')?.value) || 0,
+    budget_alert_email: document.getElementById('f-budget-email')?.value.trim() || '',
   };
 
   let result;

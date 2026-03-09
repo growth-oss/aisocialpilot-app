@@ -14,6 +14,89 @@ const runningProcesses = new Map();
 // Track active session browser processes keyed by "clientId:platform"
 const sessionProcesses = new Map();
 
+// ─── Model pricing (USD per 1M tokens, approximate) ───────────────────────────
+const MODEL_PRICING = {
+  'claude-haiku-4-5-20251001': { input: 0.80,  output: 4.00  },
+  'claude-sonnet-4-6':         { input: 3.00,  output: 15.00 },
+  'claude-opus-4-6':           { input: 15.00, output: 75.00 },
+  'gpt-4o-mini':               { input: 0.15,  output: 0.60  },
+  'gpt-4o':                    { input: 2.50,  output: 10.00 },
+};
+
+function estimateCost(model, inputTokens, outputTokens) {
+  const p = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
+  return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output;
+}
+function charsToTokens(chars) { return Math.ceil(chars / 4); }
+
+function getClientRuns(clientId) {
+  const f = path.join(CLIENTS_DIR, clientId, 'logs', 'runs.json');
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return []; }
+}
+
+function getTodayCost(clientId) {
+  const today = new Date().toISOString().slice(0, 10);
+  return getClientRuns(clientId)
+    .filter(r => r.cost_usd > 0 && r.startedAt?.slice(0, 10) === today)
+    .reduce((s, r) => s + r.cost_usd, 0);
+}
+
+// ─── Budget alerts ────────────────────────────────────────────────────────────
+const sentAlerts = new Set(); // "clientId:threshold:YYYY-MM-DD"
+
+async function sendEmail(config, { to, subject, text }) {
+  if (!config.smtpHost || !config.smtpUser) throw new Error('SMTP not configured');
+  const nodemailer = require('nodemailer');
+  const transporter = nodemailer.createTransport({
+    host: config.smtpHost,
+    port: parseInt(config.smtpPort) || 587,
+    secure: parseInt(config.smtpPort) === 465,
+    auth: { user: config.smtpUser, pass: config.smtpPass },
+  });
+  await transporter.sendMail({
+    from: `"AI Social Pilot" <${config.smtpFrom || config.smtpUser}>`,
+    to,
+    subject,
+    text,
+  });
+}
+
+async function checkAndSendBudgetAlert(config, clientConfig) {
+  const budget = parseFloat(clientConfig.daily_budget_usd);
+  const alertEmail = clientConfig.budget_alert_email;
+  if (!budget || budget <= 0 || !alertEmail) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const spent = getTodayCost(clientConfig.clientId);
+  const pct = spent / budget;
+  for (const threshold of [0.8, 1.0]) {
+    if (pct >= threshold) {
+      const key = `${clientConfig.clientId}:${threshold}:${today}`;
+      if (sentAlerts.has(key)) continue;
+      sentAlerts.add(key);
+      try {
+        await sendEmail(config, {
+          to: alertEmail,
+          subject: `[AI Social Pilot] Budget ${threshold >= 1 ? 'Exceeded' : 'Warning (80%)'} — ${clientConfig.name}`,
+          text: [
+            `Budget alert for: ${clientConfig.name}`,
+            ``,
+            `Daily budget:  $${budget.toFixed(4)}`,
+            `Spent today:   $${spent.toFixed(4)} (${Math.round(pct * 100)}%)`,
+            threshold >= 1
+              ? `\nYour daily budget has been EXCEEDED. Further runs are blocked until midnight UTC.`
+              : `\n${((budget - spent)).toFixed(4)} remaining before your daily budget is reached.`,
+            ``,
+            `Tip: To increase the budget or change alert settings, edit the client in your AI Social Pilot admin panel.`,
+          ].join('\n'),
+        });
+        console.log(`[budget] Alert sent to ${alertEmail} (${clientConfig.clientId} at ${Math.round(pct*100)}%)`);
+      } catch (e) {
+        console.error(`[budget] Email failed:`, e.message);
+      }
+    }
+  }
+}
+
 const PLATFORM_URLS = {
   instagram: 'https://www.instagram.com',
   tiktok:    'https://www.tiktok.com',
@@ -191,7 +274,8 @@ app.post('/api/license/activate', async (req, res) => {
 
 // ─── Setup (API keys + model preferences) ───
 app.post('/api/setup', async (req, res) => {
-  const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel } = req.body;
+  const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel,
+          smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom } = req.body;
   const config = loadConfig();
 
   // Allow updating without re-entering existing key (Settings page flow)
@@ -203,6 +287,14 @@ app.post('/api/setup', async (req, res) => {
   config.aiProvider = aiProvider || config.aiProvider || 'anthropic';
   config.anthropicModel = anthropicModel || config.anthropicModel || 'claude-haiku-4-5-20251001';
   config.openaiModel = openaiModel || config.openaiModel || 'gpt-4o-mini';
+
+  // SMTP (only overwrite if provided)
+  if (smtpHost !== undefined) config.smtpHost = smtpHost;
+  if (smtpPort !== undefined) config.smtpPort = smtpPort;
+  if (smtpUser !== undefined) config.smtpUser = smtpUser;
+  if (smtpPass !== undefined) config.smtpPass = smtpPass;
+  if (smtpFrom !== undefined) config.smtpFrom = smtpFrom;
+
   config.setupComplete = true;
   saveConfig(config);
 
@@ -225,6 +317,11 @@ app.get('/api/settings', requireLicense, (req, res) => {
     aiProvider:     config.aiProvider     || 'anthropic',
     hasAnthropicKey: !!config.anthropicApiKey,
     hasOpenaiKey:    !!config.openaiApiKey,
+    smtpHost:  config.smtpHost  || '',
+    smtpPort:  config.smtpPort  || '587',
+    smtpUser:  config.smtpUser  || '',
+    smtpFrom:  config.smtpFrom  || '',
+    hasSmtp:   !!(config.smtpHost && config.smtpUser && config.smtpPass),
   });
 });
 
@@ -524,7 +621,14 @@ function spawnRun(clientId, command, onData, onClose) {
 
   runningProcesses.set(runId, { proc, clientId, command, startedAt });
 
-  proc.stdout.on('data', chunk => onData('output', chunk.toString()));
+  const model = env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+  const inputTokens = charsToTokens(prompt.length);
+  let outputChars = 0;
+
+  proc.stdout.on('data', chunk => {
+    outputChars += chunk.length;
+    onData('output', chunk.toString());
+  });
   proc.stderr.on('data', chunk => {
     const txt = chunk.toString();
     console.log(`[run ${runId}] stderr: ${txt.substring(0, 200)}`);
@@ -542,11 +646,18 @@ function spawnRun(clientId, command, onData, onClose) {
 
     console.log(`[run ${runId}] close: code=${code} signal=${signal}`);
 
+    const outputTokens = charsToTokens(outputChars);
+    const cost_usd = estimateCost(model, inputTokens, outputTokens);
+
     const logFile = path.join(clientDir, 'logs', 'runs.json');
     let runs = [];
     try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
-    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code, signal });
+    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code, signal,
+      cost_usd, input_tokens_est: inputTokens, output_tokens_est: outputTokens, model, provider: 'anthropic' });
     fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+    // Fire budget alert async (don't block close handler)
+    checkAndSendBudgetAlert(config, clientConfig).catch(() => {});
 
     if (onClose) onClose(runId, code, signal, startedAt, status);
   });
@@ -574,6 +685,7 @@ async function runOpenAI(clientId, command, onData, onClose) {
   runningProcesses.set(runId, { clientId, command, startedAt, abort: controller });
 
   let status = 'completed';
+  let usageTokens = null;
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -585,6 +697,7 @@ async function runOpenAI(clientId, command, onData, onClose) {
         model,
         messages: [{ role: 'user', content: prompt }],
         stream: true,
+        stream_options: { include_usage: true },
       }),
       signal: controller.signal,
     });
@@ -594,7 +707,7 @@ async function runOpenAI(clientId, command, onData, onClose) {
       throw new Error(`OpenAI API error ${response.status}: ${errText}`);
     }
 
-    // Stream SSE chunks from OpenAI
+    // Stream SSE chunks from OpenAI; capture usage from final chunk
     let buffer = '';
     for await (const chunk of response.body) {
       buffer += chunk.toString();
@@ -608,6 +721,10 @@ async function runOpenAI(clientId, command, onData, onClose) {
           const parsed = JSON.parse(payload);
           const content = parsed.choices?.[0]?.delta?.content;
           if (content) onData('output', content);
+          // Capture real token usage from the final usage chunk
+          if (parsed.usage) {
+            usageTokens = { input: parsed.usage.prompt_tokens || 0, output: parsed.usage.completion_tokens || 0 };
+          }
         } catch {}
       }
     }
@@ -624,11 +741,18 @@ async function runOpenAI(clientId, command, onData, onClose) {
   runningProcesses.delete(runId);
   const completedAt = new Date().toISOString();
 
+  const inputTokens  = usageTokens?.input  ?? charsToTokens(prompt.length);
+  const outputTokens = usageTokens?.output ?? 0;
+  const cost_usd = estimateCost(model, inputTokens, outputTokens);
+
   const logFile = path.join(clientDir, 'logs', 'runs.json');
   let runs = [];
   try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
-  runs.push({ runId, command, startedAt, completedAt, status, provider: 'openai', model });
+  runs.push({ runId, command, startedAt, completedAt, status, provider: 'openai', model,
+    cost_usd, input_tokens: inputTokens, output_tokens: outputTokens });
   fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+  checkAndSendBudgetAlert(config, clientConfig).catch(() => {});
 
   if (onClose) onClose(runId, status === 'completed' ? 0 : 1, null, startedAt, status);
   return { runId, startedAt, clientConfig };
@@ -649,6 +773,17 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const willUseOpenAI = config.aiProvider === 'openai' && TEXT_ONLY_COMMANDS.has(command) && config.openaiApiKey;
   if (!willUseOpenAI && !config.anthropicApiKey) {
     return res.status(400).json({ error: 'Anthropic API key not configured. Complete setup first.' });
+  }
+
+  // Budget check — block if daily budget exceeded
+  const budget = parseFloat(clientConfig.daily_budget_usd);
+  if (budget > 0) {
+    const spent = getTodayCost(clientConfig.clientId);
+    if (spent >= budget) {
+      return res.status(429).json({
+        error: `Daily budget of $${budget.toFixed(2)} exceeded ($${spent.toFixed(4)} spent today). Budget resets at midnight UTC.`,
+      });
+    }
   }
 
   // SSE headers
@@ -935,6 +1070,81 @@ app.get('/api/clients/:id/runs', requireLicense, (req, res) => {
   catch { res.json([]); }
 });
 
+// ─── Cost analytics for a client ───
+app.get('/api/clients/:id/costs', requireLicense, (req, res) => {
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) return res.status(404).json({ error: 'Client not found' });
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+
+  const runs = getClientRuns(req.params.id);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const weekAgo  = new Date(now - 7  * 86400000).toISOString().slice(0, 10);
+  const monthAgo = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
+
+  const withCost = runs.filter(r => r.cost_usd > 0);
+
+  function sumPeriod(from) {
+    return withCost.filter(r => r.startedAt?.slice(0, 10) >= from).reduce((s, r) => s + r.cost_usd, 0);
+  }
+
+  const todayCost  = sumPeriod(today);
+  const weekCost   = sumPeriod(weekAgo);
+  const monthCost  = sumPeriod(monthAgo);
+  const budget     = parseFloat(clientConfig.daily_budget_usd) || 0;
+
+  // By-command breakdown (last 30 days)
+  const cmdMap = {};
+  withCost.filter(r => r.startedAt?.slice(0, 10) >= monthAgo).forEach(r => {
+    if (!cmdMap[r.command]) cmdMap[r.command] = { command: r.command, runs: 0, cost_usd: 0 };
+    cmdMap[r.command].runs++;
+    cmdMap[r.command].cost_usd += r.cost_usd;
+  });
+  const by_command = Object.values(cmdMap).sort((a, b) => b.cost_usd - a.cost_usd);
+
+  // Last 14 days cost history
+  const by_day = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
+    by_day.push({ date: d, cost_usd: withCost.filter(r => r.startedAt?.slice(0, 10) === d).reduce((s, r) => s + r.cost_usd, 0) });
+  }
+
+  // Optimization tip
+  const model = runs[runs.length - 1]?.model || '';
+  let tip = null;
+  if (model.includes('opus')) tip = 'Switch to claude-sonnet for ~80% cost savings with similar quality.';
+  else if (model.includes('sonnet')) tip = 'Switch to claude-haiku for ~75% cost savings on routine tasks.';
+  else if (model === 'gpt-4o') tip = 'Switch to gpt-4o-mini for ~94% cost savings on text-only tasks.';
+  else if (monthCost === 0) tip = 'No cost data yet — run some automations to see insights.';
+
+  // Monthly forecast (based on daily average over last 7 days)
+  const forecast_monthly = weekCost > 0 ? (weekCost / 7) * 30 : 0;
+
+  res.json({ todayCost, weekCost, monthCost, budget, budgetPct: budget > 0 ? todayCost / budget : 0,
+    by_command, by_day, forecast_monthly, tip, model });
+});
+
+// ─── Cost overview across all clients ───
+app.get('/api/costs/overview', requireLicense, (req, res) => {
+  const clients = getClients();
+  const today = new Date().toISOString().slice(0, 10);
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  let todayTotal = 0, monthTotal = 0;
+  const clientSummaries = clients.map(c => {
+    const runs = getClientRuns(c.clientId).filter(r => r.cost_usd > 0);
+    const tCost = runs.filter(r => r.startedAt?.slice(0, 10) === today).reduce((s, r) => s + r.cost_usd, 0);
+    const mCost = runs.filter(r => r.startedAt?.slice(0, 10) >= monthAgo).reduce((s, r) => s + r.cost_usd, 0);
+    todayTotal  += tCost;
+    monthTotal  += mCost;
+    const budget = parseFloat(c.daily_budget_usd) || 0;
+    return { id: c.clientId, name: c.name, todayCost: tCost, monthCost: mCost,
+      budget, budgetPct: budget > 0 ? tCost / budget : null };
+  });
+
+  res.json({ todayTotal, monthTotal, clients: clientSummaries });
+});
+
 // ─── Session setup: open a headed browser for manual login ───
 app.post('/api/clients/:id/session/start', requireLicense, (req, res) => {
   const { platform } = req.body;
@@ -1219,6 +1429,23 @@ app.get('/api/clients/:id/leadgen/log', requireLicense, (req, res) => {
 app.get('/api/backup/status', requireLicense, (req, res) => {
   const status = backup.loadStatus(DATA_DIR);
   res.json({ ...status, r2Configured: backup.isR2Configured() });
+});
+
+// ─── SMTP test ───
+app.post('/api/settings/smtp-test', requireLicense, async (req, res) => {
+  const config = loadConfig();
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Missing to address' });
+  try {
+    await sendEmail(config, {
+      to,
+      subject: '[AI Social Pilot] SMTP test',
+      text: 'This is a test email from AI Social Pilot. Your SMTP settings are working correctly.',
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Trigger a manual backup now
