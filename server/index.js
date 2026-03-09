@@ -554,6 +554,86 @@ function spawnRun(clientId, command, onData, onClose) {
   return { runId, proc, startedAt, clientConfig };
 }
 
+// ─── OpenAI direct API path (text-only commands, no browser) ───
+// Commands listed here bypass Claude CLI entirely when aiProvider === 'openai'
+const TEXT_ONLY_COMMANDS = new Set(['leadgen-report']);
+
+async function runOpenAI(clientId, command, onData, onClose) {
+  const clientDir = path.join(CLIENTS_DIR, clientId);
+  const config = loadConfig();
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+
+  if (!config.openaiApiKey) throw new Error('OpenAI API key not configured');
+
+  const runId = crypto.randomBytes(4).toString('hex');
+  const startedAt = new Date().toISOString();
+  const model = config.openaiModel || 'gpt-4o-mini';
+  const prompt = buildPrompt(command, clientConfig);
+
+  const controller = new AbortController();
+  runningProcesses.set(runId, { clientId, command, startedAt, abort: controller });
+
+  let status = 'completed';
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`OpenAI API error ${response.status}: ${errText}`);
+    }
+
+    // Stream SSE chunks from OpenAI
+    let buffer = '';
+    for await (const chunk of response.body) {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete trailing line
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(payload);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) onData('output', content);
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      status = 'stopped';
+      onData('output', '\n[Stopped by user]\n');
+    } else {
+      status = 'failed';
+      onData('error', `OpenAI error: ${err.message}\n`);
+    }
+  }
+
+  runningProcesses.delete(runId);
+  const completedAt = new Date().toISOString();
+
+  const logFile = path.join(clientDir, 'logs', 'runs.json');
+  let runs = [];
+  try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+  runs.push({ runId, command, startedAt, completedAt, status, provider: 'openai', model });
+  fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+  if (onClose) onClose(runId, status === 'completed' ? 0 : 1, null, startedAt, status);
+  return { runId, startedAt, clientConfig };
+}
+
 // ─── Run automation (SSE streaming) ───
 app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const { command } = req.body;
@@ -566,7 +646,8 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   if (clientConfig.status === 'paused') {
     return res.status(400).json({ error: 'Client is paused. Set status to Active first.' });
   }
-  if (!config.anthropicApiKey) {
+  const willUseOpenAI = config.aiProvider === 'openai' && TEXT_ONLY_COMMANDS.has(command) && config.openaiApiKey;
+  if (!willUseOpenAI && !config.anthropicApiKey) {
     return res.status(400).json({ error: 'Anthropic API key not configured. Complete setup first.' });
   }
 
@@ -580,6 +661,34 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {}
   };
 
+  const t0 = Date.now();
+
+  // Route to OpenAI directly for text-only commands when aiProvider === 'openai'
+  const useOpenAI = config.aiProvider === 'openai' && TEXT_ONLY_COMMANDS.has(command) && config.openaiApiKey;
+
+  if (useOpenAI) {
+    send('output', { text: `> provider: openai (${config.openaiModel || 'gpt-4o-mini'})\n` });
+    let runId, startedAt;
+    runOpenAI(
+      req.params.id,
+      command,
+      (type, text) => send(type, { text }),
+      (rid, code, signal, sat, status) => {
+        send('done', { code, runId: rid, status });
+        res.end();
+      }
+    ).then(result => {
+      runId = result.runId;
+      startedAt = result.startedAt;
+      send('start', { runId, command, clientName: clientConfig.name, startedAt });
+    }).catch(err => {
+      send('error', { text: `Failed to start: ${err.message}` });
+      send('done', { code: 1, status: 'failed' });
+      res.end();
+    });
+    return;
+  }
+
   // Pre-flight: verify claude CLI is available
   const claudePath = (() => { try { return execSync('which claude', { encoding: 'utf8' }).trim(); } catch { return null; } })();
   if (!claudePath) {
@@ -590,8 +699,6 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   }
   const claudeVersion = (() => { try { return execSync('claude --version 2>&1', { encoding: 'utf8', timeout: 10000 }).trim(); } catch (e) { return `error: ${e.message}`; } })();
   send('output', { text: `> claude: ${claudePath} (${claudeVersion})\n` });
-
-  const t0 = Date.now();
 
   let runResult;
   try {
@@ -627,7 +734,8 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
         send('output', { text: `\n[DEBUG: req.close at ${elapsed}ms — ignoring (grace period)]\n` });
         console.log(`[run ${runId}] req.close IGNORED (grace period, ${elapsed}ms < 10s)`);
       } else {
-        entry.proc.kill('SIGTERM');
+        if (entry.proc) entry.proc.kill('SIGTERM');
+        else if (entry.abort) entry.abort.abort();
         runningProcesses.delete(runId);
       }
     }
@@ -661,7 +769,7 @@ setInterval(() => {
   _scheduleLastClearDate = todayUTC;
 
   const config = loadConfig();
-  if (!config.anthropicApiKey) return; // No API key, skip
+  if (!config.anthropicApiKey && !config.openaiApiKey) return; // No API key configured, skip
 
   const clients = getClients();
   for (const client of clients) {
@@ -709,21 +817,39 @@ setInterval(() => {
 
         logLine(`\n[${new Date().toISOString()}] Scheduled run started: ${command} (triggered at ${hhmm} UTC)\n`);
 
-        try {
-          spawnRun(
+        const schedConfig = loadConfig();
+        const useOpenAI = schedConfig.aiProvider === 'openai' && TEXT_ONLY_COMMANDS.has(command) && schedConfig.openaiApiKey;
+
+        if (useOpenAI) {
+          runOpenAI(
             client.clientId,
             command,
-            (type, text) => {
-              if (type === 'output' || type === 'error') logLine(text);
-            },
+            (type, text) => { if (type === 'output' || type === 'error') logLine(text); },
             (runId, code, signal, startedAt, status) => {
-              logLine(`\n[${new Date().toISOString()}] Scheduled run finished: runId=${runId} status=${status} code=${code}\n`);
+              logLine(`\n[${new Date().toISOString()}] Scheduled run finished: runId=${runId} status=${status} provider=openai\n`);
               console.log(`[scheduler] Run finished: ${triggerKey} runId=${runId} status=${status}`);
             }
-          );
-        } catch (err) {
-          logLine(`\n[${new Date().toISOString()}] Scheduled run FAILED to start: ${err.message}\n`);
-          console.error(`[scheduler] Failed to start ${triggerKey}:`, err.message);
+          ).catch(err => {
+            logLine(`\n[${new Date().toISOString()}] Scheduled run FAILED to start: ${err.message}\n`);
+            console.error(`[scheduler] Failed to start ${triggerKey}:`, err.message);
+          });
+        } else {
+          try {
+            spawnRun(
+              client.clientId,
+              command,
+              (type, text) => {
+                if (type === 'output' || type === 'error') logLine(text);
+              },
+              (runId, code, signal, startedAt, status) => {
+                logLine(`\n[${new Date().toISOString()}] Scheduled run finished: runId=${runId} status=${status} code=${code}\n`);
+                console.log(`[scheduler] Run finished: ${triggerKey} runId=${runId} status=${status}`);
+              }
+            );
+          } catch (err) {
+            logLine(`\n[${new Date().toISOString()}] Scheduled run FAILED to start: ${err.message}\n`);
+            console.error(`[scheduler] Failed to start ${triggerKey}:`, err.message);
+          }
         }
       }
     }
@@ -795,7 +921,8 @@ app.post('/api/clients/:id/run/stop', requireLicense, (req, res) => {
   if (!entry || entry.clientId !== req.params.id) {
     return res.status(404).json({ error: 'No running process found' });
   }
-  entry.proc.kill('SIGTERM');
+  if (entry.proc) entry.proc.kill('SIGTERM');
+  else if (entry.abort) entry.abort.abort();
   runningProcesses.delete(runId);
   res.json({ success: true });
 });
