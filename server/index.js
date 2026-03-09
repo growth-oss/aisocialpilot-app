@@ -2125,10 +2125,13 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
 
   send('start', { runId: runResult.runId, command, clientName: clientConfig.name, startedAt: runResult.startedAt });
 
+  // Same 10s grace period as the main run endpoint — Railway proxy drops SSE briefly
+  const intelT0 = Date.now();
   req.on('close', () => {
+    const elapsed = Date.now() - intelT0;
     const entry = runningProcesses.get(runResult.runId);
-    if (entry && entry.proc) {
-      entry.proc.kill('SIGTERM');
+    if (entry && elapsed >= 10000) {
+      if (entry.proc) entry.proc.kill('SIGTERM');
       runningProcesses.delete(runResult.runId);
     }
   });
