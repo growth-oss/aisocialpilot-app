@@ -622,8 +622,8 @@
       <button class="btn btn-sm btn-ghost" onclick="closeC360()">✕ Close</button>
     </div>
     <div class="c360-stats">
-      <div class="c360-stat"><div class="c360-stat-val" id="c360-total">—</div><div class="c360-stat-lbl">Leads Found</div></div>
-      <div class="c360-stat"><div class="c360-stat-val" id="c360-pipeline">—</div><div class="c360-stat-lbl">In Pipeline</div></div>
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-hot" style="color:#f59e0b">—</div><div class="c360-stat-lbl">🎯 Hot Leads</div></div>
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-total">—</div><div class="c360-stat-lbl">In Pipeline</div></div>
       <div class="c360-stat"><div class="c360-stat-val" id="c360-dms">—</div><div class="c360-stat-lbl">DMs Sent</div></div>
       <div class="c360-stat"><div class="c360-stat-val" id="c360-converted">—</div><div class="c360-stat-lbl">Converted</div></div>
     </div>
@@ -2297,7 +2297,7 @@ async function openC360(idx) {
   document.getElementById('c360-title-handles').textContent = handles;
 
   // Reset stats to loading state
-  ['c360-total','c360-pipeline','c360-dms','c360-converted'].forEach(id => { document.getElementById(id).textContent = '…'; });
+  ['c360-hot','c360-total','c360-dms','c360-converted'].forEach(id => { document.getElementById(id).textContent = '…'; });
 
   // Show modal
   document.getElementById('c360-overlay').classList.remove('hidden');
@@ -2305,14 +2305,15 @@ async function openC360(idx) {
 
   // Render saved intel immediately (no API needed)
   renderC360Intel(comp);
+  document.getElementById('c360-hot').textContent = comp.complaint_users?.length || 0;
 
   // Load pipeline + leads from API (by instagram handle, or name as fallback)
   const handle = comp.instagram || comp.tiktok || comp.x || comp.name || '';
   try {
     const data = await api('GET', `/clients/${clientId}/leadgen/competitor-view?handle=${encodeURIComponent(handle)}`);
     if (data) {
-      document.getElementById('c360-total').textContent     = data.totalFound   || 0;
-      document.getElementById('c360-pipeline').textContent  = data.inPipeline   || 0;
+      document.getElementById('c360-hot').textContent       = (comp.complaint_users?.length) || 0;
+      document.getElementById('c360-total').textContent     = data.inPipeline   || 0;
       document.getElementById('c360-dms').textContent       = data.dmsSent      || 0;
       document.getElementById('c360-converted').textContent = data.converted    || 0;
       renderC360Funnel(data.pipeline || []);
@@ -2340,27 +2341,100 @@ function switchC360Tab(tab) {
 
 function renderC360Intel(comp) {
   const el = document.getElementById('c360-intel-content');
-  const hasAny = comp.weaknesses?.length || comp.complaint_keywords?.length || comp.top_products?.length || comp.hashtags?.length || comp.notes;
+  const hasAny = comp.weaknesses?.length || comp.complaint_keywords?.length || comp.top_products?.length || comp.hashtags?.length || comp.notes || comp.complaint_users?.length;
   if (!hasAny) {
     el.innerHTML = `<div class="c360-empty">No AI research data yet.<br>Click <strong>⚡ Research</strong> to let Claude crawl this competitor's store & social accounts.</div>`;
     return;
   }
   let html = '';
+
+  // ── Top Products (rich cards with image + link) ──
   if (comp.top_products?.length) {
-    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🏷 Top Products</div><div class="c360-tags">${comp.top_products.map(p => `<span class="c360-tag">${p}</span>`).join('')}</div></div>`;
+    const isRich = comp.top_products.some(p => typeof p === 'object');
+    if (isRich) {
+      html += `<div class="c360-intel-block">
+        <div class="c360-intel-lbl">🏷 Top Products</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:8px">
+          ${comp.top_products.map(p => {
+            if (typeof p === 'string') return `<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px">${p}</div>`;
+            const img = p.image_url ? `<img src="${p.image_url}" onerror="this.style.display='none'" style="width:100%;height:90px;object-fit:cover;border-radius:3px;margin-bottom:8px">` : `<div style="width:100%;height:60px;background:var(--border);border-radius:3px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:20px">🛍</div>`;
+            const link = p.url ? `<a href="${p.url}" target="_blank" style="color:var(--accent);font-size:10px;display:block;margin-top:4px;word-break:break-all">↗ View product</a>` : '';
+            return `<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px">
+              ${img}
+              <div style="font-size:12px;font-weight:600;line-height:1.3">${p.name || 'Product'}</div>
+              ${p.price ? `<div style="font-size:11px;color:var(--accent);margin-top:3px">${p.price}</div>` : ''}
+              ${p.description ? `<div style="font-size:10px;color:var(--text-dim);margin-top:3px;line-height:1.3">${p.description.slice(0,80)}</div>` : ''}
+              ${link}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🏷 Top Products</div><div class="c360-tags">${comp.top_products.map(p => `<span class="c360-tag">${p}</span>`).join('')}</div></div>`;
+    }
   }
+
+  // ── Weaknesses with source links ──
   if (comp.weaknesses?.length) {
-    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">⚠️ Weaknesses (exploit these)</div><div class="c360-tags">${comp.weaknesses.map(w => `<span class="c360-tag hot">${w}</span>`).join('')}</div></div>`;
+    const isRich = comp.weaknesses.some(w => typeof w === 'object');
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">⚠️ Weaknesses — exploit these</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+        ${comp.weaknesses.map(w => {
+          if (typeof w === 'string') return `<div style="display:flex;align-items:center;gap:6px"><span class="c360-tag hot">${w}</span></div>`;
+          const link = w.source_url ? `<a href="${w.source_url}" target="_blank" style="font-size:10px;color:var(--accent);flex-shrink:0">↗ source</a>` : '';
+          return `<div style="display:flex;align-items:center;gap:6px"><span class="c360-tag hot" style="flex:1">${w.text||w}</span>${link}</div>`;
+        }).join('')}
+      </div>
+    </div>`;
   }
+
+  // ── Complaint Keywords ──
   if (comp.complaint_keywords?.length) {
-    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🔥 Complaint Keywords (intercept these)</div><div class="c360-tags">${comp.complaint_keywords.map(k => `<span class="c360-tag hot">${k}</span>`).join('')}</div></div>`;
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🔥 Complaint Keywords — intercept & DM</div>
+      <div class="c360-tags">${comp.complaint_keywords.map(k => `<span class="c360-tag hot">${typeof k==='string'?k:k.text||k}</span>`).join('')}</div>
+    </div>`;
   }
+
+  // ── Complaint Users — HOT LEADS already in the funnel ──
+  if (comp.complaint_users?.length) {
+    const clientId = window._intel.clientId;
+    html += `<div class="c360-intel-block">
+      <div class="c360-intel-lbl" style="color:#f59e0b">🎯 Hot Leads Found — already complained publicly</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">These people publicly trashed ${comp.name}. They've been auto-added to your hunt pipeline.</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${comp.complaint_users.map(u => {
+          const avatar = (u.username||'?')[1]?.toUpperCase() || '?';
+          const profileLink = u.profile_url ? `<a href="${u.profile_url}" target="_blank" style="color:var(--accent);font-size:11px">↗ profile</a>` : '';
+          const postLink = u.post_url ? `<a href="${u.post_url}" target="_blank" style="color:var(--text-muted);font-size:11px">↗ post</a>` : '';
+          const platIcon = u.platform==='instagram'?'📸':u.platform==='tiktok'?'🎵':u.platform==='x'?'𝕏':'💬';
+          return `<div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:var(--radius-sm);padding:10px;display:flex;gap:10px;align-items:flex-start">
+            <div style="width:32px;height:32px;border-radius:50%;background:#f59e0b;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#000;flex-shrink:0">${avatar}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">${platIcon} ${u.username} ${profileLink} ${postLink}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-style:italic">"${(u.complaint_text||'').slice(0,140)}"</div>
+              ${u.keyword_matched ? `<div style="margin-top:4px"><span style="font-size:10px;background:rgba(239,68,68,0.15);color:#ef4444;padding:1px 6px;border-radius:10px">🔥 ${u.keyword_matched}</span></div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // ── Hashtags ──
   if (comp.hashtags?.length) {
-    html += `<div class="c360-intel-block"><div class="c360-intel-lbl"># Hashtags to Mine</div><div class="c360-tags">${comp.hashtags.map(h => `<span class="c360-tag hash">${h}</span>`).join('')}</div></div>`;
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl"># Hashtags to Mine</div>
+      <div class="c360-tags">${comp.hashtags.map(h => `<span class="c360-tag hash">${h}</span>`).join('')}</div>
+    </div>`;
+  }
+
+  // ── Engagement Patterns + Notes ──
+  if (comp.engagement_patterns) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">📈 Engagement Patterns</div><div class="c360-intel-txt">${comp.engagement_patterns}</div></div>`;
   }
   if (comp.notes) {
-    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">📝 Notes</div><div class="c360-intel-txt">${comp.notes}</div></div>`;
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">📝 Competitive Brief</div><div class="c360-intel-txt">${comp.notes}</div></div>`;
   }
+
   el.innerHTML = html;
 }
 

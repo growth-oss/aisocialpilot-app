@@ -850,7 +850,7 @@ Output JSON schema:
     const tiktok    = params.tiktok    || '';
     const xHandle   = params.x         || '';
 
-    return `You are a competitive intelligence agent. Research this competitor thoroughly.
+    return `You are a competitive intelligence agent. Research this competitor thoroughly and extract actionable leads.
 
 Competitor: ${compName || 'unknown'}
 ${storeUrl  ? `Store URL: ${storeUrl}` : ''}
@@ -859,21 +859,33 @@ ${tiktok    ? `TikTok: ${tiktok}` : ''}
 ${xHandle   ? `X/Twitter: ${xHandle}` : ''}
 
 STEPS using Playwright (headed, headless:false):
-1. If store URL given: crawl their catalog. Find top 5 products by review count / prominence / stars.
-   Read 10-20 customer reviews per product — extract recurring complaints verbatim.
-2. If Instagram given: visit their profile. Study their last 15-20 posts.
-   Note: which products get the most engagement, what captions they write, which hashtags they use.
-3. If TikTok given: similarly — note their top-performing content angles.
-4. If X given: scan their recent posts and replies — note tone, complaints from customers, what they promote.
-5. Compile:
-   - top_products: their best-performing products by evidence
-   - promoted_products: what they are actively advertising/pushing
-   - weaknesses: recurring customer complaints, negative review themes
-   - complaint_keywords: the exact phrases frustrated customers use (these become monitoring keywords)
-   - hashtags: hashtags they use frequently
-   - engagement_patterns: what type of content performs best for them
-   - competitive_brief: 2-3 sentence plain-language summary with recommendations
-6. Screenshot key pages to logs/screenshots/intel-competitor-{name}.png
+
+STEP 1 — Store crawl (if store URL given):
+- Visit their catalog and product pages
+- For each of the top 5 products: note the exact product name, page URL, main product image URL, price, and short description
+- Read 15-30 customer reviews. Extract the EXACT complaint phrases customers use, and note any reviewers who left a username/handle
+
+STEP 2 — Instagram (if handle given):
+- Visit the profile. Scroll to see last 20 posts.
+- For each post: open it and read the FIRST 10-15 comments
+- Look for comments that express frustration, complaints, comparisons, questions about returns/price/quality
+- For each such comment: note the commenter's Instagram username (@handle), the post URL, and what they said
+- Also note which products get the most engagement and which hashtags appear in captions
+
+STEP 3 — TikTok (if handle given): same as Instagram — visit profile, open top 10 videos, read comments, extract complainers by @handle
+
+STEP 4 — X/Twitter (if handle given): scan recent replies to their posts, extract usernames who complained
+
+STEP 5 — Compile everything:
+- top_products: objects with name, url, image_url, price, description
+- weaknesses: objects with text (the complaint theme) and source_url (page or post where found)
+- complaint_keywords: exact phrases (strings)
+- complaint_users: people who publicly complained — each with username, platform, profile_url (if known), post_url (the post they commented on), complaint_text (what they said), keyword_matched
+- hashtags, engagement_patterns, notes (competitive brief)
+
+IMPORTANT: complaint_users are HOT LEADS — they have already expressed frustration with the competitor publicly. Extract as many as possible (aim for 10-20).
+
+6. Screenshot key pages to logs/screenshots/intel-competitor-${compName}.png
 
 ${knowledgeCtx ? 'Our current brand context:\n' + knowledgeCtx : ''}
 ${wrapperNote}
@@ -886,10 +898,17 @@ ${wrapperNote}
     "instagram": "${instagram}",
     "tiktok": "${tiktok}",
     "x": "${xHandle}",
-    "top_products": ["Product A", "Product B"],
+    "top_products": [
+      {"name": "Product A", "url": "https://...", "image_url": "https://...", "price": "AED 450", "description": "100% cotton, 600TC"}
+    ],
     "promoted_products": ["Product C"],
-    "weaknesses": ["Complaint theme 1", "Complaint theme 2"],
+    "weaknesses": [
+      {"text": "Complaint theme 1", "source_url": "https://..."}
+    ],
     "complaint_keywords": ["phrase 1", "phrase 2"],
+    "complaint_users": [
+      {"username": "@user123", "platform": "instagram", "profile_url": "https://instagram.com/user123", "post_url": "https://instagram.com/p/...", "complaint_text": "Their return policy is terrible...", "keyword_matched": "non-returnable"}
+    ],
     "hashtags": ["#hashtag1"],
     "engagement_patterns": "Short-form video on TikTok gets 3x more engagement than static posts",
     "notes": "Competitive brief: ...",
@@ -1049,6 +1068,7 @@ function applyIntelData(clientId, parsed) {
   if (section === 'competitors') {
     const existing = readArr('competitors.json');
     const comp = Array.isArray(data) ? data : [data];
+    // Normalise: top_products & weaknesses may be strings or objects — keep as-is
     for (const c of comp) {
       const idx = existing.findIndex(e => e.name === c.name);
       if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
@@ -1060,8 +1080,9 @@ function applyIntelData(clientId, parsed) {
     const kws = readArr('keywords.json');
     for (const c of comp) {
       for (const ck of (c.complaint_keywords || [])) {
-        if (!kws.find(k => k.keyword === ck)) {
-          kws.push({ keyword: ck, intent: 'pain-point', volume: 'medium',
+        const kw = typeof ck === 'string' ? ck : ck.text || ck.keyword || '';
+        if (kw && !kws.find(k => k.keyword === kw)) {
+          kws.push({ keyword: kw, intent: 'pain-point', volume: 'medium',
             platforms: ['instagram','tiktok','x'],
             relevance_score: 8, notes: `Competitor complaint keyword: ${c.name}` });
         }
@@ -1077,6 +1098,28 @@ function applyIntelData(clientId, parsed) {
           why: `Competitor account — monitor comments for engagement opportunities`, enabled: true });
       }
       writeArr('hot-sources.json', sources);
+
+      // Auto-add complaint_users as hot leads in the leadgen pipeline
+      const cDir = path.join(CLIENTS_DIR, clientId);
+      let newLeadsAdded = 0;
+      for (const u of (c.complaint_users || [])) {
+        if (!u.username || !u.platform) continue;
+        try {
+          lgDb.upsertLead(cDir, {
+            platform:      u.platform,
+            username:      u.username.replace(/^@/, ''),
+            profile_url:   u.profile_url || null,
+            display_name:  u.display_name || null,
+            total_score:   85, // complaint leads are hot — high score
+            is_influencer: 0,
+            source_type:   'competitor_complaint',
+            source_handle: c.instagram || c.tiktok || c.name || '',
+            notes: `Complained about ${c.name}: "${(u.complaint_text || '').slice(0, 120)}" — post: ${u.post_url || 'unknown'}`,
+          });
+          newLeadsAdded++;
+        } catch (e) { console.error('[intel] upsertLead error:', e.message); }
+      }
+      if (newLeadsAdded > 0) console.log(`[intel] Auto-added ${newLeadsAdded} complaint leads for ${c.name}`);
     }
     writeArr('keywords.json', kws);
     return true;
