@@ -1147,6 +1147,7 @@ function renderClientForm(client) {
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-leadgen'); loadLeadGenTab('${c.clientId}')">Lead Gen</div>` : ''}
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-costs'); loadCostsTab('${c.clientId}')">Costs</div>` : ''}
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-intel'); loadIntelTab('${c.clientId}')">Intelligence</div>` : ''}
+      ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-intercept'); loadInterceptTab('${c.clientId}')">🎯 Intercept</div>` : ''}
     </div>
 
     <!-- General -->
@@ -1751,6 +1752,144 @@ function renderClientForm(client) {
         <div id="intel-followers-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px"></div>
         <div id="intel-followers-overlap" style="display:none;background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;font-size:13px"></div>
         <div id="intel-followers-list"></div>
+      </div>
+    </div>` : ''}
+
+    ${isEdit ? `
+    <!-- ══════════════════════════════════════════ -->
+    <!-- INTERCEPT TAB                              -->
+    <!-- ══════════════════════════════════════════ -->
+    <div id="tab-intercept" class="hidden">
+
+      <!-- Stats bar -->
+      <div id="intercept-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px"></div>
+
+      <!-- Enable + Run -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Competitor Audience Intercept</div>
+            <div style="font-size:12px;color:var(--text-muted)">Monitor competitor posts, post adjacent comments to attract inbound DMs, convert privately with images + search discovery.</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0;margin-left:16px">
+            <input type="checkbox" id="int-enabled" onchange="saveInterceptConfig()">
+            <span style="font-size:13px;font-weight:600">Enable</span>
+          </label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="runCommand('${c.clientId}', 'intercept')">▶ Run Intercept Now</button>
+          <button class="btn btn-ghost btn-sm" onclick="saveInterceptConfig()">Save Config</button>
+        </div>
+      </div>
+
+      <!-- Competitors to watch -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Competitors to Watch</div>
+        <div class="card-desc" style="margin-bottom:12px">Instagram and TikTok handles to monitor. Posts from these accounts trigger the intercept flow. Tip: competitors already in your Intelligence tab are auto-suggested.</div>
+        <div id="int-competitors-list" style="margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="int-new-competitor" placeholder="@handle or profile URL" style="flex:1" onkeydown="if(event.key==='Enter')addInterceptCompetitor()">
+          <button class="btn btn-sm btn-ghost" onclick="addInterceptCompetitor()">+ Add</button>
+        </div>
+        <div id="int-intel-suggestions" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></div>
+      </div>
+
+      <!-- Search Discovery -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">Search Discovery Terms</div>
+        <div class="card-desc" style="margin-bottom:12px">What you tell people to Google instead of sending a direct link. Used only in private DMs at Stage 4 of the conversion flow.</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Brand Search Term <span style="color:var(--text-muted);font-weight:400">(what to Google for the product)</span></label>
+            <input type="text" id="int-brand-search" placeholder="e.g. CerviRest Pro pillow" oninput="autoSaveInterceptConfig()">
+          </div>
+          <div class="field">
+            <label>Ambassador Review Term <span style="color:var(--text-muted);font-weight:400">(YouTube search)</span></label>
+            <input type="text" id="int-ambassador-search" placeholder="e.g. Dr Sarah Ahmed pillow review" oninput="autoSaveInterceptConfig()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Comment Strategies -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Comment Strategies</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <label style="display:flex;gap:10px;cursor:pointer;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+            <input type="checkbox" id="int-strat-mirror" value="mirror_question" onchange="saveInterceptConfig()">
+            <div>
+              <div style="font-size:13px;font-weight:600">❓ Mirror Question</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Ask a genuine question about the same pain point the post addresses. Attracts replies from people with the same problem.</div>
+            </div>
+          </label>
+          <label style="display:flex;gap:10px;cursor:pointer;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+            <input type="checkbox" id="int-strat-experience" value="shared_experience" onchange="saveInterceptConfig()">
+            <div>
+              <div style="font-size:13px;font-weight:600">💬 Shared Experience</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Seed that you found a solution (vague — no brand name). People who are considering buying will want to know what it was.</div>
+            </div>
+          </label>
+          <label style="display:flex;gap:10px;cursor:pointer;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+            <input type="checkbox" id="int-strat-comparison" value="soft_comparison" onchange="saveInterceptConfig()">
+            <div>
+              <div style="font-size:13px;font-weight:600">🤔 Soft Comparison</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">When competitor gets negative comments — hint at a better alternative without naming it. Dissatisfied users come to you.</div>
+            </div>
+          </label>
+          <label style="display:flex;gap:10px;cursor:pointer;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+            <input type="checkbox" id="int-strat-visual" value="visual_hook" onchange="saveInterceptConfig()">
+            <div>
+              <div style="font-size:13px;font-weight:600">📸 Visual Hook</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:3px">Post a comment with a product lifestyle image (no visible branding). Grabs attention in a text-heavy comment section.</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Timing + Limits -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Timing &amp; Safety Rules</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Comment delay after post (min minutes)</label>
+            <input type="number" id="int-delay-min" value="30" min="10" max="300" oninput="autoSaveInterceptConfig()">
+          </div>
+          <div class="field">
+            <label>Comment delay after post (max minutes)</label>
+            <input type="number" id="int-delay-max" value="90" min="15" max="600" oninput="autoSaveInterceptConfig()">
+          </div>
+          <div class="field">
+            <label>Min comments in thread before posting</label>
+            <input type="number" id="int-min-comments" value="5" min="1" max="50" oninput="autoSaveInterceptConfig()">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Max intercepts per competitor per week</label>
+            <input type="number" id="int-max-week" value="3" min="1" max="20" oninput="autoSaveInterceptConfig()">
+          </div>
+          <div class="field">
+            <label>DM inbox check interval (minutes)</label>
+            <input type="number" id="int-dm-interval" value="15" min="5" max="60" oninput="autoSaveInterceptConfig()">
+          </div>
+          <div class="field">
+            <label>Flag DM for human review if overlap ≥</label>
+            <input type="number" id="int-human-threshold" value="3" min="1" max="10" oninput="autoSaveInterceptConfig()">
+          </div>
+        </div>
+        <div style="background:var(--amber-dim);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:10px 14px;font-size:12px;color:var(--amber);margin-top:12px">
+          ⚠ Safety: Claude will never mention the brand name in competitor comments, never reply directly to a target user, and will stop immediately if an account shows a restriction or CAPTCHA.
+        </div>
+      </div>
+
+      <!-- Intercept Log -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:600">Recent Intercept Activity</div>
+          <button class="btn btn-sm btn-ghost" onclick="loadInterceptLog('${c.clientId}')">↻ Refresh</button>
+        </div>
+        <div id="intercept-log-list">
+          <div style="color:var(--text-muted);text-align:center;padding:24px 0;font-size:13px">No intercept activity yet. Run the intercept command to start.</div>
+        </div>
       </div>
     </div>` : ''}
 
@@ -2430,6 +2569,183 @@ async function computeFollowerOverlap() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Overlap Score'; }
   }
+}
+
+// ─── Intercept Tab ────────────────────────────────────────────────────────────
+
+window._interceptCfg = {};
+window._interceptClientId = null;
+let _interceptSaveTimer = null;
+
+async function loadInterceptTab(clientId) {
+  window._interceptClientId = clientId;
+  const [cfg, stats] = await Promise.all([
+    api('GET', `/clients/${clientId}/intercept/config`),
+    api('GET', `/clients/${clientId}/intercept/stats`),
+  ]);
+  window._interceptCfg = cfg;
+  renderInterceptConfig(cfg);
+  renderInterceptStats(stats);
+  await loadInterceptLog(clientId);
+  // Suggest competitors from intel tab
+  const competitors = await api('GET', `/clients/${clientId}/knowledge/competitors`);
+  const suggestEl = document.getElementById('int-intel-suggestions');
+  if (suggestEl && Array.isArray(competitors) && competitors.length) {
+    const handles = competitors.flatMap(c => [c.instagram, c.tiktok, c.x].filter(Boolean));
+    if (handles.length) {
+      suggestEl.innerHTML = `From your Intelligence tab: ${handles.map(h =>
+        `<button onclick="quickAddInterceptCompetitor('${h}')" style="background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:20px;padding:2px 8px;font-size:11px;margin:2px;cursor:pointer;color:var(--text)">${h}</button>`
+      ).join('')}`;
+    }
+  }
+}
+
+function renderInterceptConfig(cfg) {
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
+  const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+
+  setChk('int-enabled', cfg.enabled);
+  setVal('int-brand-search', cfg.search_discovery?.brand_search_term || '');
+  setVal('int-ambassador-search', cfg.search_discovery?.ambassador_search_term || '');
+  setVal('int-delay-min', cfg.comment_delay_min_minutes ?? 30);
+  setVal('int-delay-max', cfg.comment_delay_max_minutes ?? 90);
+  setVal('int-min-comments', cfg.min_existing_comments ?? 5);
+  setVal('int-max-week', cfg.max_per_competitor_per_week ?? 3);
+  setVal('int-dm-interval', cfg.dm_check_interval_minutes ?? 15);
+  setVal('int-human-threshold', cfg.dm_human_review_overlap_threshold ?? 3);
+
+  const strats = cfg.comment_strategies || ['mirror_question','shared_experience','soft_comparison','visual_hook'];
+  setChk('int-strat-mirror', strats.includes('mirror_question'));
+  setChk('int-strat-experience', strats.includes('shared_experience'));
+  setChk('int-strat-comparison', strats.includes('soft_comparison'));
+  setChk('int-strat-visual', strats.includes('visual_hook'));
+
+  renderInterceptCompetitors(cfg.competitors_to_watch || []);
+}
+
+function renderInterceptCompetitors(list) {
+  const el = document.getElementById('int-competitors-list');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = `<div style="color:var(--text-muted);font-size:13px">No competitors added yet.</div>`; return; }
+  el.innerHTML = list.map((h, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <span style="font-family:monospace;font-size:13px;flex:1">${h}</span>
+      <button onclick="removeInterceptCompetitor(${i})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0">×</button>
+    </div>`).join('');
+}
+
+function renderInterceptStats(stats) {
+  const el = document.getElementById('intercept-stats');
+  if (!el || !stats) return;
+  el.innerHTML = [
+    ['Comments Posted', stats.comments_posted ?? 0, 'var(--accent)'],
+    ['DMs Handled', stats.dms_handled ?? 0, 'var(--green)'],
+    ['This Week', stats.this_week ?? 0, 'var(--amber)'],
+  ].map(([label, val, color]) => `
+    <div class="cost-stat">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">${label}</div>
+      <div style="font-size:22px;font-weight:700;color:${color}">${val}</div>
+    </div>`).join('') +
+    Object.entries(stats.by_competitor || {}).map(([h, n]) => `
+    <div class="cost-stat">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">${h}</div>
+      <div style="font-size:18px;font-weight:600">${n}<span style="font-size:11px;color:var(--text-muted)">/wk</span></div>
+    </div>`).join('');
+}
+
+async function loadInterceptLog(clientId) {
+  const entries = await api('GET', `/clients/${clientId}/intercept/log?limit=30`);
+  const el = document.getElementById('intercept-log-list');
+  if (!el) return;
+  if (!entries?.length) {
+    el.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0;font-size:13px">No intercept activity yet.</div>`;
+    return;
+  }
+  const ACTION_COLORS = {
+    comment_posted: 'var(--accent)', dm_received: 'var(--amber)',
+    dm_replied: 'var(--green)', dm_flagged_human: 'var(--purple)', post_skipped: 'var(--text-muted)',
+  };
+  const STRAT_ICONS = { mirror_question:'❓', shared_experience:'💬', soft_comparison:'🤔', visual_hook:'📸' };
+  el.innerHTML = `<table style="width:100%;font-size:12px;border-collapse:collapse">
+    <thead><tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:6px 4px">Time</th>
+      <th style="text-align:left;padding:6px 4px">Action</th>
+      <th style="text-align:left;padding:6px 4px">Competitor</th>
+      <th style="text-align:left;padding:6px 4px">Detail</th>
+    </tr></thead><tbody>
+    ${entries.map(e => `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:7px 4px;color:var(--text-muted);white-space:nowrap">${e.timestamp?.slice(5,16).replace('T',' ') || '—'}</td>
+      <td style="padding:7px 4px;font-weight:600;color:${ACTION_COLORS[e.action] || 'var(--text)'}">${e.action?.replace(/_/g,' ') || '—'}</td>
+      <td style="padding:7px 4px;font-family:monospace">${e.competitor_account || e.dm_username || '—'}</td>
+      <td style="padding:7px 4px;color:var(--text-dim)">
+        ${e.comment_strategy ? `${STRAT_ICONS[e.comment_strategy] || ''} ${e.comment_strategy.replace(/_/g,' ')}` : ''}
+        ${e.comment_text ? `<div style="color:var(--text-muted);font-size:11px;margin-top:2px">"${e.comment_text.slice(0,80)}${e.comment_text.length > 80 ? '…' : ''}"</div>` : ''}
+        ${e.skip_reason ? `<span style="color:var(--text-muted)">Skipped: ${e.skip_reason}</span>` : ''}
+        ${e.dm_stage ? `Stage ${e.dm_stage}` : ''}
+      </td>
+    </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function buildInterceptConfig() {
+  const strategies = ['mirror_question','shared_experience','soft_comparison','visual_hook']
+    .filter((_, i) => document.getElementById(['int-strat-mirror','int-strat-experience','int-strat-comparison','int-strat-visual'][i])?.checked);
+  return {
+    enabled: document.getElementById('int-enabled')?.checked || false,
+    competitors_to_watch: window._interceptCfg.competitors_to_watch || [],
+    comment_delay_min_minutes: parseInt(document.getElementById('int-delay-min')?.value) || 30,
+    comment_delay_max_minutes: parseInt(document.getElementById('int-delay-max')?.value) || 90,
+    min_existing_comments: parseInt(document.getElementById('int-min-comments')?.value) || 5,
+    max_per_competitor_per_week: parseInt(document.getElementById('int-max-week')?.value) || 3,
+    dm_check_interval_minutes: parseInt(document.getElementById('int-dm-interval')?.value) || 15,
+    dm_human_review_overlap_threshold: parseInt(document.getElementById('int-human-threshold')?.value) || 3,
+    comment_strategies: strategies,
+    search_discovery: {
+      brand_search_term: document.getElementById('int-brand-search')?.value.trim() || '',
+      ambassador_search_term: document.getElementById('int-ambassador-search')?.value.trim() || '',
+    },
+  };
+}
+
+async function saveInterceptConfig() {
+  const clientId = window._interceptClientId;
+  if (!clientId) return;
+  const cfg = buildInterceptConfig();
+  window._interceptCfg = cfg;
+  await api('PUT', `/clients/${clientId}/intercept/config`, cfg);
+  showToast('Intercept config saved');
+}
+
+function autoSaveInterceptConfig() {
+  clearTimeout(_interceptSaveTimer);
+  _interceptSaveTimer = setTimeout(saveInterceptConfig, 1200);
+}
+
+function addInterceptCompetitor() {
+  const input = document.getElementById('int-new-competitor');
+  const val = input?.value.trim();
+  if (!val) return;
+  const list = window._interceptCfg.competitors_to_watch || [];
+  if (!list.includes(val)) list.push(val);
+  window._interceptCfg.competitors_to_watch = list;
+  renderInterceptCompetitors(list);
+  if (input) input.value = '';
+  saveInterceptConfig();
+}
+
+function quickAddInterceptCompetitor(handle) {
+  const list = window._interceptCfg.competitors_to_watch || [];
+  if (!list.includes(handle)) { list.push(handle); window._interceptCfg.competitors_to_watch = list; }
+  renderInterceptCompetitors(list);
+  saveInterceptConfig();
+}
+
+function removeInterceptCompetitor(idx) {
+  const list = window._interceptCfg.competitors_to_watch || [];
+  list.splice(idx, 1);
+  window._interceptCfg.competitors_to_watch = list;
+  renderInterceptCompetitors(list);
+  saveInterceptConfig();
 }
 
 // ─── Actions ───

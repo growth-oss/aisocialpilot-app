@@ -1,0 +1,27 @@
+{
+  "enabled": false,
+  "competitors_to_watch": [],
+  "comment_delay_min_minutes": 30,
+  "comment_delay_max_minutes": 90,
+  "min_existing_comments": 5,
+  "max_per_competitor_per_week": 3,
+  "dm_check_interval_minutes": 15,
+  "dm_human_review_overlap_threshold": 3,
+  "comment_strategies": [
+    "mirror_question",
+    "shared_experience",
+    "soft_comparison",
+    "visual_hook"
+  ],
+  "skip_post_types": [
+    "giveaway",
+    "contest",
+    "hiring",
+    "birthday"
+  ],
+  "search_discovery": {
+    "brand_search_term": "",
+    "ambassador_search_term": ""
+  },
+  "schedule": []
+}

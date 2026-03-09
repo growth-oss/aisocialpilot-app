@@ -566,6 +566,161 @@ YOUR TASK:
 4. Show ALL adapted captions to the user — do not post without approval
 5. Once approved, post with natural staggered timing
 6. Run cross-engagement after posts go live`,
+
+    'intercept': (() => {
+      const clientDir2 = path.join(CLIENTS_DIR, clientConfig.clientId);
+      const interceptCfgPath = path.join(clientDir2, 'intercept', 'intercept-config.json');
+      let iCfg = {};
+      try { iCfg = JSON.parse(fs.readFileSync(interceptCfgPath, 'utf8')); } catch {}
+
+      if (!iCfg.enabled) return ctx + `INTERCEPT NOT ENABLED.\nInform the user that the Intercept feature is not enabled for this client. They can enable it in the Intercept tab of the client settings.`;
+
+      const competitors = (iCfg.competitors_to_watch || []).filter(Boolean);
+      if (!competitors.length) return ctx + `INTERCEPT: No competitors configured to watch. Add competitor handles in the Intercept tab.`;
+
+      const logPath = path.join(clientDir2, 'intercept', 'intercept-log.ndjson');
+      const recentLog = (() => {
+        try {
+          return fs.readFileSync(logPath, 'utf8').split('\n').filter(Boolean).slice(-20).map(l => {
+            try { return JSON.parse(l); } catch { return null; }
+          }).filter(Boolean);
+        } catch { return []; }
+      })();
+
+      // Count intercepts per competitor this week
+      const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+      const weeklyCount = {};
+      recentLog.filter(e => e.action === 'comment_posted' && e.timestamp > weekAgo).forEach(e => {
+        weeklyCount[e.competitor_account] = (weeklyCount[e.competitor_account] || 0) + 1;
+      });
+
+      // Build already-commented post list to avoid duplicates
+      const commentedPosts = new Set(recentLog.filter(e => e.action === 'comment_posted').map(e => e.post_url).filter(Boolean));
+
+      const strategies = iCfg.comment_strategies || ['mirror_question', 'shared_experience', 'soft_comparison', 'visual_hook'];
+      const brandSearchTerm = iCfg.search_discovery?.brand_search_term || '';
+      const ambassadorSearchTerm = iCfg.search_discovery?.ambassador_search_term || '';
+      const minDelay = iCfg.comment_delay_min_minutes || 30;
+      const maxDelay = iCfg.comment_delay_max_minutes || 90;
+      const minComments = iCfg.min_existing_comments || 5;
+      const maxPerWeek = iCfg.max_per_competitor_per_week || 3;
+      const dmInterval = iCfg.dm_check_interval_minutes || 15;
+      const humanReviewThreshold = iCfg.dm_human_review_overlap_threshold || 3;
+
+      const skipCompetitors = competitors.filter(c => (weeklyCount[c] || 0) >= maxPerWeek);
+      const activeCompetitors = competitors.filter(c => (weeklyCount[c] || 0) < maxPerWeek);
+
+      return ctx + `You are running a Competitor Audience Intercept session. This is the highest-converting engagement strategy — you monitor competitor posts, find pain-point conversations, and post natural adjacent comments to attract interested people to DM you.
+
+━━━ GOLDEN RULES (never break these) ━━━
+• NEVER mention the brand name in a competitor's comment section — ever
+• NEVER reply directly to a specific person — post independent comments only
+• NEVER bash or criticize the competitor by name
+• NEVER use hashtags, links, or @ mentions in intercept comments
+• NEVER comment immediately after a post goes up — wait the configured delay
+• If an account shows a restriction or CAPTCHA: STOP and log, do not proceed
+
+━━━ INTERCEPT CONFIG ━━━
+Competitors to watch: ${activeCompetitors.join(', ') || 'NONE (all at weekly limit)'}
+${skipCompetitors.length ? `AT WEEKLY LIMIT (skip): ${skipCompetitors.join(', ')}` : ''}
+Comment delay: ${minDelay}-${maxDelay} minutes after post
+Min comments in thread before posting: ${minComments}
+Max intercepts per competitor per week: ${maxPerWeek}
+DM inbox check interval: every ${dmInterval} minutes
+Enabled comment strategies: ${strategies.join(', ')}
+
+━━━ SEARCH DISCOVERY TERMS (for DM Stage 4 only) ━━━
+Brand search term: "${brandSearchTerm}"
+Ambassador search term: "${ambassadorSearchTerm}"
+→ Guide people to search, never send direct links
+
+━━━ STEP 1 — SCAN COMPETITOR POSTS ━━━
+For each active competitor (${activeCompetitors.join(', ')}):
+1. Open their Instagram and/or TikTok profile using Playwright (headed, headless:false)
+2. Find posts from the last 24-48 hours
+3. For each post, evaluate:
+   a. Is it relevant to the product category? Skip: giveaways, hiring, birthdays, unrelated
+   b. How long ago was it posted? Skip if less than ${minDelay} minutes ago
+   c. Count comments — skip if fewer than ${minComments}
+   d. Already commented? Skip these post URLs: ${commentedPosts.size ? [...commentedPosts].slice(-10).join(', ') : 'none yet'}
+   e. Opportunity score: do the post content or comments match any pain-point keywords?
+4. Pick the best 1-2 qualifying posts per competitor to intercept
+5. Screenshot the post + existing comments before acting
+
+━━━ STEP 2 — ANALYZE THE POST ━━━
+For each qualifying post:
+1. Read the post caption carefully — what pain point or product is it about?
+2. Read the top 10-15 comments — what are people saying? Any frustration, questions, or interest?
+3. Map it to your product's matching benefit from the brand intelligence below
+4. Decide which comment strategy fits best:
+   - mirror_question: post is about a pain point, commenters are relating to it → ask a genuine question about the same pain point
+   - shared_experience: promo post, positive vibe → seed that you found a solution (vague, no brand name)
+   - soft_comparison: negative comments about competitor quality → hint at better alternative without naming it
+   - visual_hook: lifestyle/product image post → post a comment with a relevant product lifestyle image (if ${strategies.includes('visual_hook') ? 'ENABLED' : 'DISABLED'})
+
+━━━ STEP 3 — POST THE COMMENT ━━━
+Write and post your intercept comment:
+• Under 150 characters
+• Written as a genuine person — natural, casual, first-person
+• One emotion only: curious / reflective / helpful (don't mix)
+• No marketing language whatsoever
+• Wait a random delay between ${minDelay} and ${maxDelay} minutes before posting
+• Screenshot immediately after posting (save to logs/screenshots/intercept-{timestamp}.png)
+• Log: { action: "comment_posted", competitor_account, post_url, comment_strategy, comment_text, timestamp }
+
+Comment strategy examples for this brand:
+mirror_question → "Does anyone here actually find [product type] helps with [pain point from keywords]? I've been struggling with this for months 😩"
+shared_experience → "I switched mine about a month ago and honestly didn't realize how much the old one was [pain point] until I did. Completely different now."
+soft_comparison → "Same issue here — I found [product feature] matters way more than [what competitor emphasizes]. The one I ended up with [benefit], it changed everything."
+visual_hook → post comment with lifestyle image: "This is the [feature] that actually worked for me 👆" [no product name or brand visible in image]
+
+━━━ STEP 4 — CHECK DM INBOX ━━━
+After posting, check DM inbox on all active account sessions:
+1. Identify new DMs received since last check
+2. For each new DM, determine:
+   - Is this person asking about a comment I posted? (look for "your comment", "you mentioned", questions about what you found)
+   - Is this a known follower from the database? (check follower overlap for priority)
+   - What stage are they at? (first contact / mid-conversation / ready to buy)
+3. Flag for human review if: follower overlap score ≥ ${humanReviewThreshold}, or they're a large influencer (check their profile)
+
+━━━ DM CONVERSION FLOW ━━━
+Stage 1 — They reach out
+  → Acknowledge warmly. Ask their specific situation: "What's been bothering you most — is it [pain point A] or more [pain point B]?"
+  → Goal: make them feel they're getting personal advice, not a pitch
+
+Stage 2 — Genuine advice (NO product pitch yet)
+  → Answer their specific pain point with real, helpful information
+  → Ask follow-up: sleep position, how long they've had the issue, what they've tried
+  → Goal: build trust before any mention of product
+
+Stage 3 — Natural product introduction + image
+  → "The one that actually worked for me is called [PRODUCT NAME]"
+  → Send the best lifestyle product image (no branding visible if possible)
+  → Explain why it matches their specific situation (reference what they told you)
+  → Goal: show don't tell
+
+Stage 4 — Search discovery (never send a direct link)
+  → "I don't have the link saved but just Google '${brandSearchTerm || '[BRAND SEARCH TERM]'}' — comes right up"
+  → "If you want the review that convinced me, search '${ambassadorSearchTerm || '[AMBASSADOR SEARCH TERM]'}' on YouTube"
+  → Goal: they arrive at the product through their own search = higher intent, higher trust
+
+━━━ LOGGING ━━━
+After every action, append JSON to logs/intercept/intercept-log.ndjson:
+{
+  "timestamp": "[ISO 8601]",
+  "competitor_account": "@handle",
+  "post_url": "url or null",
+  "action": "comment_posted | dm_received | dm_replied | dm_flagged_human | post_skipped",
+  "comment_strategy": "mirror_question | shared_experience | soft_comparison | visual_hook | null",
+  "comment_text": "text or null",
+  "dm_username": "@handle or null",
+  "dm_stage": 1-4 or null,
+  "skip_reason": "reason if skipped or null",
+  "screenshot": "filename or null"
+}
+
+Output a summary at the end: how many posts scanned, how many intercepted, how many DMs handled.`;
+    })(),
   };
   const basePrompt = commands[command] || (ctx + command);
   return basePrompt + buildKnowledgeContext(clientConfig.clientId);
@@ -1267,6 +1422,7 @@ const SCHEDULE_COMMAND_MAP = {
   x:         'reply-x',
   whatsapp:  'check-whatsapp',
   leadgen:   'leadgen',
+  intercept: 'intercept',
 };
 
 // Tracks already-triggered scheduled runs: "clientId:command:YYYY-MM-DD:HH:MM"
@@ -2090,6 +2246,72 @@ app.post('/api/clients/:id/knowledge/followers/overlap', requireLicense, (req, r
       super_targets: overlap.filter(u => u.priority === 'super-target').length,
       high_value: overlap.filter(u => u.priority === 'high-value').length });
   });
+});
+
+// ─── Intercept config + log ────────────────────────────────────────────────────
+
+const DEFAULT_INTERCEPT_CONFIG = {
+  enabled: false,
+  competitors_to_watch: [],
+  comment_delay_min_minutes: 30,
+  comment_delay_max_minutes: 90,
+  min_existing_comments: 5,
+  max_per_competitor_per_week: 3,
+  dm_check_interval_minutes: 15,
+  dm_human_review_overlap_threshold: 3,
+  comment_strategies: ['mirror_question', 'shared_experience', 'soft_comparison', 'visual_hook'],
+  skip_post_types: ['giveaway', 'contest', 'hiring', 'birthday'],
+  search_discovery: { brand_search_term: '', ambassador_search_term: '' },
+  schedule: [],   // UTC times e.g. ["09:00", "17:00"]
+};
+
+function interceptDir(clientId) {
+  const d = path.join(CLIENTS_DIR, clientId, 'intercept');
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+app.get('/api/clients/:id/intercept/config', requireLicense, (req, res) => {
+  const d = interceptDir(req.params.id);
+  const f = path.join(d, 'intercept-config.json');
+  if (!fs.existsSync(f)) return res.json(DEFAULT_INTERCEPT_CONFIG);
+  try { res.json({ ...DEFAULT_INTERCEPT_CONFIG, ...JSON.parse(fs.readFileSync(f, 'utf8')) }); }
+  catch { res.json(DEFAULT_INTERCEPT_CONFIG); }
+});
+
+app.put('/api/clients/:id/intercept/config', requireLicense, (req, res) => {
+  if (!fs.existsSync(path.join(CLIENTS_DIR, req.params.id))) return res.status(404).json({ error: 'Client not found' });
+  const d = interceptDir(req.params.id);
+  const config = { ...DEFAULT_INTERCEPT_CONFIG, ...req.body };
+  fs.writeFileSync(path.join(d, 'intercept-config.json'), JSON.stringify(config, null, 2));
+  res.json({ success: true });
+});
+
+app.get('/api/clients/:id/intercept/log', requireLicense, (req, res) => {
+  const logFile = path.join(interceptDir(req.params.id), 'intercept-log.ndjson');
+  if (!fs.existsSync(logFile)) return res.json([]);
+  const limit = parseInt(req.query.limit) || 50;
+  try {
+    const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+    const entries = lines.slice(-limit).reverse().map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    res.json(entries);
+  } catch { res.json([]); }
+});
+
+app.get('/api/clients/:id/intercept/stats', requireLicense, (req, res) => {
+  const logFile = path.join(interceptDir(req.params.id), 'intercept-log.ndjson');
+  if (!fs.existsSync(logFile)) return res.json({ comments_posted: 0, dms_handled: 0, this_week: 0, by_competitor: {} });
+  try {
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const entries = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
+      .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const comments = entries.filter(e => e.action === 'comment_posted');
+    const dms = entries.filter(e => e.action === 'dm_replied');
+    const thisWeek = comments.filter(e => e.timestamp > weekAgo);
+    const by_competitor = {};
+    thisWeek.forEach(e => { by_competitor[e.competitor_account] = (by_competitor[e.competitor_account] || 0) + 1; });
+    res.json({ comments_posted: comments.length, dms_handled: dms.length, this_week: thisWeek.length, by_competitor });
+  } catch { res.json({ comments_posted: 0, dms_handled: 0, this_week: 0, by_competitor: {} }); }
 });
 
 // ─── SMTP test ───
