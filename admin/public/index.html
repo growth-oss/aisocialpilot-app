@@ -534,6 +534,7 @@
   .comp-badge-running { color:#f59e0b; font-size:11px; font-weight:600; }
   .comp-badge-done    { color:#22c55e; font-size:11px; font-weight:600; }
   .comp-badge-failed  { color:#ef4444; font-size:11px; font-weight:600; }
+  .comp-priority-sel { background:var(--bg-input); border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:11px; padding:2px 6px; cursor:pointer; }
 
   /* ─── Competitor 360° modal ─── */
   .c360-overlay {
@@ -1554,6 +1555,96 @@ function renderClientForm(client) {
           </div>
           <div id="lg-schedule-status" style="margin-top:10px;font-size:13px;"></div>
         </div>
+
+        <!-- Hunt Settings -->
+        <div style="margin-top:24px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:8px">
+            🎯 Auto-Hunt Schedule &amp; Safety
+            <span style="font-size:10px;font-weight:400;color:var(--text-dim);text-transform:none;letter-spacing:0">Automates competitor audience hunting on a schedule with anti-ban limits</span>
+          </div>
+
+          <!-- Schedule section -->
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <span style="font-weight:600;font-size:13px">📅 Schedule</span>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
+                <input type="checkbox" id="hs-enabled" onchange="huntSettingsChanged()"> Enable auto-hunt
+              </label>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Days of week</label>
+                <div id="hs-days" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Time (UTC)</label>
+                <input type="time" id="hs-time" onchange="huntSettingsChanged()" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Max competitors per run</label>
+                <input type="number" id="hs-max-comp" min="1" max="10" onchange="huntSettingsChanged()" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Stagger between competitors (min)</label>
+                <input type="number" id="hs-stagger" min="5" max="120" onchange="huntSettingsChanged()" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+              </div>
+            </div>
+          </div>
+
+          <!-- Safety limits section -->
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:14px">🛡️ Anti-Ban Safety Limits</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Warmup period (days)</label>
+                <input type="number" id="hs-warmup-days" min="0" max="60" onchange="huntSettingsChanged()" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Warmup multiplier (0.1–1.0)</label>
+                <input type="number" id="hs-warmup-mult" min="0.1" max="1" step="0.1" onchange="huntSettingsChanged()" style="width:100%;padding:6px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+              </div>
+            </div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Daily limits per account</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+              <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600">Follows</div>
+              <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600">Likes</div>
+              <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600">Comments</div>
+              <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600">DMs</div>
+              <input type="number" id="hs-dl-ig-follows" min="1" max="200" onchange="huntSettingsChanged()" placeholder="IG" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-ig-likes" min="1" max="500" onchange="huntSettingsChanged()" placeholder="IG" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-ig-comments" min="1" max="100" onchange="huntSettingsChanged()" placeholder="IG" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-ig-dms" min="1" max="50" onchange="huntSettingsChanged()" placeholder="IG" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+            </div>
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">Instagram ↑ &nbsp;&nbsp; TikTok ↓</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+              <input type="number" id="hs-dl-tt-follows" min="1" max="200" onchange="huntSettingsChanged()" placeholder="TT" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-tt-likes" min="1" max="500" onchange="huntSettingsChanged()" placeholder="TT" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-tt-comments" min="1" max="100" onchange="huntSettingsChanged()" placeholder="TT" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-dl-tt-dms" min="1" max="50" onchange="huntSettingsChanged()" placeholder="TT" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+            </div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Per-session limits (single hunt run)</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+              <input type="number" id="hs-sl-follows" min="1" max="50" onchange="huntSettingsChanged()" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-sl-likes" min="1" max="100" onchange="huntSettingsChanged()" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-sl-comments" min="1" max="30" onchange="huntSettingsChanged()" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+              <input type="number" id="hs-sl-dms" min="1" max="20" onchange="huntSettingsChanged()" style="padding:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;text-align:center">
+            </div>
+          </div>
+
+          <!-- Today's budget display -->
+          <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px" id="hs-budget-panel">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <span style="font-weight:600;font-size:13px">📊 Today's Budget</span>
+              <button class="btn btn-sm btn-ghost" onclick="resetHuntBudget()">Reset</button>
+            </div>
+            <div id="hs-budget-display" style="font-size:12px;color:var(--text-dim)">Loading…</div>
+          </div>
+
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary" onclick="saveHuntSettings()">Save Hunt Settings</button>
+            <span id="hs-save-status" style="font-size:12px;color:var(--text-dim)"></span>
+          </div>
+        </div>
       </div>
 
       <!-- Sources -->
@@ -2179,6 +2270,14 @@ async function saveIntelSection(section) {
   await api('PUT', `/clients/${window._intel.clientId}/knowledge/${section}`, data);
 }
 
+async function saveCompPriority(i, priority) {
+  const comp = window._intel.competitors[i];
+  if (!comp) return;
+  comp.hunt_priority = priority;
+  await saveIntelSection('competitors');
+  showToast(`${comp.name} hunt priority: ${priority}`);
+}
+
 function showIntelForm(type) {
   ['product','competitor','source','keyword'].forEach(t => {
     const el = document.getElementById(`intel-${t}-form`);
@@ -2301,6 +2400,11 @@ function renderIntelCompetitors() {
           <span class="comp-card-channels">${channels}</span>
         </div>
         ${badgeHtml}
+        <select class="comp-priority-sel" id="comp-priority-${i}" onchange="saveCompPriority(${i}, this.value)" title="Hunt priority" onclick="event.stopPropagation()">
+          <option value="high" ${(comp.hunt_priority||'normal')==='high'?'selected':''}>🔴 High</option>
+          <option value="normal" ${(comp.hunt_priority||'normal')==='normal'?'selected':''}>🟡 Normal</option>
+          <option value="off" ${(comp.hunt_priority||'normal')==='off'?'selected':''}>⚫ Off</option>
+        </select>
         <div class="comp-card-actions" onclick="event.stopPropagation()">
           <button class="btn btn-sm btn-ghost" style="color:#f59e0b;border-color:#f59e0b33" onclick="toggleCompCard(${i})" title="Expand to run AI Research">⚡ Research</button>
           <button class="btn btn-sm btn-ghost" style="color:#22c55e;border-color:#22c55e33" onclick="runCompHunt(${i})" id="hunt-btn-${i}" title="Scrape this competitor's audience and add to Lead Gen pipeline">🎯 Hunt</button>
@@ -4159,6 +4263,163 @@ function switchLgTab(el, tabId) {
     const e = document.getElementById(id);
     if (e) e.classList.toggle('hidden', id !== tabId);
   });
+  if (tabId === 'lg-config' && state.currentClientId) {
+    loadHuntSettings(state.currentClientId).catch(() => {});
+  }
+}
+
+// ─── Hunt Settings ────────────────────────────────────────────────────────────
+const DAYS_OF_WEEK = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+let _huntSettingsDirty = false;
+
+function huntSettingsChanged() { _huntSettingsDirty = true; }
+
+async function loadHuntSettings(clientId) {
+  const el = document.getElementById('hs-days');
+  if (!el) return;
+  let hs = {};
+  try { hs = await api('GET', `/clients/${clientId}/hunt-settings`); } catch {}
+
+  const sched  = hs.schedule || {};
+  const safety = hs.safety   || {};
+  const dl     = safety.daily_limits    || {};
+  const sl     = safety.session_limits  || {};
+
+  // Schedule
+  const enabledEl = document.getElementById('hs-enabled');
+  if (enabledEl) enabledEl.checked = !!sched.enabled;
+  const timeEl = document.getElementById('hs-time');
+  if (timeEl) timeEl.value = sched.time_utc || '09:00';
+  const maxCompEl = document.getElementById('hs-max-comp');
+  if (maxCompEl) maxCompEl.value = sched.max_competitors_per_run || 2;
+  const staggerEl = document.getElementById('hs-stagger');
+  if (staggerEl) staggerEl.value = sched.stagger_minutes_between_competitors || 20;
+
+  // Day checkboxes
+  const activeDays = sched.days || ['monday','wednesday','friday'];
+  el.innerHTML = DAYS_OF_WEEK.map(d => `
+    <label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;background:var(--bg-input);border:1px solid ${activeDays.includes(d)?'var(--accent)':'var(--border)'};border-radius:4px;padding:3px 8px">
+      <input type="checkbox" id="hs-day-${d}" ${activeDays.includes(d)?'checked':''} onchange="huntSettingsChanged()" style="accent-color:var(--accent)">
+      ${d.slice(0,1).toUpperCase()+d.slice(1,3)}
+    </label>`).join('');
+
+  // Safety
+  const wdEl = document.getElementById('hs-warmup-days');
+  if (wdEl) wdEl.value = safety.warmup_days !== undefined ? safety.warmup_days : 14;
+  const wmEl = document.getElementById('hs-warmup-mult');
+  if (wmEl) wmEl.value = safety.warmup_multiplier !== undefined ? safety.warmup_multiplier : 0.4;
+
+  const igDl = dl.instagram || {};
+  const ttDl = dl.tiktok    || {};
+  const setVal = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  setVal('hs-dl-ig-follows',  igDl.follows  !== undefined ? igDl.follows  : 50);
+  setVal('hs-dl-ig-likes',    igDl.likes    !== undefined ? igDl.likes    : 100);
+  setVal('hs-dl-ig-comments', igDl.comments !== undefined ? igDl.comments : 15);
+  setVal('hs-dl-ig-dms',      igDl.dms      !== undefined ? igDl.dms      : 10);
+  setVal('hs-dl-tt-follows',  ttDl.follows  !== undefined ? ttDl.follows  : 30);
+  setVal('hs-dl-tt-likes',    ttDl.likes    !== undefined ? ttDl.likes    : 80);
+  setVal('hs-dl-tt-comments', ttDl.comments !== undefined ? ttDl.comments : 10);
+  setVal('hs-dl-tt-dms',      ttDl.dms      !== undefined ? ttDl.dms      : 5);
+  setVal('hs-sl-follows',  sl.follows  !== undefined ? sl.follows  : 15);
+  setVal('hs-sl-likes',    sl.likes    !== undefined ? sl.likes    : 30);
+  setVal('hs-sl-comments', sl.comments !== undefined ? sl.comments : 5);
+  setVal('hs-sl-dms',      sl.dms      !== undefined ? sl.dms      : 3);
+
+  _huntSettingsDirty = false;
+  await loadHuntBudget(clientId);
+}
+
+async function saveHuntSettings() {
+  const clientId = state.currentClientId;
+  const st = document.getElementById('hs-save-status');
+  if (st) { st.textContent = 'Saving\u2026'; st.style.color = 'var(--text-dim)'; }
+  const days = DAYS_OF_WEEK.filter(d => {
+    const el = document.getElementById('hs-day-' + d);
+    return el && el.checked;
+  });
+  const getInt = (id, fallback) => { const e = document.getElementById(id); return e ? (parseInt(e.value) || fallback) : fallback; };
+  const getFloat = (id, fallback) => { const e = document.getElementById(id); return e ? (parseFloat(e.value) || fallback) : fallback; };
+  const getBool = (id) => { const e = document.getElementById(id); return e ? e.checked : false; };
+  const getStr = (id, fallback) => { const e = document.getElementById(id); return e ? (e.value || fallback) : fallback; };
+  const payload = {
+    schedule: {
+      enabled: getBool('hs-enabled'),
+      days,
+      time_utc: getStr('hs-time', '09:00'),
+      max_competitors_per_run: getInt('hs-max-comp', 2),
+      stagger_minutes_between_competitors: getInt('hs-stagger', 20),
+    },
+    safety: {
+      warmup_days: getInt('hs-warmup-days', 14),
+      warmup_multiplier: getFloat('hs-warmup-mult', 0.4),
+      daily_limits: {
+        instagram: {
+          follows:  getInt('hs-dl-ig-follows', 50),
+          likes:    getInt('hs-dl-ig-likes', 100),
+          comments: getInt('hs-dl-ig-comments', 15),
+          dms:      getInt('hs-dl-ig-dms', 10),
+        },
+        tiktok: {
+          follows:  getInt('hs-dl-tt-follows', 30),
+          likes:    getInt('hs-dl-tt-likes', 80),
+          comments: getInt('hs-dl-tt-comments', 10),
+          dms:      getInt('hs-dl-tt-dms', 5),
+        },
+      },
+      session_limits: {
+        follows:  getInt('hs-sl-follows', 15),
+        likes:    getInt('hs-sl-likes', 30),
+        comments: getInt('hs-sl-comments', 5),
+        dms:      getInt('hs-sl-dms', 3),
+      },
+    },
+  };
+  try {
+    await api('PUT', `/clients/${clientId}/hunt-settings`, payload);
+    if (st) { st.textContent = '\u2713 Saved'; st.style.color = 'var(--green)'; setTimeout(() => { if (st) st.textContent = ''; }, 3000); }
+    _huntSettingsDirty = false;
+    showToast('Hunt settings saved');
+  } catch (e) {
+    if (st) { st.textContent = '\u2717 ' + e.message; st.style.color = 'var(--red)'; }
+  }
+}
+
+async function loadHuntBudget(clientId) {
+  const el = document.getElementById('hs-budget-display');
+  if (!el) return;
+  try {
+    const b = await api('GET', `/clients/${clientId}/hunt-settings/budget`);
+    const accounts = (b.budget && b.budget.accounts) ? b.budget.accounts : {};
+    const limits   = b.limits || {};
+    const platforms = Object.keys(accounts);
+    if (!platforms.length) { el.innerHTML = 'No activity today.'; return; }
+    el.innerHTML = platforms.map(plat => {
+      const used = accounts[plat] || {};
+      const lim  = limits[plat]   || {};
+      const bars = ['follows','likes','comments','dms'].map(k => {
+        const u = used[k] || 0, l = lim[k] || 1;
+        const pct = Math.min(100, Math.round(u / l * 100));
+        const color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#22c55e';
+        return `<div style="margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:2px">
+            <span>${k}</span><span style="color:${color}">${u}/${l}</span>
+          </div>
+          <div style="height:4px;background:var(--bg-input);border-radius:2px">
+            <div style="height:4px;width:${pct}%;background:${color};border-radius:2px;transition:width .3s"></div>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">${plat}</div>${bars}</div>`;
+    }).join('') + `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Resets at midnight UTC \u00b7 Date: ${(b.budget && b.budget.date) ? b.budget.date : '\u2014'}</div>`;
+  } catch { el.innerHTML = 'Could not load budget'; }
+}
+
+async function resetHuntBudget() {
+  if (!confirm('Reset today\'s budget counters to zero?')) return;
+  const clientId = state.currentClientId;
+  await api('POST', `/clients/${clientId}/hunt-settings/budget/reset`);
+  await loadHuntBudget(clientId);
+  showToast('Budget reset');
 }
 
 function fmtNum(n) {

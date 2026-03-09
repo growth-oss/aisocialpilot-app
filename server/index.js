@@ -776,6 +776,81 @@ function buildKnowledgeContext(clientId) {
   return lines.join('\n');
 }
 
+// ─── Hunt Settings helpers ─────────────────────────────────────────────────────
+
+const HUNT_SETTINGS_DEFAULTS = {
+  schedule: {
+    enabled: false,
+    days: ['monday','wednesday','friday'],
+    time_utc: '09:00',
+    max_competitors_per_run: 2,
+    stagger_minutes_between_competitors: 20,
+  },
+  safety: {
+    warmup_days: 14,
+    warmup_multiplier: 0.4,
+    daily_limits: {
+      instagram: { follows: 50, likes: 100, comments: 15, dms: 10 },
+      tiktok:    { follows: 30, likes: 80,  comments: 10, dms: 5  },
+    },
+    session_limits: { follows: 15, likes: 30, comments: 5, dms: 3 },
+    delays: {
+      between_actions_ms:  [3000, 8000],
+      between_profiles_sec:[30, 90],
+      after_comment_min:   [5, 10],
+      after_dm_min:        [10, 15],
+    },
+  },
+};
+
+function getHuntSettings(clientId) {
+  const f = path.join(CLIENTS_DIR, clientId, 'leadgen', 'hunt-settings.json');
+  try {
+    const stored = JSON.parse(fs.readFileSync(f, 'utf8'));
+    // Deep merge with defaults so missing keys fall back safely
+    const sched  = { ...HUNT_SETTINGS_DEFAULTS.schedule,  ...(stored.schedule  || {}) };
+    const safety = { ...HUNT_SETTINGS_DEFAULTS.safety,    ...(stored.safety    || {}) };
+    safety.daily_limits   = { ...HUNT_SETTINGS_DEFAULTS.safety.daily_limits,   ...(stored.safety?.daily_limits   || {}) };
+    safety.session_limits = { ...HUNT_SETTINGS_DEFAULTS.safety.session_limits, ...(stored.safety?.session_limits || {}) };
+    safety.delays         = { ...HUNT_SETTINGS_DEFAULTS.safety.delays,         ...(stored.safety?.delays         || {}) };
+    safety.daily_limits.instagram = { ...HUNT_SETTINGS_DEFAULTS.safety.daily_limits.instagram, ...(stored.safety?.daily_limits?.instagram || {}) };
+    safety.daily_limits.tiktok    = { ...HUNT_SETTINGS_DEFAULTS.safety.daily_limits.tiktok,    ...(stored.safety?.daily_limits?.tiktok    || {}) };
+    return { schedule: sched, safety };
+  } catch {
+    return JSON.parse(JSON.stringify(HUNT_SETTINGS_DEFAULTS));
+  }
+}
+
+function getHuntBudget(clientId) {
+  const f = path.join(CLIENTS_DIR, clientId, 'leadgen', 'hunt-daily-budget.json');
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const empty = {
+    date: todayUTC,
+    accounts: {
+      instagram: { follows: 0, likes: 0, comments: 0, dms: 0 },
+      tiktok:    { follows: 0, likes: 0, comments: 0, dms: 0 },
+    },
+  };
+  try {
+    const stored = JSON.parse(fs.readFileSync(f, 'utf8'));
+    if (stored.date !== todayUTC) {
+      // New day — reset counters
+      const reset = { ...empty, date: todayUTC };
+      fs.writeFileSync(f, JSON.stringify(reset, null, 2));
+      return reset;
+    }
+    return stored;
+  } catch {
+    return empty;
+  }
+}
+
+function saveHuntBudget(clientId, budget) {
+  const f = path.join(CLIENTS_DIR, clientId, 'leadgen', 'hunt-daily-budget.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(budget, null, 2));
+}
+
 // ─── AI Intelligence Research ─────────────────────────────────────────────────
 
 // Build a research prompt for one of 4 intel commands.
@@ -1030,6 +1105,40 @@ ${wrapperNote}
       x         ? `- [x]         competitor: ${x}` : '',
     ].filter(Boolean).join('\n') || `(no social handles configured for ${name})`;
 
+    // Load hunt settings for safety limits
+    const huntSettings = getHuntSettings(clientId);
+    const sl = huntSettings.safety.session_limits;
+    const delays = huntSettings.safety.delays;
+    const warmupDays = huntSettings.safety.warmup_days;
+    const warmupMult = huntSettings.safety.warmup_multiplier;
+    const effectiveFollows   = Math.floor(sl.follows   * warmupMult);
+    const effectiveLikes     = Math.floor(sl.likes     * warmupMult);
+    const effectiveComments  = Math.floor(sl.comments  * warmupMult);
+    const effectiveDMs       = Math.floor(sl.dms       * warmupMult);
+
+    const safetyBlock = `
+━━━ SAFETY LIMITS (enforce strictly) ━━━
+Session hard limits (do NOT exceed in this run):
+  Follows: ${sl.follows}
+  Likes: ${sl.likes}
+  Comments: ${sl.comments}
+  DMs: ${sl.dms}
+
+Delays:
+  Between actions: ${delays.between_actions_ms[0]}–${delays.between_actions_ms[1]}ms (randomise)
+  Between profiles: ${delays.between_profiles_sec[0]}–${delays.between_profiles_sec[1]}s (randomise)
+  After commenting: ${delays.after_comment_min[0]}–${delays.after_comment_min[1]} minutes
+  After DM: ${delays.after_dm_min[0]}–${delays.after_dm_min[1]} minutes
+
+Warmup: account is in warmup period (${warmupDays} days). Apply ${warmupMult}× to ALL limits above.
+  → Effective follows: ${effectiveFollows}, likes: ${effectiveLikes}, comments: ${effectiveComments}, dms: ${effectiveDMs}
+
+HARD STOP triggers (stop immediately, screenshot, write error to log):
+  - Any "unusual activity" or "action blocked" popup
+  - CAPTCHA or checkpoint screen
+  - Follow/like silently failing 3+ times in a row
+  - Any account restriction warning`;
+
     // Inject a focused override at the start — overrides the HOT SOURCES section
     return `${basePrompt}
 
@@ -1041,7 +1150,8 @@ ${sources}
 
 For each discovered user: set source_handle = "${instagram || tiktok || x || name}" in leads.json.
 After scraping, work PHASE B pipeline steps for any existing leads from this competitor (source_handle matches).
-Do NOT touch leads from other sources in this run.`;
+Do NOT touch leads from other sources in this run.
+${safetyBlock}`;
   }
 
   // Fallback
@@ -1608,6 +1718,152 @@ setInterval(() => {
     }
   }
 }, 60000); // Check every 60 seconds
+
+// ─── Hunt scheduler ─────────────────────────────────────────────────────────────
+// Tracks already-triggered hunt runs: "clientId:competitorName:YYYY-MM-DD:HH:MM"
+const huntRunsTriggered = new Set();
+let _huntLastClearDate = '';
+
+// Maps day index (0=Sun…6=Sat) to lowercase name
+const DOW_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+function fireScheduledHunt(clientId, comp, huntSettings) {
+  const cLogsDir = path.join(CLIENTS_DIR, clientId, 'logs');
+  if (!fs.existsSync(cLogsDir)) fs.mkdirSync(cLogsDir, { recursive: true });
+  const schedLogFile = path.join(cLogsDir, 'scheduled.log');
+  const logLine = text => { try { fs.appendFileSync(schedLogFile, text); } catch {} };
+
+  const params = {
+    name:      comp.name      || 'Competitor',
+    instagram: comp.instagram || '',
+    tiktok:    comp.tiktok    || '',
+    x:         comp.x         || '',
+  };
+  const intelPrompt = buildIntelPrompt('competitor-hunt', params, {}, clientId);
+
+  logLine(`\n[${new Date().toISOString()}] Hunt scheduled: ${comp.name} (priority: ${comp.hunt_priority || 'normal'})\n`);
+
+  try {
+    spawnRun(
+      clientId,
+      'competitor-hunt',
+      (type, text) => { if (type === 'output' || type === 'error') logLine(text); },
+      (runId, code, signal, startedAt, status) => {
+        logLine(`\n[${new Date().toISOString()}] Hunt finished: ${comp.name} runId=${runId} status=${status} code=${code}\n`);
+        console.log(`[hunt-scheduler] Hunt finished: ${comp.name} clientId=${clientId} runId=${runId} status=${status}`);
+        // Append to hunt-history.json with scheduled:true
+        try {
+          const huntLogPath = path.join(CLIENTS_DIR, clientId, 'leadgen', 'hunt-history.json');
+          let history = [];
+          try { history = JSON.parse(fs.readFileSync(huntLogPath, 'utf8')); } catch {}
+          history.unshift({
+            runId,
+            competitorName: comp.name,
+            status,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            scheduled: true,
+          });
+          if (history.length > 50) history = history.slice(0, 50);
+          fs.writeFileSync(huntLogPath, JSON.stringify(history, null, 2));
+        } catch (e) { console.error('[hunt-scheduler] hunt-history write error:', e.message); }
+      },
+      intelPrompt
+    );
+  } catch (err) {
+    logLine(`\n[${new Date().toISOString()}] Hunt FAILED to start for ${comp.name}: ${err.message}\n`);
+    console.error(`[hunt-scheduler] Failed to start hunt for ${comp.name}:`, err.message);
+  }
+}
+
+setInterval(() => {
+  const now = new Date();
+  const todayUTC  = now.toISOString().slice(0, 10);
+  const currentHHMM = now.toISOString().slice(11, 16);
+  const todayDOW  = DOW_NAMES[now.getUTCDay()];
+
+  // Daily reset
+  if (_huntLastClearDate && _huntLastClearDate !== todayUTC) {
+    huntRunsTriggered.clear();
+    console.log('[hunt-scheduler] Daily reset — cleared triggered set');
+  }
+  _huntLastClearDate = todayUTC;
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return;
+
+  const clients = getClients();
+  for (const client of clients) {
+    if (client.status === 'paused') continue;
+
+    let huntSettings;
+    try { huntSettings = getHuntSettings(client.clientId); } catch { continue; }
+
+    const sched = huntSettings.schedule;
+    if (!sched.enabled) continue;
+    if (!Array.isArray(sched.days) || !sched.days.includes(todayDOW)) continue;
+    if (sched.time_utc !== currentHHMM) continue;
+
+    const triggerKey = `${client.clientId}:hunt:${todayUTC}:${currentHHMM}`;
+    if (huntRunsTriggered.has(triggerKey)) continue;
+
+    // Load competitors for this client
+    const kDir = path.join(CLIENTS_DIR, client.clientId, 'knowledge');
+    let competitors = [];
+    try { competitors = JSON.parse(fs.readFileSync(path.join(kDir, 'competitors.json'), 'utf8')); } catch { continue; }
+
+    // Filter out disabled and off-priority
+    competitors = competitors.filter(c => c.enabled !== false && (c.hunt_priority || 'normal') !== 'off');
+    if (!competitors.length) continue;
+
+    // Sort by priority: high first
+    competitors.sort((a, b) => {
+      const rank = { high: 0, normal: 1 };
+      return (rank[a.hunt_priority || 'normal'] || 1) - (rank[b.hunt_priority || 'normal'] || 1);
+    });
+
+    // Take up to max_competitors_per_run
+    const maxComp = sched.max_competitors_per_run || 2;
+    const toHunt = competitors.slice(0, maxComp);
+
+    // Budget check — skip if follows budget exhausted for any platform used
+    const budget = getHuntBudget(client.clientId);
+    const dl = huntSettings.safety.daily_limits;
+
+    const eligibleComps = toHunt.filter(comp => {
+      const platforms = [comp.instagram && 'instagram', comp.tiktok && 'tiktok'].filter(Boolean);
+      for (const plat of platforms) {
+        const used = budget.accounts[plat];
+        const limit = dl[plat];
+        if (used && limit && used.follows >= limit.follows) {
+          console.log(`[hunt-scheduler] Skipping ${comp.name} — follows budget exhausted for ${plat}`);
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (!eligibleComps.length) {
+      console.log(`[hunt-scheduler] No eligible competitors for ${client.clientId} — budget exhausted`);
+      continue;
+    }
+
+    huntRunsTriggered.add(triggerKey);
+    console.log(`[hunt-scheduler] Triggering hunt for ${client.clientId}: ${eligibleComps.map(c=>c.name).join(', ')}`);
+
+    // Fire hunts staggered
+    const staggerMs = (sched.stagger_minutes_between_competitors || 20) * 60000;
+    eligibleComps.forEach((comp, i) => {
+      if (i === 0) {
+        fireScheduledHunt(client.clientId, comp, huntSettings);
+      } else {
+        setTimeout(() => {
+          fireScheduledHunt(client.clientId, comp, huntSettings);
+        }, i * staggerMs);
+      }
+    });
+  }
+}, 60000);
 
 // ─── Nightly backup at 02:00 UTC ─────────────────────────────────────────────
 setInterval(() => {
@@ -2565,6 +2821,43 @@ app.get('/api/clients/:id/intercept/stats', requireLicense, (req, res) => {
     thisWeek.forEach(e => { by_competitor[e.competitor_account] = (by_competitor[e.competitor_account] || 0) + 1; });
     res.json({ comments_posted: comments.length, dms_handled: dms.length, this_week: thisWeek.length, by_competitor });
   } catch { res.json({ comments_posted: 0, dms_handled: 0, this_week: 0, by_competitor: {} }); }
+});
+
+// ─── Hunt Settings API ────────────────────────────────────────────────────────
+
+app.get('/api/clients/:id/hunt-settings', requireLicense, (req, res) => {
+  if (!fs.existsSync(path.join(CLIENTS_DIR, req.params.id))) return res.status(404).json({ error: 'Client not found' });
+  res.json(getHuntSettings(req.params.id));
+});
+
+app.put('/api/clients/:id/hunt-settings', requireLicense, (req, res) => {
+  const cDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const f = path.join(cDir, 'leadgen', 'hunt-settings.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(req.body, null, 2));
+  res.json({ success: true });
+});
+
+app.get('/api/clients/:id/hunt-settings/budget', requireLicense, (req, res) => {
+  if (!fs.existsSync(path.join(CLIENTS_DIR, req.params.id))) return res.status(404).json({ error: 'Client not found' });
+  const budget = getHuntBudget(req.params.id);
+  const hs = getHuntSettings(req.params.id);
+  res.json({ budget, limits: hs.safety.daily_limits });
+});
+
+app.post('/api/clients/:id/hunt-settings/budget/reset', requireLicense, (req, res) => {
+  if (!fs.existsSync(path.join(CLIENTS_DIR, req.params.id))) return res.status(404).json({ error: 'Client not found' });
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const reset = {
+    date: todayUTC,
+    accounts: {
+      instagram: { follows: 0, likes: 0, comments: 0, dms: 0 },
+      tiktok:    { follows: 0, likes: 0, comments: 0, dms: 0 },
+    },
+  };
+  saveHuntBudget(req.params.id, reset);
+  res.json({ success: true, budget: reset });
 });
 
 // ─── SMTP test ───
