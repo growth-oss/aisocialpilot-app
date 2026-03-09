@@ -2302,6 +2302,7 @@ function renderIntelCompetitors() {
         </div>
         ${badgeHtml}
         <div class="comp-card-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-ghost" style="color:#f59e0b;border-color:#f59e0b33" onclick="toggleCompCard(${i})" title="Expand to run AI Research">⚡ Research</button>
           <button class="btn btn-sm btn-primary" onclick="openC360(${i})">🎯 360°</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})">✕</button>
