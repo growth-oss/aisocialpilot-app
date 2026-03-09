@@ -313,6 +313,48 @@
     margin-bottom: 16px;
   }
 
+  /* ─── Intel AI Research Panels ─── */
+  .intel-research-panel {
+    background: var(--bg-input);
+    border: 1px solid var(--border-focus);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .intel-research-panel summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .intel-research-panel summary::before { content: '⚡'; }
+  .intel-research-panel[open] summary::before { content: '🔬'; }
+  .intel-research-panel summary::-webkit-details-marker { display: none; }
+  .intel-research-panel .panel-body { padding-top: 14px; }
+  .intel-terminal {
+    background: #0a0a0f;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #a0a8b8;
+    max-height: 260px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .intel-terminal .t-success { color: #22c55e; }
+  .intel-terminal .t-error { color: #ef4444; }
+  .upload-progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .upload-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.2s; }
+
   /* ─── Tabs ─── */
   .tabs {
     display: flex;
@@ -1458,6 +1500,23 @@ function renderClientForm(client) {
           <div style="font-size:14px;font-weight:600">Products &amp; Offers <span id="intel-products-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('product')">+ Add Product</button>
         </div>
+
+        <!-- AI Scrape Panel -->
+        <details class="intel-research-panel" id="panel-products-ai">
+          <summary>AI Scrape — extract products from any ecommerce store</summary>
+          <div class="panel-body">
+            <div class="field-row">
+              <div class="field"><label>Store URL</label><input type="text" id="ai-prod-url" placeholder="https://store.example.com or Shopify/Salla/WooCommerce store"></div>
+              <div class="field" style="max-width:160px"><label>Max Products</label><input type="number" id="ai-prod-count" value="20" min="1" max="100"></div>
+            </div>
+            <div class="field"><label>Keyword Filter <span style="color:var(--text-muted);font-weight:400">(optional — only scrape products matching this)</span></label><input type="text" id="ai-prod-keyword" placeholder="e.g. sleep, pillow, organic"></div>
+            <div class="field"><label>Specific Product URLs <span style="color:var(--text-muted);font-weight:400">(optional — one per line, overrides store URL)</span></label><textarea id="ai-prod-urls" rows="2" placeholder="https://store.com/product-1&#10;https://store.com/product-2"></textarea></div>
+            <div class="btn-row" style="margin-top:12px">
+              <button class="btn btn-sm btn-primary" onclick="runIntelResearch('products-scrape', {storeUrl: document.getElementById('ai-prod-url').value, keyword: document.getElementById('ai-prod-keyword').value, maxCount: document.getElementById('ai-prod-count').value, extraUrls: document.getElementById('ai-prod-urls').value})">⚡ Run AI Scrape</button>
+            </div>
+            <div id="intel-terminal-products" class="intel-terminal" style="display:none;margin-top:12px"></div>
+          </div>
+        </details>
         <div id="intel-product-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
           <div class="field-row">
             <div class="field"><label>Product / Service Name *</label><input type="text" id="ip-name" placeholder="e.g. Pro Plan, SEO Package"></div>
@@ -1484,6 +1543,26 @@ function renderClientForm(client) {
           <div style="font-size:14px;font-weight:600">Competitors <span id="intel-competitors-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('competitor')">+ Add Competitor</button>
         </div>
+
+        <!-- AI Research Panel -->
+        <details class="intel-research-panel" id="panel-competitors-ai">
+          <summary>AI Research — crawl a competitor's store, social accounts &amp; review data</summary>
+          <div class="panel-body">
+            <div class="field-row">
+              <div class="field"><label>Competitor Name *</label><input type="text" id="ai-comp-name" placeholder="CompetitorBrand Inc"></div>
+              <div class="field"><label>Store URL</label><input type="text" id="ai-comp-url" placeholder="https://competitor.com"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Instagram handle</label><input type="text" id="ai-comp-ig" placeholder="@handle"></div>
+              <div class="field"><label>TikTok handle</label><input type="text" id="ai-comp-tt" placeholder="@handle"></div>
+              <div class="field"><label>X / Twitter</label><input type="text" id="ai-comp-x" placeholder="@handle"></div>
+            </div>
+            <div class="btn-row" style="margin-top:12px">
+              <button class="btn btn-sm btn-primary" onclick="runIntelResearch('competitor-research', {name: document.getElementById('ai-comp-name').value, storeUrl: document.getElementById('ai-comp-url').value, instagram: document.getElementById('ai-comp-ig').value, tiktok: document.getElementById('ai-comp-tt').value, x: document.getElementById('ai-comp-x').value})">⚡ Run AI Research</button>
+            </div>
+            <div id="intel-terminal-competitors" class="intel-terminal" style="display:none;margin-top:12px"></div>
+          </div>
+        </details>
         <div id="intel-competitor-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
           <div class="field-row">
             <div class="field"><label>Name *</label><input type="text" id="ic-name" placeholder="Competitor Inc"></div>
@@ -1517,6 +1596,18 @@ function renderClientForm(client) {
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('source')">+ Add Source</button>
         </div>
         <div class="card-desc" style="margin-bottom:14px">Communities, accounts, hashtags, and websites where your target audience hangs out. Claude uses these for outreach and lead gen.</div>
+
+        <!-- AI Discover Panel -->
+        <details class="intel-research-panel" id="panel-sources-ai">
+          <summary>AI Discover — find where your audience talks, buys &amp; makes decisions</summary>
+          <div class="panel-body">
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">AI uses your Products and Competitors intelligence to discover high-value communities, influencer comment sections, subreddits, hashtags, and traffic sources. Load products/competitors first for best results.</p>
+            <div class="btn-row">
+              <button class="btn btn-sm btn-primary" onclick="runIntelResearch('sources-discover', {})">⚡ Discover Sources</button>
+            </div>
+            <div id="intel-terminal-sources" class="intel-terminal" style="display:none;margin-top:12px"></div>
+          </div>
+        </details>
         <div id="intel-source-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
           <div class="field-row">
             <div class="field">
@@ -1563,6 +1654,24 @@ function renderClientForm(client) {
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('keyword')">+ Add Keyword</button>
         </div>
         <div class="card-desc" style="margin-bottom:14px">Search terms, pain-point phrases, and buying signals Claude watches for in comments, bios, and posts.</div>
+
+        <!-- AI Research Panel -->
+        <details class="intel-research-panel" id="panel-keywords-ai">
+          <summary>AI Research — generate &amp; score keywords from your products + competitors</summary>
+          <div class="panel-body">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:400">
+                <input type="checkbox" id="ai-kw-arabic" checked>
+                Include Arabic dialect expansion (Gulf · Levantine · Egyptian)
+              </label>
+            </div>
+            <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">AI generates 30-50 keywords across pain-point, commercial, transactional, and informational intents. Auto-refreshes when products or competitors are added.</p>
+            <div class="btn-row">
+              <button class="btn btn-sm btn-primary" onclick="runIntelResearch('keywords-research', {includeArabic: document.getElementById('ai-kw-arabic').checked})">⚡ Research Keywords</button>
+            </div>
+            <div id="intel-terminal-keywords" class="intel-terminal" style="display:none;margin-top:12px"></div>
+          </div>
+        </details>
         <div id="intel-keyword-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
           <div class="field-row">
             <div class="field"><label>Keyword / Phrase *</label><input type="text" id="ik-kw" placeholder="best crm for small business"></div>
@@ -1624,17 +1733,23 @@ function renderClientForm(client) {
           <div style="font-size:14px;font-weight:600">Uploaded Followers <span id="intel-followers-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm btn-ghost" onclick="downloadFollowerTemplate()">↓ Template</button>
-            <label class="btn btn-sm btn-ghost" style="cursor:pointer">
+            <button class="btn btn-sm btn-ghost" onclick="computeFollowerOverlap()" id="btn-overlap">Overlap Score</button>
+            <label class="btn btn-sm btn-ghost" style="cursor:pointer" id="lbl-upload-followers">
               ↑ Upload CSV
-              <input type="file" accept=".csv,.txt" style="display:none" onchange="uploadFollowers(this,'${c.clientId}')">
+              <input type="file" accept=".csv,.txt" style="display:none" id="followers-file-input" onchange="uploadFollowersStream(this.files[0])">
             </label>
           </div>
         </div>
-        <div class="card-desc" style="margin-bottom:14px">
-          Import exported follower/audience lists. CSV columns: <code>username, platform, follower_count, bio, email</code>.
-          Claude uses these as warm targets for outreach — no cold scraping needed.
+        <div class="card-desc" style="margin-bottom:8px">
+          Import scraped follower lists at any scale. CSV columns: <code>username, platform, follower_count, bio, source</code>.
+          Users are matched against this database during monitoring — matches get priority engagement.
+        </div>
+        <div id="followers-upload-progress" style="display:none;margin-bottom:10px">
+          <div style="font-size:12px;color:var(--text-dim)" id="followers-upload-status">Uploading...</div>
+          <div class="upload-progress-bar"><div class="upload-progress-fill" id="followers-upload-fill"></div></div>
         </div>
         <div id="intel-followers-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px"></div>
+        <div id="intel-followers-overlap" style="display:none;background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;font-size:13px"></div>
         <div id="intel-followers-list"></div>
       </div>
     </div>` : ''}
@@ -1785,6 +1900,8 @@ async function loadIntelTab(clientId) {
   renderIntelSources();
   renderIntelKeywords();
   renderIntelFollowers();
+  // Load follower stats async (may be large NDJSON, don't block)
+  loadFollowerStats(clientId).catch(() => {});
 }
 
 async function saveIntelSection(section) {
@@ -2043,24 +2160,16 @@ async function saveIntelKeyword() {
 // ── Followers ──
 function renderIntelFollowers() {
   const followers = window._intel.followers;
-  const ce = document.getElementById('intel-followers-count');
-  if (ce) ce.textContent = followers.length ? `(${followers.length.toLocaleString()})` : '';
-  const statsEl = document.getElementById('intel-followers-stats');
   const le = document.getElementById('intel-followers-list');
-  if (!statsEl || !le) return;
+  if (!le) return;
   if (!followers.length) {
-    statsEl.innerHTML = '';
     le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No followers uploaded yet. Download the template, fill it in, then upload the CSV.</div>`;
     return;
   }
-  const byPlatform = {};
-  followers.forEach(f => { byPlatform[f.platform] = (byPlatform[f.platform]||0)+1; });
-  statsEl.innerHTML = Object.entries(byPlatform).map(([p,n]) =>
-    `<div class="cost-stat"><div class="cost-stat-label" style="text-transform:capitalize">${p}</div><div class="cost-stat-value" style="font-size:18px">${n.toLocaleString()}</div></div>`).join('');
   const preview = followers.slice(0, 200);
   le.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:12px;color:var(--text-muted)">Showing ${preview.length} of ${followers.length.toLocaleString()}</div>
+      <div style="font-size:12px;color:var(--text-muted)">Showing ${preview.length} of ${followers.length.toLocaleString()} (preview)</div>
       <button class="btn btn-sm btn-danger" onclick="clearFollowers()" style="font-size:11px">Clear All</button>
     </div>
     <table style="width:100%;font-size:12px;border-collapse:collapse">
@@ -2081,52 +2190,19 @@ function renderIntelFollowers() {
       </tbody></table>`;
 }
 
-async function uploadFollowers(input, clientId) {
-  const file = input.files[0];
-  if (!file) return;
-  const text = await file.text();
-  const lines = text.split('\n').filter(Boolean);
-  if (lines.length < 2) return showToast('Empty or header-only file', 'error');
-
-  const parseCSVLine = line => {
-    const out = []; let cur = ''; let inQ = false;
-    for (const ch of line) {
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { out.push(cur.trim()); cur = ''; }
-      else cur += ch;
-    }
-    out.push(cur.trim()); return out;
-  };
-
-  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\W+/g,'_'));
-  const col = name => headers.findIndex(h => h.includes(name));
-  const uCol = col('username') !== -1 ? col('username') : col('handle') !== -1 ? col('handle') : col('user');
-  const pCol = col('platform');
-  const fCol = col('follower') !== -1 ? col('follower') : col('count');
-  const bCol = col('bio') !== -1 ? col('bio') : col('description');
-  const eCol = col('email');
-
-  const newRows = lines.slice(1).map(line => {
-    const c = parseCSVLine(line);
-    return { username: c[uCol]||'', platform: c[pCol]||'instagram',
-      follower_count: parseInt(c[fCol])||0, bio: c[bCol]||'',
-      email: eCol >= 0 ? c[eCol]||'' : '',
-      source: file.name, uploaded_at: new Date().toISOString().slice(0,10) };
-  }).filter(r => r.username);
-
-  if (!newRows.length) return showToast('No valid rows found — check column headers', 'error');
-  window._intel.followers = [...window._intel.followers, ...newRows];
-  await saveIntelSection('followers');
-  renderIntelFollowers();
-  input.value = '';
-  showToast(`${newRows.length.toLocaleString()} followers uploaded`);
-}
 
 async function clearFollowers() {
   if (!confirm('Clear all uploaded followers? Cannot be undone.')) return;
   window._intel.followers = [];
-  await saveIntelSection('followers');
+  // Clear both JSON and NDJSON via the PUT endpoint (writes empty array → JSON, server-side NDJSON cleared)
+  await api('PUT', `/clients/${window._intel.clientId}/knowledge/followers`, []);
+  // Also clear NDJSON file via a special clear call (handled by PUT returning empty)
   renderIntelFollowers();
+  loadFollowerStats(window._intel.clientId).catch(() => {});
+  // Clear overlap result
+  const overlapEl = document.getElementById('intel-followers-overlap');
+  if (overlapEl) overlapEl.style.display = 'none';
+  showToast('Followers cleared');
 }
 
 function downloadFollowerTemplate() {
@@ -2145,6 +2221,215 @@ async function deleteIntelItem(section, idx) {
   else if (section === 'hot-sources') renderIntelSources();
   else if (section === 'keywords') renderIntelKeywords();
   else if (section === 'followers') renderIntelFollowers();
+}
+
+// ─── AI Intel Research ────────────────────────────────────────────────────────
+
+// command: 'products-scrape' | 'competitor-research' | 'sources-discover' | 'keywords-research'
+// params: object with command-specific fields
+async function runIntelResearch(command, params) {
+  const clientId = window._intel.clientId;
+  if (!clientId) return showToast('Open a client first', 'error');
+
+  const terminalMap = {
+    'products-scrape':    'intel-terminal-products',
+    'competitor-research':'intel-terminal-competitors',
+    'sources-discover':   'intel-terminal-sources',
+    'keywords-research':  'intel-terminal-keywords',
+  };
+
+  const sectionMap = {
+    'products-scrape':    'products',
+    'competitor-research':'competitors',
+    'sources-discover':   'hot-sources',
+    'keywords-research':  'keywords',
+  };
+
+  const termId = terminalMap[command];
+  const termEl = termId ? document.getElementById(termId) : null;
+  if (termEl) { termEl.style.display = 'block'; termEl.textContent = '> Starting AI research...\n'; }
+
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
+
+  let buffer = '';
+  try {
+    const res = await fetch(`/api/clients/${clientId}/intel/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, params }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      if (termEl) termEl.innerHTML += `<span class="t-error">\n✗ Error: ${err.error}\n</span>`;
+      showToast(err.error || 'Research failed', 'error');
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
+            termEl.textContent += ev.text;
+            termEl.scrollTop = termEl.scrollHeight;
+          }
+          if (ev.type === 'done') {
+            if (ev.extracted) {
+              const count = ev.extractedCount;
+              const section = ev.extractedSection;
+              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${count} item(s) into ${section}. Refreshing tab...</span>\n`;
+              showToast(`AI extracted ${count} ${section} — saved!`);
+              // Reload intel data and re-render the affected section
+              await handleIntelResult(clientId, section);
+            } else if (ev.status !== 'completed' && ev.code !== 0) {
+              if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ Run finished with errors (code ${ev.code})</span>\n`;
+            } else {
+              if (termEl) termEl.innerHTML += '\n<span class="t-error">⚠ Run completed but no structured data was found in output.\nMake sure your prompt produced [INTEL_DATA_START]...[INTEL_DATA_END] markers.</span>\n';
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
+    showToast('Research failed: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.textContent.replace('⏳ Running...', '⚡ ' + (btn.textContent.includes('Scrape') ? 'Run AI Scrape' : btn.textContent.includes('Discover') ? 'Discover Sources' : btn.textContent.includes('Keyword') ? 'Research Keywords' : 'Run AI Research')); }
+  }
+}
+
+// Reload the affected intel section after AI research completes
+async function handleIntelResult(clientId, section) {
+  if (!section) return;
+  const data = await api('GET', `/clients/${clientId}/knowledge/${section}`);
+  const key = section === 'hot-sources' ? 'hot-sources' : section;
+  if (section === 'hot-sources') window._intel['hot-sources'] = Array.isArray(data) ? data : [];
+  else window._intel[section] = Array.isArray(data) ? data : [];
+
+  if (section === 'products')     renderIntelProducts();
+  if (section === 'competitors')  renderIntelCompetitors();
+  if (section === 'hot-sources')  renderIntelSources();
+  if (section === 'keywords')     renderIntelKeywords();
+
+  // After competitor research also auto-reload keywords + sources (they propagate)
+  if (section === 'competitors') {
+    const kws = await api('GET', `/clients/${clientId}/knowledge/keywords`);
+    window._intel.keywords = Array.isArray(kws) ? kws : [];
+    renderIntelKeywords();
+    const srcs = await api('GET', `/clients/${clientId}/knowledge/hot-sources`);
+    window._intel['hot-sources'] = Array.isArray(srcs) ? srcs : [];
+    renderIntelSources();
+  }
+  // After products research also reload keywords (they auto-propagate)
+  if (section === 'products') {
+    const kws = await api('GET', `/clients/${clientId}/knowledge/keywords`);
+    window._intel.keywords = Array.isArray(kws) ? kws : [];
+    renderIntelKeywords();
+  }
+}
+
+// ─── Followers streaming upload ───────────────────────────────────────────────
+
+async function uploadFollowersStream(file) {
+  if (!file) return;
+  const clientId = window._intel.clientId;
+  if (!clientId) return showToast('Open a client first', 'error');
+
+  const progressWrap = document.getElementById('followers-upload-progress');
+  const progressFill = document.getElementById('followers-upload-fill');
+  const statusEl     = document.getElementById('followers-upload-status');
+
+  progressWrap.style.display = 'block';
+  statusEl.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`;
+  progressFill.style.width = '0%';
+
+  try {
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/clients/${clientId}/knowledge/followers/upload`);
+      xhr.setRequestHeader('Content-Type', 'text/plain');
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          progressFill.style.width = Math.round((e.loaded / e.total) * 100) + '%';
+          statusEl.textContent = `Uploading... ${Math.round(e.loaded / 1024 / 1024 * 10) / 10} / ${Math.round(e.total / 1024 / 1024 * 10) / 10} MB`;
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const result = JSON.parse(xhr.responseText);
+          progressFill.style.width = '100%';
+          statusEl.textContent = `✓ ${result.written.toLocaleString()} rows uploaded (${result.skipped} skipped)`;
+          showToast(`${result.written.toLocaleString()} followers uploaded`);
+          // Reload stats
+          loadFollowerStats(clientId);
+          resolve(result);
+        } else {
+          reject(new Error(xhr.responseText || `Upload failed: ${xhr.status}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.send(file);
+    });
+  } catch (err) {
+    statusEl.textContent = `✗ Upload failed: ${err.message}`;
+    showToast('Upload failed: ' + err.message, 'error');
+  }
+
+  // Reset file input
+  const fileInput = document.getElementById('followers-file-input');
+  if (fileInput) fileInput.value = '';
+}
+
+async function loadFollowerStats(clientId) {
+  const d = await api('GET', `/clients/${clientId}/knowledge/followers/stats`);
+  if (d.error) return;
+  const statsEl = document.getElementById('intel-followers-stats');
+  const countEl = document.getElementById('intel-followers-count');
+  if (countEl) countEl.textContent = d.total ? `(${d.total.toLocaleString()})` : '';
+  if (statsEl) {
+    statsEl.innerHTML = Object.entries(d.by_platform || {}).map(([p, n]) =>
+      `<div class="cost-stat"><div class="cost-stat-label" style="text-transform:capitalize;font-size:11px;color:var(--text-muted)">${p}</div><div style="font-size:18px;font-weight:600;margin-top:2px">${n.toLocaleString()}</div></div>`
+    ).join('') + (d.total ? `<div class="cost-stat"><div class="cost-stat-label" style="font-size:11px;color:var(--text-muted)">Total</div><div style="font-size:18px;font-weight:600;color:var(--accent);margin-top:2px">${d.total.toLocaleString()}</div></div>` : '');
+  }
+  // Also refresh preview list
+  const preview = await api('GET', `/clients/${clientId}/knowledge/followers`);
+  window._intel.followers = Array.isArray(preview) ? preview : [];
+  renderIntelFollowers();
+}
+
+async function computeFollowerOverlap() {
+  const clientId = window._intel.clientId;
+  if (!clientId) return;
+  const btn = document.getElementById('btn-overlap');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Scoring...'; }
+  try {
+    const r = await api('POST', `/clients/${clientId}/knowledge/followers/overlap`);
+    const overlapEl = document.getElementById('intel-followers-overlap');
+    if (overlapEl) {
+      overlapEl.style.display = 'block';
+      overlapEl.innerHTML = `<strong>Overlap Scoring Complete</strong><br>
+        Total overlap users: ${r.total_overlap?.toLocaleString() || 0} &nbsp;|&nbsp;
+        <span style="color:var(--red)">Super Targets (4+ sources): ${r.super_targets || 0}</span> &nbsp;|&nbsp;
+        <span style="color:var(--amber)">High Value (2-3 sources): ${r.high_value || 0}</span><br>
+        <span style="color:var(--text-muted);font-size:12px">Overlap data saved — system will boost priority for these users during monitoring.</span>`;
+      showToast(`Overlap: ${r.super_targets} super targets found!`);
+    }
+  } catch (err) {
+    showToast('Overlap scoring failed: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Overlap Score'; }
+  }
 }
 
 // ─── Actions ───

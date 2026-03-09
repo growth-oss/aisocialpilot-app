@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const crypto = require('crypto');
+const readline = require('readline');
 const backup = require('./backup');
 const lgDb           = require('./leadgen/db');
 const { buildLeadGenPrompt } = require('./leadgen/prompt');
@@ -620,10 +621,340 @@ function buildKnowledgeContext(clientId) {
   return lines.join('\n');
 }
 
+// ─── AI Intelligence Research ─────────────────────────────────────────────────
+
+// Build a research prompt for one of 4 intel commands.
+// All prompts end with [INTEL_DATA_START]...[INTEL_DATA_END] instructions so
+// the server can extract structured JSON from Claude's output.
+function buildIntelPrompt(command, params, clientConfig, clientId) {
+  const knowledgeCtx = buildKnowledgeContext(clientId);
+
+  const wrapperNote = `
+IMPORTANT OUTPUT FORMAT: After completing your research/analysis, output your findings as valid JSON between these exact markers (nothing else on those lines):
+[INTEL_DATA_START]
+{ ... JSON here ... }
+[INTEL_DATA_END]
+
+Show your research progress before the markers. Narrate each step you take.
+`;
+
+  if (command === 'products-scrape') {
+    const storeUrl   = params.storeUrl   || '';
+    const keyword    = params.keyword    || '';
+    const maxCount   = parseInt(params.maxCount) || 20;
+    const extraUrls  = (params.extraUrls || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+    return `You are a product intelligence agent. Your task: extract products from an ecommerce store and turn them into engagement-ready intelligence.
+
+${storeUrl ? `Store URL: ${storeUrl}` : ''}
+${extraUrls.length ? `Specific product URLs to scrape:\n${extraUrls.map(u => '  ' + u).join('\n')}` : ''}
+${keyword ? `Keyword filter: only include products related to "${keyword}"` : 'No keyword filter — scrape all products found.'}
+Max products: ${maxCount}
+
+STEPS:
+1. Open the store URL using Playwright (headed mode, headless:false)
+2. Navigate through catalog/collection pages to discover products
+3. Apply keyword filter if specified — skip non-matching products
+4. For each product (up to ${maxCount}):
+   a. Extract: name, price, product URL, description
+   b. Find all product images — flag lifestyle images as social_ready:true
+   c. Generate pain_points (problems this product solves) — 4-6 bullet points in English
+   d. Generate Arabic pain points: Gulf dialect (UAE/Saudi), Levantine (Lebanon/Jordan), Egyptian
+   e. Generate usps (key benefits and differentiators) — 4-6 bullet points
+   f. Generate target keywords for social monitoring — EN + AR with dialect variants
+   g. Note the product category
+5. Screenshot each product page to logs/screenshots/intel-product-{n}.png
+
+${knowledgeCtx ? 'Current brand context:\n' + knowledgeCtx : ''}
+${wrapperNote}
+Output JSON schema:
+[INTEL_DATA_START]
+{
+  "section": "products",
+  "data": [
+    {
+      "name": "Product Name",
+      "price": "299 SAR",
+      "url": "https://...",
+      "category": "Ergonomic Sleep",
+      "description": "Short description",
+      "pain_points": ["morning neck stiffness", "تيبس الرقبة الصباحي (Gulf: عنقي ما زين الصبح)", "..."],
+      "usps": ["Benefit 1", "Benefit 2"],
+      "keywords": ["keyword 1", "keyword 2", "كلمة مفتاحية"],
+      "images": [{"url": "https://cdn.../img.jpg", "social_ready": true, "type": "lifestyle"}]
+    }
+  ]
+}
+[INTEL_DATA_END]`;
+  }
+
+  if (command === 'competitor-research') {
+    const compName  = params.name      || '';
+    const storeUrl  = params.storeUrl  || '';
+    const instagram = params.instagram || '';
+    const tiktok    = params.tiktok    || '';
+    const xHandle   = params.x         || '';
+
+    return `You are a competitive intelligence agent. Research this competitor thoroughly.
+
+Competitor: ${compName || 'unknown'}
+${storeUrl  ? `Store URL: ${storeUrl}` : ''}
+${instagram ? `Instagram: ${instagram}` : ''}
+${tiktok    ? `TikTok: ${tiktok}` : ''}
+${xHandle   ? `X/Twitter: ${xHandle}` : ''}
+
+STEPS using Playwright (headed, headless:false):
+1. If store URL given: crawl their catalog. Find top 5 products by review count / prominence / stars.
+   Read 10-20 customer reviews per product — extract recurring complaints verbatim.
+2. If Instagram given: visit their profile. Study their last 15-20 posts.
+   Note: which products get the most engagement, what captions they write, which hashtags they use.
+3. If TikTok given: similarly — note their top-performing content angles.
+4. If X given: scan their recent posts and replies — note tone, complaints from customers, what they promote.
+5. Compile:
+   - top_products: their best-performing products by evidence
+   - promoted_products: what they are actively advertising/pushing
+   - weaknesses: recurring customer complaints, negative review themes
+   - complaint_keywords: the exact phrases frustrated customers use (these become monitoring keywords)
+   - hashtags: hashtags they use frequently
+   - engagement_patterns: what type of content performs best for them
+   - competitive_brief: 2-3 sentence plain-language summary with recommendations
+6. Screenshot key pages to logs/screenshots/intel-competitor-{name}.png
+
+${knowledgeCtx ? 'Our current brand context:\n' + knowledgeCtx : ''}
+${wrapperNote}
+[INTEL_DATA_START]
+{
+  "section": "competitors",
+  "data": {
+    "name": "${compName}",
+    "website": "${storeUrl}",
+    "instagram": "${instagram}",
+    "tiktok": "${tiktok}",
+    "x": "${xHandle}",
+    "top_products": ["Product A", "Product B"],
+    "promoted_products": ["Product C"],
+    "weaknesses": ["Complaint theme 1", "Complaint theme 2"],
+    "complaint_keywords": ["phrase 1", "phrase 2"],
+    "hashtags": ["#hashtag1"],
+    "engagement_patterns": "Short-form video on TikTok gets 3x more engagement than static posts",
+    "notes": "Competitive brief: ...",
+    "enabled": true
+  }
+}
+[INTEL_DATA_END]`;
+  }
+
+  if (command === 'sources-discover') {
+    return `You are a source intelligence agent. Discover where the target audience talks, buys, and makes decisions.
+
+${knowledgeCtx ? 'Brand intelligence to base your research on:\n' + knowledgeCtx : 'No products or competitors loaded yet — do general research for the brand.'}
+
+RESEARCH TASKS (use browser + search engines, no need for Playwright for all of these):
+1. Search Reddit for subreddits where people discuss the product category and related problems
+2. Find relevant Facebook Groups (search FB for related topics)
+3. Identify Instagram/TikTok accounts that are opinion leaders in this niche (not competitors — adjacent influencers)
+4. Find relevant hashtags with active communities (search Instagram, TikTok, Twitter)
+5. Identify competitor traffic sources: what platforms/sites link to competitor stores?
+6. Find any relevant YouTube channels, forums, or review sites
+7. For the Middle East/Gulf region specifically: find Arabic-language communities and accounts
+
+For each source rate:
+- audience_relevance: 1-10 (how closely does their audience match our target buyer?)
+- purchase_decision_likelihood: high/medium/low (does this community lead to buying decisions?)
+
+Focus on QUALITY over quantity. Return 10-20 high-value sources.
+${wrapperNote}
+[INTEL_DATA_START]
+{
+  "section": "hot-sources",
+  "data": [
+    {
+      "type": "community",
+      "platform": "reddit",
+      "handle_or_url": "r/subredditname",
+      "why": "Active buyers discuss X here — 3 recommendation threads/week",
+      "audience_relevance": 9,
+      "purchase_decision_likelihood": "high",
+      "enabled": true
+    }
+  ]
+}
+[INTEL_DATA_END]`;
+  }
+
+  if (command === 'keywords-research') {
+    const includeArabic = params.includeArabic !== false;
+
+    return `You are a keyword intelligence agent for social media monitoring.
+
+${knowledgeCtx ? 'Brand intelligence:\n' + knowledgeCtx : 'No products or competitors loaded yet.'}
+
+Generate 30-50 high-value monitoring keywords across these categories:
+
+1. PAIN POINT keywords — phrases people use when expressing the problem (intent: pain-point)
+   Example: "my neck hurts every morning", "tired of bad sleep"
+
+2. SOLUTION SEEKING keywords — searching for a solution type (intent: commercial)
+   Example: "best pillow for neck pain", "orthopedic pillow review"
+
+3. PURCHASE INTENT keywords — ready to buy (intent: transactional)
+   Example: "where to buy cervical pillow in UAE", "pillow free shipping Saudi"
+
+4. COMPETITOR MENTION keywords — mentioning competing brands (intent: navigational)
+   Example: "[CompetitorBrand] review", "is [CompetitorBrand] worth it"
+
+5. GENERAL TOPIC keywords — broad category conversations (intent: informational)
+   Example: "how to improve sleep quality", "sleep tips"
+
+${includeArabic ? `
+6. For EACH category, add Arabic variants across dialects:
+   - Gulf (UAE/Saudi/Kuwait/Bahrain): e.g. "وش أحسن مخدة" / "وين أشتري مخدة طبية"
+   - Levantine (Lebanon/Syria/Jordan/Palestine): e.g. "شو أحسن مخدة" / "كيف بطلع وجع رقبتي"
+   - Egyptian: e.g. "إيه أحسن مخدة" / "فين أشتري مخدة طبية"
+   Add transliteration in parentheses for reference: "وش أحسن مخدة (Gulf: wesh ahsen makhada)"
+` : ''}
+
+For each keyword:
+- intent: transactional | commercial | pain-point | informational | navigational
+- volume: high | medium | low (estimated social media frequency)
+- platforms: which platforms to watch for this
+- relevance_score: 1-10
+- notes: brief note on when/how to use this keyword in engagement
+
+${wrapperNote}
+[INTEL_DATA_START]
+{
+  "section": "keywords",
+  "data": [
+    {
+      "keyword": "my neck hurts every morning",
+      "intent": "pain-point",
+      "volume": "high",
+      "platforms": ["instagram", "tiktok", "x", "reddit"],
+      "relevance_score": 9,
+      "notes": "Engage immediately with empathy + solution hint"
+    }
+  ]
+}
+[INTEL_DATA_END]`;
+  }
+
+  // Fallback
+  return `Research intelligence for: ${command}\nParams: ${JSON.stringify(params)}\n${wrapperNote}`;
+}
+
+// Extract JSON data from Claude output between [INTEL_DATA_START] and [INTEL_DATA_END]
+function parseIntelData(text) {
+  const start = text.indexOf('[INTEL_DATA_START]');
+  const end   = text.indexOf('[INTEL_DATA_END]');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const json = text.slice(start + '[INTEL_DATA_START]'.length, end).trim();
+  try { return JSON.parse(json); }
+  catch (e) {
+    console.error('[intel] JSON parse error:', e.message, '— raw:', json.slice(0, 200));
+    return null;
+  }
+}
+
+// Save extracted intel data to knowledge files and auto-propagate to dependent sections
+function applyIntelData(clientId, parsed) {
+  if (!parsed || !parsed.section) return false;
+  const kDir = knowledgeDir(clientId);
+  const { section, data } = parsed;
+
+  const readArr = file => { try { return JSON.parse(fs.readFileSync(path.join(kDir, file), 'utf8')); } catch { return []; } };
+  const writeArr = (file, arr) => fs.writeFileSync(path.join(kDir, file), JSON.stringify(arr, null, 2));
+
+  if (section === 'products') {
+    const existing = readArr('products.json');
+    const incoming = Array.isArray(data) ? data : [data];
+    // Merge: update by URL if exists, else append
+    for (const p of incoming) {
+      const idx = existing.findIndex(e => e.url && e.url === p.url);
+      if (idx >= 0) existing[idx] = { ...existing[idx], ...p };
+      else existing.push(p);
+    }
+    writeArr('products.json', existing);
+
+    // Auto-propagate: add keywords extracted from products
+    const kws = readArr('keywords.json');
+    for (const prod of incoming) {
+      for (const kw of (prod.keywords || [])) {
+        if (!kws.find(k => k.keyword === kw)) {
+          kws.push({ keyword: kw, intent: 'commercial', volume: 'medium',
+            platforms: ['instagram','tiktok'], relevance_score: 7,
+            notes: `Auto-generated from product: ${prod.name}` });
+        }
+      }
+    }
+    writeArr('keywords.json', kws);
+    return true;
+  }
+
+  if (section === 'competitors') {
+    const existing = readArr('competitors.json');
+    const comp = Array.isArray(data) ? data : [data];
+    for (const c of comp) {
+      const idx = existing.findIndex(e => e.name === c.name);
+      if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
+      else existing.push(c);
+    }
+    writeArr('competitors.json', existing);
+
+    // Auto-propagate complaint_keywords → keywords tab
+    const kws = readArr('keywords.json');
+    for (const c of comp) {
+      for (const ck of (c.complaint_keywords || [])) {
+        if (!kws.find(k => k.keyword === ck)) {
+          kws.push({ keyword: ck, intent: 'pain-point', volume: 'medium',
+            platforms: ['instagram','tiktok','x'],
+            relevance_score: 8, notes: `Competitor complaint keyword: ${c.name}` });
+        }
+      }
+      // Auto-propagate competitor social handles → hot-sources
+      const sources = readArr('hot-sources.json');
+      if (c.instagram && !sources.find(s => s.handle_or_url === c.instagram)) {
+        sources.push({ type: 'account', platform: 'instagram', handle_or_url: c.instagram,
+          why: `Competitor account — monitor comments for engagement opportunities`, enabled: true });
+      }
+      if (c.tiktok && !sources.find(s => s.handle_or_url === c.tiktok)) {
+        sources.push({ type: 'account', platform: 'tiktok', handle_or_url: c.tiktok,
+          why: `Competitor account — monitor comments for engagement opportunities`, enabled: true });
+      }
+      writeArr('hot-sources.json', sources);
+    }
+    writeArr('keywords.json', kws);
+    return true;
+  }
+
+  if (section === 'hot-sources') {
+    const existing = readArr('hot-sources.json');
+    const incoming = Array.isArray(data) ? data : [data];
+    for (const s of incoming) {
+      if (!existing.find(e => e.handle_or_url === s.handle_or_url)) existing.push(s);
+    }
+    writeArr('hot-sources.json', existing);
+    return true;
+  }
+
+  if (section === 'keywords') {
+    const existing = readArr('keywords.json');
+    const incoming = Array.isArray(data) ? data : [data];
+    for (const k of incoming) {
+      if (!existing.find(e => e.keyword === k.keyword)) existing.push(k);
+    }
+    writeArr('keywords.json', existing);
+    return true;
+  }
+
+  return false;
+}
+
 // ─── Shared run spawn logic ───
 // onData(line) receives output lines; onClose(runId, code, signal, startedAt) is called on exit.
 // Returns { runId, proc } or throws if preflight fails.
-function spawnRun(clientId, command, onData, onClose) {
+// promptOverride: if set, skip buildPrompt() and use this string directly.
+function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   const clientDir = path.join(CLIENTS_DIR, clientId);
   const config = loadConfig();
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
@@ -631,7 +962,7 @@ function spawnRun(clientId, command, onData, onClose) {
   const runId = crypto.randomBytes(4).toString('hex');
   const startedAt = new Date().toISOString();
 
-  const prompt = buildPrompt(command, clientConfig);
+  const prompt = promptOverride !== null ? promptOverride : buildPrompt(command, clientConfig);
   const env = {
     ...process.env,
     ANTHROPIC_API_KEY: config.anthropicApiKey,
@@ -1494,6 +1825,24 @@ function knowledgeDir(id) {
 app.get('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
   const { id, section } = req.params;
   if (!KNOWLEDGE_SECTIONS.has(section)) return res.status(400).json({ error: 'Invalid section' });
+
+  // Followers: prefer NDJSON (large-scale) — return first 200 rows for preview
+  if (section === 'followers') {
+    const kDir = knowledgeDir(id);
+    const ndjsonFile = path.join(kDir, 'followers.ndjson');
+    if (fs.existsSync(ndjsonFile)) {
+      const preview = [];
+      const rl = readline.createInterface({ input: fs.createReadStream(ndjsonFile), crlfDelay: Infinity });
+      rl.on('line', line => {
+        if (preview.length >= 200) { rl.close(); return; }
+        if (!line.trim()) return;
+        try { preview.push(JSON.parse(line)); } catch {}
+      });
+      rl.on('close', () => res.json(preview));
+      return;
+    }
+  }
+
   const f = path.join(knowledgeDir(id), `${section}.json`);
   if (!fs.existsSync(f)) return res.json([]);
   try { res.json(JSON.parse(fs.readFileSync(f, 'utf8'))); } catch { res.json([]); }
@@ -1504,8 +1853,243 @@ app.put('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
   if (!KNOWLEDGE_SECTIONS.has(section)) return res.status(400).json({ error: 'Invalid section' });
   if (!fs.existsSync(path.join(CLIENTS_DIR, id))) return res.status(404).json({ error: 'Client not found' });
   const data = Array.isArray(req.body) ? req.body : [];
-  fs.writeFileSync(path.join(knowledgeDir(id), `${section}.json`), JSON.stringify(data, null, 2));
+  const kDir = knowledgeDir(id);
+  fs.writeFileSync(path.join(kDir, `${section}.json`), JSON.stringify(data, null, 2));
+  // If clearing followers, also remove NDJSON file
+  if (section === 'followers' && data.length === 0) {
+    try { fs.unlinkSync(path.join(kDir, 'followers.ndjson')); } catch {}
+    try { fs.unlinkSync(path.join(kDir, 'followers-overlap.json')); } catch {}
+  }
   res.json({ success: true, count: data.length });
+});
+
+// ─── AI Intel research run (SSE streaming) ───────────────────────────────────
+// POST /api/clients/:id/intel/run  { command, params }
+// Spawns Claude with a research prompt, streams output as SSE, extracts structured
+// data from [INTEL_DATA_START]...[INTEL_DATA_END] markers, saves to knowledge files.
+const INTEL_COMMANDS = new Set(['products-scrape','competitor-research','sources-discover','keywords-research']);
+
+app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
+  const { command, params = {} } = req.body;
+  if (!INTEL_COMMANDS.has(command)) return res.status(400).json({ error: `Unknown intel command: ${command}` });
+
+  const clientDirPath = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDirPath)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key required for AI research' });
+
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDirPath, 'config.json'), 'utf8'));
+
+  // Build the intel research prompt
+  const intelPrompt = buildIntelPrompt(command, params, clientConfig, req.params.id);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (type, data) => {
+    try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {}
+  };
+
+  let accumulatedOutput = '';
+
+  let runResult;
+  try {
+    runResult = spawnRun(
+      req.params.id,
+      command,
+      (type, text) => {
+        if (type === 'output') accumulatedOutput += text;
+        send(type, { text });
+      },
+      (runId, code, signal, startedAt, status) => {
+        // Try to extract and save intel data
+        let extracted = false;
+        let extractedSection = null;
+        let extractedCount = 0;
+        if (status === 'completed' || code === 0) {
+          const parsed = parseIntelData(accumulatedOutput);
+          if (parsed) {
+            try {
+              applyIntelData(req.params.id, parsed);
+              extracted = true;
+              extractedSection = parsed.section;
+              extractedCount = Array.isArray(parsed.data) ? parsed.data.length : 1;
+              console.log(`[intel] Extracted ${extractedCount} items into ${extractedSection} for ${req.params.id}`);
+            } catch (e) {
+              console.error('[intel] applyIntelData error:', e.message);
+            }
+          }
+        }
+        if (signal) send('output', { text: `\n[Process killed: ${signal}]\n` });
+        send('done', { code, runId, status, extracted, extractedSection, extractedCount });
+        res.end();
+      },
+      intelPrompt  // promptOverride
+    );
+  } catch (err) {
+    send('error', { text: `Failed to start: ${err.message}` });
+    send('done', { code: 1, status: 'failed' });
+    res.end();
+    return;
+  }
+
+  send('start', { runId: runResult.runId, command, clientName: clientConfig.name, startedAt: runResult.startedAt });
+
+  req.on('close', () => {
+    const entry = runningProcesses.get(runResult.runId);
+    if (entry && entry.proc) {
+      entry.proc.kill('SIGTERM');
+      runningProcesses.delete(runResult.runId);
+    }
+  });
+});
+
+// ─── Followers: streaming CSV upload → NDJSON ─────────────────────────────────
+// Accepts raw CSV body. Parses line-by-line, appends to followers.ndjson.
+// Does NOT load entire file into memory.
+app.post(
+  '/api/clients/:id/knowledge/followers/upload',
+  requireLicense,
+  express.raw({ limit: '500mb', type: '*/*' }),
+  (req, res) => {
+    const clientDirPath = path.join(CLIENTS_DIR, req.params.id);
+    if (!fs.existsSync(clientDirPath)) return res.status(404).json({ error: 'Client not found' });
+
+    const kDir = knowledgeDir(req.params.id);
+    const ndjsonFile = path.join(kDir, 'followers.ndjson');
+
+    const buf = req.body;
+    if (!buf || !buf.length) return res.status(400).json({ error: 'Empty file' });
+
+    // Parse columns from header
+    const parseCSVLine = line => {
+      const out = []; let cur = ''; let inQ = false;
+      for (const ch of line) {
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { out.push(cur.trim()); cur = ''; }
+        else cur += ch;
+      }
+      out.push(cur.trim()); return out;
+    };
+
+    const text = buf.toString('utf8');
+    const lines = text.split(/\r?\n/);
+    if (lines.length < 2) return res.status(400).json({ error: 'File must have header + data rows' });
+
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\W+/g, '_'));
+    const col = name => headers.findIndex(h => h.includes(name));
+    const uCol = col('username') !== -1 ? col('username') : col('handle') !== -1 ? col('handle') : col('user');
+    const pCol = col('platform');
+    const fCol = col('follower') !== -1 ? col('follower') : col('count');
+    const bCol = col('bio') !== -1 ? col('bio') : col('description');
+    const sCol = col('source');
+
+    if (uCol === -1) return res.status(400).json({ error: 'CSV must have a username/handle column' });
+
+    let written = 0;
+    let skipped = 0;
+    const writeStream = fs.createWriteStream(ndjsonFile, { flags: 'a' });
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const c = parseCSVLine(line);
+      const username = (c[uCol] || '').trim();
+      if (!username) { skipped++; continue; }
+      const row = {
+        username,
+        platform: (c[pCol] || 'instagram').trim(),
+        follower_count: parseInt(c[fCol]) || 0,
+        bio: (c[bCol] || '').trim(),
+        source: (sCol >= 0 ? c[sCol] : '').trim(),
+        uploaded_at: new Date().toISOString().slice(0, 10),
+      };
+      writeStream.write(JSON.stringify(row) + '\n');
+      written++;
+    }
+
+    writeStream.end(() => {
+      // Remove old small-JSON file if it exists (replaced by NDJSON)
+      try { fs.unlinkSync(path.join(kDir, 'followers.json')); } catch {}
+      res.json({ success: true, written, skipped, total: written });
+    });
+  }
+);
+
+// ─── Followers: streaming stats from NDJSON ───────────────────────────────────
+app.get('/api/clients/:id/knowledge/followers/stats', requireLicense, (req, res) => {
+  const kDir = knowledgeDir(req.params.id);
+  const ndjsonFile = path.join(kDir, 'followers.ndjson');
+
+  if (!fs.existsSync(ndjsonFile)) {
+    // Fall back to JSON count
+    const jsonFile = path.join(kDir, 'followers.json');
+    if (!fs.existsSync(jsonFile)) return res.json({ total: 0, by_platform: {}, hasNdjson: false });
+    try {
+      const arr = JSON.parse(fs.readFileSync(jsonFile, 'utf8'));
+      const by_platform = {};
+      arr.forEach(f => { by_platform[f.platform] = (by_platform[f.platform] || 0) + 1; });
+      return res.json({ total: arr.length, by_platform, hasNdjson: false });
+    } catch { return res.json({ total: 0, by_platform: {}, hasNdjson: false }); }
+  }
+
+  // Stream through NDJSON without loading into memory
+  const by_platform = {};
+  let total = 0;
+  const rl = readline.createInterface({ input: fs.createReadStream(ndjsonFile), crlfDelay: Infinity });
+  rl.on('line', line => {
+    if (!line.trim()) return;
+    try {
+      const r = JSON.parse(line);
+      by_platform[r.platform] = (by_platform[r.platform] || 0) + 1;
+      total++;
+    } catch {}
+  });
+  rl.on('close', () => res.json({ total, by_platform, hasNdjson: true }));
+  rl.on('error', () => res.json({ total, by_platform, hasNdjson: true }));
+});
+
+// ─── Followers: overlap scoring ───────────────────────────────────────────────
+// Finds users appearing in multiple source lists (= super-targets)
+app.post('/api/clients/:id/knowledge/followers/overlap', requireLicense, (req, res) => {
+  const kDir = knowledgeDir(req.params.id);
+  const ndjsonFile = path.join(kDir, 'followers.ndjson');
+  if (!fs.existsSync(ndjsonFile)) return res.status(404).json({ error: 'No NDJSON followers file' });
+
+  // Count how many distinct source accounts each username appears under
+  const userSources = {}; // username:platform → Set of sources
+  const rl = readline.createInterface({ input: fs.createReadStream(ndjsonFile), crlfDelay: Infinity });
+  rl.on('line', line => {
+    if (!line.trim()) return;
+    try {
+      const r = JSON.parse(line);
+      const key = `${r.username}:${r.platform}`;
+      if (!userSources[key]) userSources[key] = new Set();
+      if (r.source) userSources[key].add(r.source);
+    } catch {}
+  });
+  rl.on('close', () => {
+    const overlap = Object.entries(userSources)
+      .map(([key, sources]) => {
+        const [username, platform] = key.split(':');
+        const count = sources.size;
+        return { username, platform, source_count: count,
+          sources: [...sources],
+          priority: count >= 4 ? 'super-target' : count >= 2 ? 'high-value' : 'known' };
+      })
+      .filter(u => u.source_count >= 2)
+      .sort((a, b) => b.source_count - a.source_count)
+      .slice(0, 5000); // cap at 5k
+
+    const overlapFile = path.join(kDir, 'followers-overlap.json');
+    fs.writeFileSync(overlapFile, JSON.stringify(overlap, null, 2));
+    res.json({ total_overlap: overlap.length,
+      super_targets: overlap.filter(u => u.priority === 'super-target').length,
+      high_value: overlap.filter(u => u.priority === 'high-value').length });
+  });
 });
 
 // ─── SMTP test ───
