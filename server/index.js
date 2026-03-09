@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const crypto = require('crypto');
+const backup = require('./backup');
 
 // Track in-flight automation processes keyed by runId
 const runningProcesses = new Map();
@@ -422,6 +423,88 @@ IMPORTANT: You are running autonomously — draft replies and send them directly
   return commands[command] || (ctx + command);
 }
 
+// ─── Shared run spawn logic ───
+// onData(line) receives output lines; onClose(runId, code, signal, startedAt) is called on exit.
+// Returns { runId, proc } or throws if preflight fails.
+function spawnRun(clientId, command, onData, onClose) {
+  const clientDir = path.join(CLIENTS_DIR, clientId);
+  const config = loadConfig();
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+
+  const runId = crypto.randomBytes(4).toString('hex');
+  const startedAt = new Date().toISOString();
+
+  const prompt = buildPrompt(command, clientConfig);
+  const env = {
+    ...process.env,
+    ANTHROPIC_API_KEY: config.anthropicApiKey,
+    ANTHROPIC_MODEL: config.anthropicModel || 'claude-haiku-4-5-20251001',
+    SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
+    EXPECTED_GEO: clientConfig.proxy?.geo || '',
+    CLIENT_ID: clientConfig.clientId,
+    HOME: process.env.HOME || '/root',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  };
+
+  const tmpPromptFile = `/tmp/claude-prompt-${runId}.txt`;
+  fs.writeFileSync(tmpPromptFile, prompt, { mode: 0o644 });
+
+  const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`;
+  const tmpScript = `/tmp/claude-run-${runId}.sh`;
+  fs.writeFileSync(tmpScript, [
+    '#!/bin/bash',
+    `export PATH=${se(process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}`,
+    `export NODE_PATH=${se(process.env.NODE_PATH || '')}`,
+    `export PLAYWRIGHT_BROWSERS_PATH=${se(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
+    `export ANTHROPIC_API_KEY=${se(env.ANTHROPIC_API_KEY)}`,
+    `export ANTHROPIC_MODEL=${se(env.ANTHROPIC_MODEL)}`,
+    `export HOME=/home/claude_runner`,
+    `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
+    `export DISPLAY=${se(env.DISPLAY || ':99')}`,
+    `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
+    `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
+    `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
+    `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
+    `cd ${se(clientDir)}`,
+    `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
+  ].join('\n') + '\n', { mode: 0o755 });
+
+  const proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  runningProcesses.set(runId, { proc, clientId, command, startedAt });
+
+  proc.stdout.on('data', chunk => onData('output', chunk.toString()));
+  proc.stderr.on('data', chunk => {
+    const txt = chunk.toString();
+    console.log(`[run ${runId}] stderr: ${txt.substring(0, 200)}`);
+    onData('progress', txt);
+  });
+  proc.on('error', err => onData('error', `Process error: ${err.message}`));
+
+  proc.on('close', (code, signal) => {
+    try { fs.unlinkSync(tmpPromptFile); } catch {}
+    try { fs.unlinkSync(tmpScript); } catch {}
+
+    runningProcesses.delete(runId);
+    const completedAt = new Date().toISOString();
+    const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
+
+    console.log(`[run ${runId}] close: code=${code} signal=${signal}`);
+
+    const logFile = path.join(clientDir, 'logs', 'runs.json');
+    let runs = [];
+    try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code, signal });
+    fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+    if (onClose) onClose(runId, code, signal, startedAt, status);
+  });
+
+  return { runId, proc, startedAt, clientConfig };
+}
+
 // ─── Run automation (SSE streaming) ───
 app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const { command } = req.body;
@@ -448,29 +531,11 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {}
   };
 
-  const runId = crypto.randomBytes(4).toString('hex');
-  const startedAt = new Date().toISOString();
-  send('start', { runId, command, clientName: clientConfig.name, startedAt });
-
-  const prompt = buildPrompt(command, clientConfig);
-  const env = {
-    ...process.env,
-    ANTHROPIC_API_KEY: config.anthropicApiKey,
-    ANTHROPIC_MODEL: config.anthropicModel || 'claude-haiku-4-5-20251001',
-    SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
-    EXPECTED_GEO: clientConfig.proxy?.geo || '',
-    CLIENT_ID: clientConfig.clientId,
-    // Ensure HOME is set so Claude Code can find/create ~/.claude config dir
-    HOME: process.env.HOME || '/root',
-    // Disable Claude Code auto-update check (causes issues in containers)
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-  };
-
   // Pre-flight: verify claude CLI is available
   const claudePath = (() => { try { return execSync('which claude', { encoding: 'utf8' }).trim(); } catch { return null; } })();
   if (!claudePath) {
     send('output', { text: '✗ claude CLI not found in PATH. Check Docker build logs.\n' });
-    send('done', { code: 1, runId, status: 'failed' });
+    send('done', { code: 1, status: 'failed' });
     res.end();
     return;
   }
@@ -479,77 +544,27 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
 
   const t0 = Date.now();
 
-  // Write prompt to a temp file
-  const tmpPromptFile = `/tmp/claude-prompt-${runId}.txt`;
-  fs.writeFileSync(tmpPromptFile, prompt, { mode: 0o644 });
-
-  // Write a shell script that exports all env vars and runs claude as claude_runner.
-  const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`; // single-quote shell escape
-  const tmpScript = `/tmp/claude-run-${runId}.sh`;
-  fs.writeFileSync(tmpScript, [
-    '#!/bin/bash',
-    // Inherit root's PATH so node, playwright, etc. are all findable by claude_runner
-    `export PATH=${se(process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}`,
-    `export NODE_PATH=${se(process.env.NODE_PATH || '')}`,
-    `export PLAYWRIGHT_BROWSERS_PATH=${se(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
-    `export ANTHROPIC_API_KEY=${se(env.ANTHROPIC_API_KEY)}`,
-    `export ANTHROPIC_MODEL=${se(env.ANTHROPIC_MODEL)}`,
-    `export HOME=/home/claude_runner`,
-    `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
-    `export DISPLAY=${se(env.DISPLAY || ':99')}`,
-    `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
-    `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
-    `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
-    // Clear Claude Code session history so each run starts fresh (not continuing previous conversation)
-    `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
-    `cd ${se(clientDir)}`,
-    `cat ${se(tmpPromptFile)} | claude --print --dangerously-skip-permissions`,
-  ].join('\n') + '\n', { mode: 0o755 });
-
-  let proc;
+  let runResult;
   try {
-    proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    runResult = spawnRun(
+      req.params.id,
+      command,
+      (type, text) => send(type, { text }),
+      (runId, code, signal, startedAt, status) => {
+        if (signal) send('output', { text: `\n[Process killed by signal: ${signal}]\n` });
+        send('done', { code, runId, status });
+        res.end();
+      }
+    );
   } catch (err) {
     send('error', { text: `Failed to start: ${err.message}` });
-    send('done', { code: 1, runId });
+    send('done', { code: 1, status: 'failed' });
     res.end();
     return;
   }
 
-  runningProcesses.set(runId, { proc, clientId: req.params.id, command, startedAt });
-
-  proc.stdout.on('data', chunk => send('output', { text: chunk.toString() }));
-  proc.stderr.on('data', chunk => {
-    const txt = chunk.toString();
-    console.log(`[run ${runId}] stderr: ${txt.substring(0, 200)}`);
-    send('progress', { text: txt });
-  });
-  proc.on('error', err => send('error', { text: `Process error: ${err.message}` }));
-
-  proc.on('close', (code, signal) => {
-    // Clean up temp files
-    try { fs.unlinkSync(tmpPromptFile); } catch {}
-    try { fs.unlinkSync(tmpScript); } catch {}
-
-    runningProcesses.delete(runId);
-    const completedAt = new Date().toISOString();
-    const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
-    const elapsed = Date.now() - t0;
-
-    if (signal) send('output', { text: `\n[Process killed by signal: ${signal}]\n` });
-    console.log(`[run ${runId}] close: code=${code} signal=${signal} elapsed=${elapsed}ms`);
-
-    const logFile = path.join(clientDir, 'logs', 'runs.json');
-    let runs = [];
-    try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
-    runs.push({ runId, command, startedAt, completedAt, status, exitCode: code, signal });
-    fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
-
-    send('done', { code, runId, status });
-    res.end();
-  });
+  const { runId, startedAt } = runResult;
+  send('start', { runId, command, clientName: clientConfig.name, startedAt });
 
   // Kill process if SSE connection drops — but only after 10s grace period to avoid
   // killing on Railway proxy reconnects. Railway often drops/re-establishes SSE.
@@ -568,6 +583,150 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
       }
     }
   });
+});
+
+// ─── Scheduled run engine ───
+// Maps platform names to automation command names
+const SCHEDULE_COMMAND_MAP = {
+  instagram: 'reply-instagram',
+  tiktok:    'reply-tiktok',
+  x:         'reply-x',
+  whatsapp:  'check-whatsapp',
+};
+
+// Tracks already-triggered scheduled runs: "clientId:command:YYYY-MM-DD:HH:MM"
+const scheduledRunsTriggered = new Set();
+let _scheduleLastClearDate = '';
+
+setInterval(() => {
+  const now = new Date();
+  const todayUTC = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const currentHHMM = now.toISOString().slice(11, 16); // HH:MM
+
+  // Clear triggered set daily at midnight UTC
+  if (_scheduleLastClearDate && _scheduleLastClearDate !== todayUTC) {
+    scheduledRunsTriggered.clear();
+    console.log('[scheduler] Daily reset — cleared triggered run set');
+  }
+  _scheduleLastClearDate = todayUTC;
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return; // No API key, skip
+
+  const clients = getClients();
+  for (const client of clients) {
+    if (client.status === 'paused') continue;
+    if (!client.schedule || typeof client.schedule !== 'object') continue;
+
+    for (const [platform, times] of Object.entries(client.schedule)) {
+      if (!Array.isArray(times) || times.length === 0) continue;
+      const command = SCHEDULE_COMMAND_MAP[platform];
+      if (!command) continue;
+
+      for (const hhmm of times) {
+        if (hhmm !== currentHHMM) continue;
+
+        const triggerKey = `${client.clientId}:${command}:${todayUTC}:${hhmm}`;
+        if (scheduledRunsTriggered.has(triggerKey)) continue;
+
+        // Skip if a run for this client is already in progress
+        const alreadyRunning = [...runningProcesses.values()].some(e => e.clientId === client.clientId);
+        if (alreadyRunning) {
+          console.log(`[scheduler] Skipping ${triggerKey} — run already in progress`);
+          continue;
+        }
+
+        scheduledRunsTriggered.add(triggerKey);
+        console.log(`[scheduler] Triggering scheduled run: ${triggerKey}`);
+
+        // Ensure logs dir exists
+        const clientLogsDir = path.join(CLIENTS_DIR, client.clientId, 'logs');
+        if (!fs.existsSync(clientLogsDir)) fs.mkdirSync(clientLogsDir, { recursive: true });
+        const schedLogFile = path.join(clientLogsDir, 'scheduled.log');
+
+        const logLine = text => {
+          try { fs.appendFileSync(schedLogFile, text); } catch {}
+        };
+
+        logLine(`\n[${new Date().toISOString()}] Scheduled run started: ${command} (triggered at ${hhmm} UTC)\n`);
+
+        try {
+          spawnRun(
+            client.clientId,
+            command,
+            (type, text) => {
+              if (type === 'output' || type === 'error') logLine(text);
+            },
+            (runId, code, signal, startedAt, status) => {
+              logLine(`\n[${new Date().toISOString()}] Scheduled run finished: runId=${runId} status=${status} code=${code}\n`);
+              console.log(`[scheduler] Run finished: ${triggerKey} runId=${runId} status=${status}`);
+            }
+          );
+        } catch (err) {
+          logLine(`\n[${new Date().toISOString()}] Scheduled run FAILED to start: ${err.message}\n`);
+          console.error(`[scheduler] Failed to start ${triggerKey}:`, err.message);
+        }
+      }
+    }
+  }
+}, 60000); // Check every 60 seconds
+
+// ─── Nightly backup at 02:00 UTC ─────────────────────────────────────────────
+setInterval(() => {
+  const hhmm = new Date().toISOString().slice(11, 16);
+  if (hhmm === '02:00') {
+    backup.runBackup(DATA_DIR).catch(err =>
+      console.error('[backup] Nightly backup failed:', err.message)
+    );
+  }
+}, 60000);
+
+// ─── Next scheduled run times per platform ───
+app.get('/api/clients/:id/next-runs', requireLicense, (req, res) => {
+  const clientDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(clientDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+  const schedule = clientConfig.schedule || {};
+  const now = new Date();
+  const result = {};
+
+  for (const [platform, times] of Object.entries(schedule)) {
+    if (!Array.isArray(times) || times.length === 0) continue;
+
+    // Find the next upcoming time today or tomorrow
+    let nextTime = null;
+    const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+    // Parse all times as minutes-since-midnight
+    const parsedTimes = times
+      .map(t => {
+        const parts = t.split(':');
+        if (parts.length !== 2) return null;
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (isNaN(h) || isNaN(m)) return null;
+        return { hhmm: t, minutes: h * 60 + m };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.minutes - b.minutes);
+
+    // Find first time that hasn't passed today
+    for (const t of parsedTimes) {
+      if (t.minutes > currentMinutes) {
+        nextTime = t.hhmm;
+        break;
+      }
+    }
+    // If all times have passed, wrap to first time tomorrow
+    if (!nextTime && parsedTimes.length > 0) {
+      nextTime = parsedTimes[0].hhmm + ' (+1d)';
+    }
+
+    if (nextTime) result[platform] = nextTime;
+  }
+
+  res.json(result);
 });
 
 // ─── Stop a running automation ───
@@ -687,6 +846,57 @@ app.get('/api/debug-claude', (req, res) => {
 
   res.json(results);
 });
+
+// ─── Backup ───────────────────────────────────────────────────────────────────
+
+// Status: last backup time, size, whether R2 is configured
+app.get('/api/backup/status', requireLicense, (req, res) => {
+  const status = backup.loadStatus(DATA_DIR);
+  res.json({ ...status, r2Configured: backup.isR2Configured() });
+});
+
+// Trigger a manual backup now
+app.post('/api/backup/run', requireLicense, async (req, res) => {
+  try {
+    const result = await backup.runBackup(DATA_DIR);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download a full backup as a .tar.gz (or .tar.gz.enc if encrypted)
+app.get('/api/backup/download', requireLicense, async (req, res) => {
+  try {
+    const tmpPath = backup.createDownloadArchive(DATA_DIR);
+    const filename = `aisocialpilot-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/gzip');
+    const stream = fs.createReadStream(tmpPath);
+    stream.pipe(res);
+    stream.on('close', () => { try { fs.unlinkSync(tmpPath); } catch {} });
+    stream.on('error', () => { try { fs.unlinkSync(tmpPath); } catch {} });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Restore from an uploaded backup file (raw body, max 2 GB)
+app.post('/api/backup/restore',
+  requireLicense,
+  express.raw({ limit: '2gb', type: '*/*' }),
+  (req, res) => {
+    if (!req.body || !req.body.length) {
+      return res.status(400).json({ error: 'No file received' });
+    }
+    try {
+      backup.restoreFromBuffer(req.body, DATA_DIR);
+      res.json({ success: true, message: 'Restore complete. Restart the server to apply all changes.' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 // ─── Catch-all: serve admin panel ───
 app.get('*', (req, res) => {

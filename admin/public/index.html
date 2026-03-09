@@ -733,10 +733,56 @@ function renderSettings() {
         <button class="btn btn-ghost" onclick="reactivateLicense()">Re-activate</button>
       </div>
     </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">💾 Backups</div>
+      <div class="card-desc">Your data is stored on a Railway volume and survives redeployments. Backups protect against volume deletion, migration, or corruption. Sessions (logged-in browser state) are included — these are the most painful to lose.</div>
+
+      <div id="backup-status-bar" style="background:var(--surface2);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:10px;">
+        <span id="backup-status-icon">⏳</span>
+        <span id="backup-status-text" style="color:var(--text-dim);">Loading backup status…</span>
+      </div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Automatic Cloud Backup (Cloudflare R2)</p>
+        <div class="card-desc" style="margin-bottom:12px;">Runs nightly at 02:00 UTC. Keeps 7 daily + 4 weekly snapshots. R2 free tier covers up to 10 GB — enough for most deployments.</div>
+        <div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:12px;color:var(--text-dim);font-family:monospace;margin-bottom:14px;line-height:1.8;">
+          BACKUP_R2_ENDPOINT=https://&lt;id&gt;.r2.cloudflarestorage.com<br>
+          BACKUP_R2_BUCKET=aisocialpilot-backups<br>
+          BACKUP_R2_ACCESS_KEY_ID=&lt;key&gt;<br>
+          BACKUP_R2_SECRET_ACCESS_KEY=&lt;secret&gt;<br>
+          BACKUP_ENCRYPT_PASSWORD=&lt;strong-passphrase&gt;
+        </div>
+        <div class="card-desc" style="font-size:12px;">Add these as Railway environment variables. The encrypt password wraps the backup in AES-256-GCM before upload — even if your bucket is accessed, the data is unreadable without it.</div>
+        <div id="backup-r2-status" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Manual Backup</p>
+        <div class="card-desc" style="margin-bottom:14px;">Download a complete backup of all data, configs, and browser sessions to your computer. Do this before any major change.</div>
+        <div class="btn-row" style="margin-bottom:0">
+          <button class="btn btn-primary" onclick="triggerBackup()">Run Backup Now</button>
+          <a id="backup-download-btn" href="/api/backup/download" class="btn btn-ghost" download>⬇ Download Backup</a>
+        </div>
+      </div>
+
+      <div>
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Restore from Backup</p>
+        <div class="card-desc" style="margin-bottom:14px;">Upload a <code>.tar.gz</code> or <code>.tar.gz.enc</code> file to restore all data. This overwrites current data — use only on a fresh install or after data loss.</div>
+        <div class="field" style="margin-bottom:12px;">
+          <input type="file" id="backup-restore-file" accept=".gz,.enc" style="font-size:13px;">
+        </div>
+        <div class="btn-row" style="margin-bottom:0">
+          <button class="btn btn-ghost" style="border-color:var(--red);color:var(--red)" onclick="restoreBackup()">Restore from File</button>
+        </div>
+        <div id="backup-restore-status" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+    </div>
   `;
 }
 
 async function populateSettings() {
+  populateBackupStatus(); // fire async, no await — don't block settings render
   const s = await api('GET', '/settings');
   if (s.hasAnthropicKey) document.getElementById('s-anthropic-status').textContent = `Current key: ${s.anthropicApiKeyMasked}`;
   if (s.hasOpenaiKey) document.getElementById('s-openai-status').textContent = `Current key: ${s.openaiApiKeyMasked}`;
@@ -799,6 +845,107 @@ function openSettings() {
   render();
 }
 
+async function populateBackupStatus() {
+  const el     = document.getElementById('backup-status-text');
+  const icon   = document.getElementById('backup-status-icon');
+  const r2el   = document.getElementById('backup-r2-status');
+  if (!el) return;
+
+  const s = await api('GET', '/backup/status');
+  if (s.error) {
+    icon.textContent = '⚠️';
+    el.textContent = 'Could not load backup status.';
+    return;
+  }
+
+  if (s.r2Configured) {
+    r2el.innerHTML = '<span style="color:var(--green)">✓ R2 configured — nightly backups active</span>';
+  } else {
+    r2el.innerHTML = '<span style="color:var(--text-dim)">R2 not configured — add env vars to enable automatic cloud backups</span>';
+  }
+
+  if (!s.lastBackupAt) {
+    icon.textContent = '📦';
+    el.textContent = 'No backup taken yet.';
+    return;
+  }
+
+  const when = new Date(s.lastBackupAt).toLocaleString();
+  const mb   = s.lastBackupSizeBytes ? (s.lastBackupSizeBytes / 1024 / 1024).toFixed(1) + ' MB' : '—';
+
+  if (s.lastBackupSuccess) {
+    icon.textContent = '✅';
+    const dest = s.lastBackupKey ? ` → R2: ${s.lastBackupKey}` : ' (local only)';
+    el.innerHTML = `Last backup: <strong>${when}</strong> &nbsp;·&nbsp; ${mb}${dest}`;
+    el.style.color = '';
+  } else {
+    icon.textContent = '❌';
+    el.innerHTML = `Last backup failed at <strong>${when}</strong>: ${s.lastBackupError || 'unknown error'}`;
+    el.style.color = 'var(--red)';
+  }
+}
+
+async function triggerBackup() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  showToast('Backup started — this may take a minute');
+
+  const result = await api('POST', '/backup/run');
+  btn.disabled = false;
+  btn.textContent = 'Run Backup Now';
+
+  if (result.error) {
+    showToast('Backup failed: ' + result.error, 'error');
+  } else {
+    const mb = result.lastBackupSizeBytes ? (result.lastBackupSizeBytes / 1024 / 1024).toFixed(1) + ' MB' : '';
+    showToast(`Backup complete${mb ? ' · ' + mb : ''}`);
+    populateBackupStatus();
+  }
+}
+
+async function restoreBackup() {
+  const fileInput = document.getElementById('backup-restore-file');
+  const statusEl  = document.getElementById('backup-restore-status');
+  if (!fileInput.files.length) {
+    statusEl.textContent = 'Select a backup file first.';
+    statusEl.style.color = 'var(--red)';
+    return;
+  }
+
+  const confirmed = confirm(
+    'This will overwrite ALL current data with the backup file.\n\n' +
+    'Only proceed on a fresh install or after data loss.\n\nContinue?'
+  );
+  if (!confirmed) return;
+
+  statusEl.textContent = 'Uploading and restoring… please wait.';
+  statusEl.style.color = 'var(--text-dim)';
+
+  const file = fileInput.files[0];
+  const buf  = await file.arrayBuffer();
+
+  try {
+    const res = await fetch('/api/backup/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: buf,
+    });
+    const result = await res.json();
+    if (result.success) {
+      statusEl.textContent = '✅ Restore complete. Restart the server to apply all changes.';
+      statusEl.style.color = 'var(--green)';
+      showToast('Restore complete — restart the server');
+    } else {
+      statusEl.textContent = '❌ Restore failed: ' + (result.error || 'unknown error');
+      statusEl.style.color = 'var(--red)';
+    }
+  } catch (err) {
+    statusEl.textContent = '❌ Upload failed: ' + err.message;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
 function renderDashboard() {
   const clientCards = state.clients.length > 0
     ? state.clients.map(c => `
@@ -811,6 +958,7 @@ function renderDashboard() {
               <span>${c.status || 'setup'}</span>
             </div>
             <div id="session-dots-${c.clientId}" class="session-dots" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+            <div id="next-runs-${c.clientId}" style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;"></div>
           </div>
           <div class="client-actions">
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); openSessionPicker('${c.clientId}', '${c.name}')" title="Set up browser sessions">🔐 Login</button>
@@ -855,6 +1003,7 @@ function renderClientForm(client) {
       <div class="tab" onclick="switchTab(this, 'tab-platforms')">Platforms</div>
       <div class="tab" onclick="switchTab(this, 'tab-brand')">Brand Voice</div>
       <div class="tab" onclick="switchTab(this, 'tab-proxy')">Proxy</div>
+      <div class="tab" onclick="switchTab(this, 'tab-schedule')">Schedule</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-logs')">Logs</div>` : ''}
     </div>
 
@@ -952,6 +1101,31 @@ function renderClientForm(client) {
           <label>Expected Country Code</label>
           <input type="text" id="f-proxy-geo" value="${proxy.geo || 'US'}" placeholder="US">
         </div>
+      </div>
+    </div>
+
+    <!-- Schedule -->
+    <div id="tab-schedule" class="card hidden">
+      <div class="card-desc">Set daily automation times in UTC (24h format). Separate multiple times with spaces, e.g. <span class="mono" style="font-size:11px">09:00 18:00</span>. Leave blank to disable scheduled runs for a platform.</div>
+      <div class="field">
+        <label>Instagram — Daily times (UTC)</label>
+        <input type="text" id="f-sched-instagram" value="${(c.schedule?.instagram || []).join(' ')}" placeholder="09:00 18:00">
+        <div class="field-hint">Runs "reply-instagram" at each specified time.</div>
+      </div>
+      <div class="field">
+        <label>TikTok — Daily times (UTC)</label>
+        <input type="text" id="f-sched-tiktok" value="${(c.schedule?.tiktok || []).join(' ')}" placeholder="10:00 20:00">
+        <div class="field-hint">Runs "reply-tiktok" at each specified time.</div>
+      </div>
+      <div class="field">
+        <label>X (Twitter) — Daily times (UTC)</label>
+        <input type="text" id="f-sched-x" value="${(c.schedule?.x || []).join(' ')}" placeholder="08:00 16:00">
+        <div class="field-hint">Runs "reply-x" at each specified time.</div>
+      </div>
+      <div class="field">
+        <label>WhatsApp — Daily times (UTC)</label>
+        <input type="text" id="f-sched-whatsapp" value="${(c.schedule?.whatsapp || []).join(' ')}" placeholder="09:00 13:00 17:00">
+        <div class="field-hint">Runs "check-whatsapp" at each specified time.</div>
       </div>
     </div>
 
@@ -1059,6 +1233,12 @@ async function saveClient(existingId) {
       emojiMax: parseInt(document.getElementById('f-emoji')?.value) || 2,
       languages: (document.getElementById('f-langs')?.value || 'English').split(',').map(s => s.trim()),
       neverSay: (document.getElementById('f-never')?.value || '').split('\n').filter(Boolean),
+    },
+    schedule: {
+      instagram: (document.getElementById('f-sched-instagram')?.value || '').split(/\s+/).filter(Boolean),
+      tiktok:    (document.getElementById('f-sched-tiktok')?.value    || '').split(/\s+/).filter(Boolean),
+      x:         (document.getElementById('f-sched-x')?.value         || '').split(/\s+/).filter(Boolean),
+      whatsapp:  (document.getElementById('f-sched-whatsapp')?.value  || '').split(/\s+/).filter(Boolean),
     },
   };
 
@@ -1170,15 +1350,34 @@ async function stopSession() {
 async function loadAllSessionDots() {
   for (const client of state.clients) {
     const dotsEl = document.getElementById(`session-dots-${client.clientId}`);
-    if (!dotsEl) continue;
-    const status = await api('GET', `/clients/${client.clientId}/sessions`);
-    const icons = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
-    dotsEl.innerHTML = Object.entries(icons).map(([p, icon]) => {
-      const s = status[p];
-      const color = s?.isActive ? '#f59e0b' : s?.hasSession ? '#22c55e' : '#3f3f46';
-      const label = s?.hasSession ? 'logged in' : 'needs login';
-      return `<span title="${p}: ${label}" style="font-size:11px;display:flex;align-items:center;gap:3px;color:${color}">${icon}<span style="width:5px;height:5px;border-radius:50%;background:${color};display:inline-block"></span></span>`;
-    }).join('');
+    const nextRunsEl = document.getElementById(`next-runs-${client.clientId}`);
+
+    if (dotsEl) {
+      const status = await api('GET', `/clients/${client.clientId}/sessions`);
+      const icons = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
+      dotsEl.innerHTML = Object.entries(icons).map(([p, icon]) => {
+        const s = status[p];
+        const color = s?.isActive ? '#f59e0b' : s?.hasSession ? '#22c55e' : '#3f3f46';
+        const label = s?.hasSession ? 'logged in' : 'needs login';
+        return `<span title="${p}: ${label}" style="font-size:11px;display:flex;align-items:center;gap:3px;color:${color}">${icon}<span style="width:5px;height:5px;border-radius:50%;background:${color};display:inline-block"></span></span>`;
+      }).join('');
+    }
+
+    if (nextRunsEl) {
+      try {
+        const nextRuns = await api('GET', `/clients/${client.clientId}/next-runs`);
+        const platformIcons = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
+        const entries = Object.entries(nextRuns);
+        if (entries.length > 0) {
+          nextRunsEl.innerHTML = entries.map(([platform, nextTime]) =>
+            `<span title="${platform} scheduled run" style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:3px;">` +
+            `${platformIcons[platform] || platform} <span style="color:var(--amber);font-family:'JetBrains Mono',monospace;">⏰ ${nextTime} UTC</span></span>`
+          ).join('');
+        } else {
+          nextRunsEl.innerHTML = '';
+        }
+      } catch {}
+    }
   }
 }
 
