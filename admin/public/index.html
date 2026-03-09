@@ -2149,6 +2149,7 @@ function renderIntelCompetitors() {
           ${comp.instagram ? '📸' : ''}${comp.tiktok ? '🎵' : ''}${comp.x ? '𝕏' : ''}${comp.facebook ? '📘' : ''}${comp.reddit ? '🤖' : ''}
         </td>
         <td style="padding:10px 0;text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="prefillCompetitorResearch(${i})" style="margin-right:4px">⚡ Research</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})" style="margin-left:4px">✕</button>
         </td>
@@ -2156,6 +2157,19 @@ function renderIntelCompetitors() {
       ${comp.weaknesses?.length ? `<tr style="border-bottom:1px solid var(--border)"><td colspan="4" style="padding:2px 0 8px;font-size:12px;color:var(--text-dim)">⚠ ${comp.weaknesses.join(' · ')}${comp.notes ? ` — ${comp.notes}` : ''}</td></tr>` : ''}`
     ).join('')}
     </tbody></table>`;
+}
+
+function prefillCompetitorResearch(idx) {
+  const c = window._intel.competitors[idx];
+  // Pre-fill the AI Research panel with this competitor's saved data
+  document.getElementById('ai-comp-name').value  = c.name    || '';
+  document.getElementById('ai-comp-url').value   = c.website || '';
+  document.getElementById('ai-comp-ig').value    = c.instagram || '';
+  document.getElementById('ai-comp-tt').value    = c.tiktok  || '';
+  document.getElementById('ai-comp-x').value     = c.x       || '';
+  // Open the panel and scroll to it
+  const panel = document.getElementById('panel-competitors-ai');
+  if (panel) { panel.open = true; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 }
 
 function editIntelCompetitor(idx) {
