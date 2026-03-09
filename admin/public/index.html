@@ -1104,6 +1104,7 @@ function renderClientForm(client) {
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-logs')">Logs</div>` : ''}
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-leadgen'); loadLeadGenTab('${c.clientId}')">Lead Gen</div>` : ''}
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-costs'); loadCostsTab('${c.clientId}')">Costs</div>` : ''}
+      ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-intel'); loadIntelTab('${c.clientId}')">Intelligence</div>` : ''}
     </div>
 
     <!-- General -->
@@ -1440,6 +1441,204 @@ function renderClientForm(client) {
       </div>
     </div>` : ''}
 
+    ${isEdit ? `
+    <!-- Intelligence -->
+    <div id="tab-intel" class="hidden">
+      <div class="tabs" style="margin-bottom:16px">
+        <div class="tab active" onclick="switchIntelTab(this,'intel-products')">Products</div>
+        <div class="tab" onclick="switchIntelTab(this,'intel-competitors')">Competitors</div>
+        <div class="tab" onclick="switchIntelTab(this,'intel-sources')">Hot Sources</div>
+        <div class="tab" onclick="switchIntelTab(this,'intel-keywords')">Keywords</div>
+        <div class="tab" onclick="switchIntelTab(this,'intel-followers')">Followers</div>
+      </div>
+
+      <!-- Products -->
+      <div id="intel-products" class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:14px;font-weight:600">Products &amp; Offers <span id="intel-products-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <button class="btn btn-sm btn-ghost" onclick="showIntelForm('product')">+ Add Product</button>
+        </div>
+        <div id="intel-product-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
+          <div class="field-row">
+            <div class="field"><label>Product / Service Name *</label><input type="text" id="ip-name" placeholder="e.g. Pro Plan, SEO Package"></div>
+            <div class="field" style="max-width:150px"><label>Price</label><input type="text" id="ip-price" placeholder="$49/mo"></div>
+          </div>
+          <div class="field"><label>URL</label><input type="text" id="ip-url" placeholder="https://yoursite.com/product"></div>
+          <div class="field"><label>Description</label><textarea id="ip-desc" rows="2" placeholder="What it does and who it's for"></textarea></div>
+          <div class="field-row">
+            <div class="field"><label>Pain Points it Solves (one per line)</label><textarea id="ip-pains" rows="3" placeholder="Customers struggle with...&#10;Takes too long to...&#10;Too expensive to..."></textarea></div>
+            <div class="field"><label>Key Benefits / USPs (one per line)</label><textarea id="ip-usps" rows="3" placeholder="Saves 3 hours/week&#10;No setup required&#10;Works offline"></textarea></div>
+          </div>
+          <div class="field"><label>Target Keywords (comma-separated)</label><input type="text" id="ip-keywords" placeholder="crm software, best crm, small business crm"></div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-sm btn-primary" onclick="saveIntelProduct()">Save Product</button>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('intel-product-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div id="intel-products-list"></div>
+      </div>
+
+      <!-- Competitors -->
+      <div id="intel-competitors" class="card hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:14px;font-weight:600">Competitors <span id="intel-competitors-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <button class="btn btn-sm btn-ghost" onclick="showIntelForm('competitor')">+ Add Competitor</button>
+        </div>
+        <div id="intel-competitor-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
+          <div class="field-row">
+            <div class="field"><label>Name *</label><input type="text" id="ic-name" placeholder="Competitor Inc"></div>
+            <div class="field"><label>Website</label><input type="text" id="ic-website" placeholder="https://competitor.com"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Instagram</label><input type="text" id="ic-ig" placeholder="@handle"></div>
+            <div class="field"><label>TikTok</label><input type="text" id="ic-tt" placeholder="@handle"></div>
+            <div class="field"><label>X / Twitter</label><input type="text" id="ic-x" placeholder="@handle"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Facebook</label><input type="text" id="ic-fb" placeholder="Page name or URL"></div>
+            <div class="field"><label>Reddit / Communities</label><input type="text" id="ic-reddit" placeholder="r/subreddit, FB Group name..."></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Their Weaknesses (one per line)</label><textarea id="ic-weaknesses" rows="2" placeholder="Expensive pricing&#10;Slow customer support&#10;No mobile app"></textarea></div>
+            <div class="field"><label>Notes</label><textarea id="ic-notes" rows="2" placeholder="Why their customers switch to us, common complaints..."></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-sm btn-primary" onclick="saveIntelCompetitor()">Save Competitor</button>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('intel-competitor-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div id="intel-competitors-list"></div>
+      </div>
+
+      <!-- Hot Sources -->
+      <div id="intel-sources" class="card hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:14px;font-weight:600">Hot Sources <span id="intel-sources-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <button class="btn btn-sm btn-ghost" onclick="showIntelForm('source')">+ Add Source</button>
+        </div>
+        <div class="card-desc" style="margin-bottom:14px">Communities, accounts, hashtags, and websites where your target audience hangs out. Claude uses these for outreach and lead gen.</div>
+        <div id="intel-source-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
+          <div class="field-row">
+            <div class="field">
+              <label>Type</label>
+              <select id="is-type">
+                <option value="community">Community / Group</option>
+                <option value="account">Social Account (competitor/influencer)</option>
+                <option value="hashtag">Hashtag</option>
+                <option value="website">Website / Blog</option>
+                <option value="forum">Forum / Thread</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Platform</label>
+              <select id="is-platform">
+                <option value="instagram">Instagram</option>
+                <option value="tiktok">TikTok</option>
+                <option value="x">X / Twitter</option>
+                <option value="facebook">Facebook</option>
+                <option value="reddit">Reddit</option>
+                <option value="youtube">YouTube</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="website">Website</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Handle / Name / URL *</label><input type="text" id="is-handle" placeholder="@account, r/subreddit, #hashtag, or https://..."></div>
+            <div class="field"><label>Why Valuable?</label><input type="text" id="is-why" placeholder="Active buyers in our niche, high engagement..."></div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-sm btn-primary" onclick="saveIntelSource()">Save Source</button>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('intel-source-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div id="intel-sources-list"></div>
+      </div>
+
+      <!-- Keywords -->
+      <div id="intel-keywords" class="card hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:14px;font-weight:600">Keywords <span id="intel-keywords-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <button class="btn btn-sm btn-ghost" onclick="showIntelForm('keyword')">+ Add Keyword</button>
+        </div>
+        <div class="card-desc" style="margin-bottom:14px">Search terms, pain-point phrases, and buying signals Claude watches for in comments, bios, and posts.</div>
+        <div id="intel-keyword-form" style="display:none;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
+          <div class="field-row">
+            <div class="field"><label>Keyword / Phrase *</label><input type="text" id="ik-kw" placeholder="best crm for small business"></div>
+            <div class="field">
+              <label>Intent</label>
+              <select id="ik-intent">
+                <option value="commercial">Commercial — comparing options</option>
+                <option value="transactional">Transactional — ready to buy</option>
+                <option value="pain-point">Pain Point — frustrated with problem</option>
+                <option value="informational">Informational — learning / researching</option>
+                <option value="navigational">Navigational — looking for specific brand</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Platforms to watch</label>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+                ${['instagram','tiktok','x','youtube','reddit','facebook'].map(p => `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;font-weight:400"><input type="checkbox" class="ik-platform" value="${p}"> ${p}</label>`).join('')}
+              </div>
+            </div>
+            <div class="field" style="max-width:140px">
+              <label>Volume</label>
+              <select id="ik-volume">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low / Niche</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Notes</label><input type="text" id="ik-notes" placeholder="Use in captions, watch for in comments, trigger DM..."></div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-sm btn-primary" onclick="saveIntelKeyword()">Save Keyword</button>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('intel-keyword-form').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <select id="ik-filter-intent" onchange="renderIntelKeywords()" style="font-size:12px;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+            <option value="">All intents</option>
+            <option value="commercial">Commercial</option>
+            <option value="transactional">Transactional</option>
+            <option value="pain-point">Pain Point</option>
+            <option value="informational">Informational</option>
+          </select>
+          <select id="ik-filter-platform" onchange="renderIntelKeywords()" style="font-size:12px;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+            <option value="">All platforms</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+            <option value="x">X / Twitter</option>
+            <option value="reddit">Reddit</option>
+          </select>
+        </div>
+        <div id="intel-keywords-list"></div>
+      </div>
+
+      <!-- Followers -->
+      <div id="intel-followers" class="card hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-size:14px;font-weight:600">Uploaded Followers <span id="intel-followers-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-ghost" onclick="downloadFollowerTemplate()">↓ Template</button>
+            <label class="btn btn-sm btn-ghost" style="cursor:pointer">
+              ↑ Upload CSV
+              <input type="file" accept=".csv,.txt" style="display:none" onchange="uploadFollowers(this,'${c.clientId}')">
+            </label>
+          </div>
+        </div>
+        <div class="card-desc" style="margin-bottom:14px">
+          Import exported follower/audience lists. CSV columns: <code>username, platform, follower_count, bio, email</code>.
+          Claude uses these as warm targets for outreach — no cold scraping needed.
+        </div>
+        <div id="intel-followers-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:14px"></div>
+        <div id="intel-followers-list"></div>
+      </div>
+    </div>` : ''}
+
     <div class="btn-row">
       <button class="btn btn-primary" onclick="saveClient(${isEdit ? `'${c.clientId}'` : ''})">
         ${isEdit ? 'Save Changes' : 'Create Client'}
@@ -1551,6 +1750,401 @@ async function testSmtp() {
   const r = await api('POST', '/settings/smtp-test', { to });
   if (r.error) showToast(r.error, 'error');
   else showToast('Test email sent!');
+}
+
+// ─── Intelligence tab ─────────────────────────────────────────────────────────
+window._intel = { clientId: null, products: [], competitors: [], 'hot-sources': [], keywords: [], followers: [] };
+window._intel_editIdx = {};
+
+function switchIntelTab(el, tabId) {
+  el.closest('.tabs').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('[id^="intel-"]').forEach(d => {
+    if (d.id !== 'intel-product-form' && d.id !== 'intel-competitor-form' &&
+        d.id !== 'intel-source-form' && d.id !== 'intel-keyword-form') d.classList.add('hidden');
+  });
+  document.getElementById(tabId).classList.remove('hidden');
+}
+
+async function loadIntelTab(clientId) {
+  window._intel.clientId = clientId;
+  const [products, competitors, sources, keywords, followers] = await Promise.all([
+    api('GET', `/clients/${clientId}/knowledge/products`),
+    api('GET', `/clients/${clientId}/knowledge/competitors`),
+    api('GET', `/clients/${clientId}/knowledge/hot-sources`),
+    api('GET', `/clients/${clientId}/knowledge/keywords`),
+    api('GET', `/clients/${clientId}/knowledge/followers`),
+  ]);
+  window._intel.products       = Array.isArray(products)     ? products     : [];
+  window._intel.competitors    = Array.isArray(competitors)  ? competitors  : [];
+  window._intel['hot-sources'] = Array.isArray(sources)      ? sources      : [];
+  window._intel.keywords       = Array.isArray(keywords)     ? keywords     : [];
+  window._intel.followers      = Array.isArray(followers)    ? followers    : [];
+  renderIntelProducts();
+  renderIntelCompetitors();
+  renderIntelSources();
+  renderIntelKeywords();
+  renderIntelFollowers();
+}
+
+async function saveIntelSection(section) {
+  const data = section === 'hot-sources' ? window._intel['hot-sources'] : window._intel[section];
+  await api('PUT', `/clients/${window._intel.clientId}/knowledge/${section}`, data);
+}
+
+function showIntelForm(type) {
+  ['product','competitor','source','keyword'].forEach(t => {
+    const el = document.getElementById(`intel-${t}-form`);
+    if (el) el.style.display = 'none';
+  });
+  const form = document.getElementById(`intel-${type}-form`);
+  if (!form) return;
+  form.style.display = 'block';
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  window._intel_editIdx[type] = -1;
+  form.querySelectorAll('input[type=text],input[type=email],textarea').forEach(el => { el.value = ''; });
+  form.querySelectorAll('select').forEach(el => { el.selectedIndex = 0; });
+  form.querySelectorAll('input[type=checkbox]').forEach(el => { el.checked = false; });
+}
+
+// ── Products ──
+function renderIntelProducts() {
+  const p = window._intel.products;
+  const ce = document.getElementById('intel-products-count');
+  if (ce) ce.textContent = p.length ? `(${p.length})` : '';
+  const le = document.getElementById('intel-products-list');
+  if (!le) return;
+  if (!p.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No products yet — add your first one above.</div>`; return; }
+  le.innerHTML = p.map((prod, i) => `
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+        <div>
+          <span style="font-weight:600">${prod.name || 'Unnamed'}</span>
+          ${prod.price ? `<span style="color:var(--accent);font-size:12px;margin-left:8px;font-weight:500">${prod.price}</span>` : ''}
+          ${prod.url ? `<a href="${prod.url}" target="_blank" style="color:var(--text-muted);font-size:11px;margin-left:8px">${prod.url.replace(/^https?:\/\//,'').slice(0,40)}</a>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn btn-sm btn-ghost" onclick="editIntelProduct(${i})">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('products',${i})">✕</button>
+        </div>
+      </div>
+      ${prod.description ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">${prod.description}</div>` : ''}
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        ${prod.pain_points?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--red);margin-bottom:4px">Pain Points</div>${prod.pain_points.map(pt=>`<div style="font-size:12px;color:var(--text-dim)">• ${pt}</div>`).join('')}</div>` : ''}
+        ${prod.usps?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin-bottom:4px">Benefits</div>${prod.usps.map(u=>`<div style="font-size:12px;color:var(--text-dim)">✓ ${u}</div>`).join('')}</div>` : ''}
+      </div>
+      ${prod.keywords?.length ? `<div style="margin-top:8px">${prod.keywords.map(k=>`<span style="display:inline-block;background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:20px;padding:2px 8px;font-size:11px;margin:2px">${k}</span>`).join('')}</div>` : ''}
+    </div>`).join('');
+}
+
+function editIntelProduct(idx) {
+  const p = window._intel.products[idx];
+  window._intel_editIdx.product = idx;
+  const form = document.getElementById('intel-product-form');
+  form.style.display = 'block';
+  document.getElementById('ip-name').value = p.name || '';
+  document.getElementById('ip-price').value = p.price || '';
+  document.getElementById('ip-url').value = p.url || '';
+  document.getElementById('ip-desc').value = p.description || '';
+  document.getElementById('ip-pains').value = (p.pain_points || []).join('\n');
+  document.getElementById('ip-usps').value = (p.usps || []).join('\n');
+  document.getElementById('ip-keywords').value = (p.keywords || []).join(', ');
+}
+
+async function saveIntelProduct() {
+  const name = document.getElementById('ip-name').value.trim();
+  if (!name) return showToast('Product name is required', 'error');
+  const prod = {
+    name, price: document.getElementById('ip-price').value.trim(),
+    url: document.getElementById('ip-url').value.trim(),
+    description: document.getElementById('ip-desc').value.trim(),
+    pain_points: document.getElementById('ip-pains').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    usps: document.getElementById('ip-usps').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    keywords: document.getElementById('ip-keywords').value.split(',').map(s=>s.trim()).filter(Boolean),
+  };
+  const idx = window._intel_editIdx.product ?? -1;
+  if (idx === -1) window._intel.products.push(prod);
+  else window._intel.products[idx] = prod;
+  await saveIntelSection('products');
+  document.getElementById('intel-product-form').style.display = 'none';
+  renderIntelProducts();
+  showToast('Product saved');
+}
+
+// ── Competitors ──
+function renderIntelCompetitors() {
+  const comps = window._intel.competitors;
+  const ce = document.getElementById('intel-competitors-count');
+  if (ce) ce.textContent = comps.length ? `(${comps.length})` : '';
+  const le = document.getElementById('intel-competitors-list');
+  if (!le) return;
+  if (!comps.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No competitors added yet.</div>`; return; }
+  le.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead><tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:6px 0">Name</th>
+      <th style="text-align:left;padding:6px 0">Website</th>
+      <th style="text-align:left;padding:6px 0">Channels</th>
+      <th style="text-align:right;padding:6px 0"></th>
+    </tr></thead><tbody>
+    ${comps.map((comp, i) => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 0;font-weight:500">${comp.name}</td>
+        <td style="padding:10px 0">${comp.website ? `<a href="${comp.website}" target="_blank" style="color:var(--accent);font-size:12px">${comp.website.replace(/^https?:\/\//,'').split('/')[0]}</a>` : '—'}</td>
+        <td style="padding:10px 0;font-size:18px;letter-spacing:4px">
+          ${comp.instagram ? '📸' : ''}${comp.tiktok ? '🎵' : ''}${comp.x ? '𝕏' : ''}${comp.facebook ? '📘' : ''}${comp.reddit ? '🤖' : ''}
+        </td>
+        <td style="padding:10px 0;text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})" style="margin-left:4px">✕</button>
+        </td>
+      </tr>
+      ${comp.weaknesses?.length ? `<tr style="border-bottom:1px solid var(--border)"><td colspan="4" style="padding:2px 0 8px;font-size:12px;color:var(--text-dim)">⚠ ${comp.weaknesses.join(' · ')}${comp.notes ? ` — ${comp.notes}` : ''}</td></tr>` : ''}`
+    ).join('')}
+    </tbody></table>`;
+}
+
+function editIntelCompetitor(idx) {
+  const c = window._intel.competitors[idx];
+  window._intel_editIdx.competitor = idx;
+  const form = document.getElementById('intel-competitor-form');
+  form.style.display = 'block';
+  document.getElementById('ic-name').value = c.name || '';
+  document.getElementById('ic-website').value = c.website || '';
+  document.getElementById('ic-ig').value = c.instagram || '';
+  document.getElementById('ic-tt').value = c.tiktok || '';
+  document.getElementById('ic-x').value = c.x || '';
+  document.getElementById('ic-fb').value = c.facebook || '';
+  document.getElementById('ic-reddit').value = c.reddit || '';
+  document.getElementById('ic-weaknesses').value = (c.weaknesses || []).join('\n');
+  document.getElementById('ic-notes').value = c.notes || '';
+}
+
+async function saveIntelCompetitor() {
+  const name = document.getElementById('ic-name').value.trim();
+  if (!name) return showToast('Competitor name is required', 'error');
+  const comp = {
+    name, website: document.getElementById('ic-website').value.trim(),
+    instagram: document.getElementById('ic-ig').value.trim(),
+    tiktok: document.getElementById('ic-tt').value.trim(),
+    x: document.getElementById('ic-x').value.trim(),
+    facebook: document.getElementById('ic-fb').value.trim(),
+    reddit: document.getElementById('ic-reddit').value.trim(),
+    weaknesses: document.getElementById('ic-weaknesses').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    notes: document.getElementById('ic-notes').value.trim(),
+    enabled: true,
+  };
+  const idx = window._intel_editIdx.competitor ?? -1;
+  if (idx === -1) window._intel.competitors.push(comp);
+  else window._intel.competitors[idx] = comp;
+  await saveIntelSection('competitors');
+  document.getElementById('intel-competitor-form').style.display = 'none';
+  renderIntelCompetitors();
+  showToast('Competitor saved');
+}
+
+// ── Hot Sources ──
+function renderIntelSources() {
+  const sources = window._intel['hot-sources'];
+  const ce = document.getElementById('intel-sources-count');
+  if (ce) ce.textContent = sources.length ? `(${sources.length})` : '';
+  const le = document.getElementById('intel-sources-list');
+  if (!le) return;
+  if (!sources.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No sources yet. Add competitor accounts, subreddits, or hashtags to monitor.</div>`; return; }
+  le.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead><tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:6px 0">Platform</th>
+      <th style="text-align:left;padding:6px 0">Type</th>
+      <th style="text-align:left;padding:6px 0">Handle / URL</th>
+      <th style="text-align:left;padding:6px 0">Why</th>
+      <th style="text-align:center;padding:6px 0">On</th>
+      <th></th>
+    </tr></thead><tbody>
+    ${sources.map((s, i) => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 0;text-transform:capitalize">${s.platform}</td>
+        <td style="padding:8px 0;color:var(--text-dim);text-transform:capitalize">${s.type}</td>
+        <td style="padding:8px 0;font-family:monospace;font-size:12px">${s.handle_or_url}</td>
+        <td style="padding:8px 0;color:var(--text-dim);font-size:12px">${s.why || ''}</td>
+        <td style="padding:8px 0;text-align:center"><input type="checkbox" ${s.enabled!==false?'checked':''} onchange="toggleIntelSource(${i},this.checked)"></td>
+        <td style="padding:8px 0;text-align:right"><button class="btn btn-sm btn-danger" onclick="deleteIntelItem('hot-sources',${i})">✕</button></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+async function saveIntelSource() {
+  const handle = document.getElementById('is-handle').value.trim();
+  if (!handle) return showToast('Handle or URL is required', 'error');
+  window._intel['hot-sources'].push({
+    type: document.getElementById('is-type').value,
+    platform: document.getElementById('is-platform').value,
+    handle_or_url: handle,
+    why: document.getElementById('is-why').value.trim(),
+    enabled: true,
+  });
+  await saveIntelSection('hot-sources');
+  document.getElementById('intel-source-form').style.display = 'none';
+  renderIntelSources();
+  showToast('Source saved');
+}
+
+async function toggleIntelSource(idx, enabled) {
+  window._intel['hot-sources'][idx].enabled = enabled;
+  await saveIntelSection('hot-sources');
+}
+
+// ── Keywords ──
+const INTENT_COLORS = { commercial:'#6366f1', transactional:'#22c55e', 'pain-point':'#ef4444', informational:'#f59e0b', navigational:'#3b82f6' };
+
+function renderIntelKeywords() {
+  const fi = document.getElementById('ik-filter-intent')?.value || '';
+  const fp = document.getElementById('ik-filter-platform')?.value || '';
+  const all = window._intel.keywords;
+  let kws = all.filter(k => (!fi || k.intent === fi) && (!fp || k.platforms?.includes(fp)));
+
+  const ce = document.getElementById('intel-keywords-count');
+  if (ce) ce.textContent = all.length ? `(${all.length})` : '';
+  const le = document.getElementById('intel-keywords-list');
+  if (!le) return;
+  if (!kws.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">${all.length ? 'No keywords match filter.' : 'No keywords yet. Add buying signals, pain-point phrases, and search terms.'}</div>`; return; }
+
+  const intents = [...new Set(kws.map(k => k.intent))];
+  le.innerHTML = intents.map(intent => `
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:${INTENT_COLORS[intent]||'var(--text-muted)'};margin-bottom:8px">${intent}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${kws.filter(k=>k.intent===intent).map(k => {
+          const ri = all.indexOf(k);
+          return `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--bg-input);border:1px solid var(--border);border-radius:20px;padding:4px 10px 4px 12px;font-size:12px" title="${k.notes||''} | platforms: ${(k.platforms||[]).join(', ')} | volume: ${k.volume||'?'}">
+            ${k.keyword}
+            <button onclick="deleteIntelItem('keywords',${ri})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;line-height:1;font-size:15px">×</button>
+          </span>`;
+        }).join('')}
+      </div>
+    </div>`).join('');
+}
+
+async function saveIntelKeyword() {
+  const kw = document.getElementById('ik-kw').value.trim();
+  if (!kw) return showToast('Keyword is required', 'error');
+  const platforms = [...document.querySelectorAll('.ik-platform:checked')].map(el => el.value);
+  window._intel.keywords.push({
+    keyword: kw,
+    intent: document.getElementById('ik-intent').value,
+    platforms,
+    volume: document.getElementById('ik-volume').value,
+    notes: document.getElementById('ik-notes').value.trim(),
+  });
+  await saveIntelSection('keywords');
+  document.getElementById('intel-keyword-form').style.display = 'none';
+  renderIntelKeywords();
+  showToast('Keyword added');
+}
+
+// ── Followers ──
+function renderIntelFollowers() {
+  const followers = window._intel.followers;
+  const ce = document.getElementById('intel-followers-count');
+  if (ce) ce.textContent = followers.length ? `(${followers.length.toLocaleString()})` : '';
+  const statsEl = document.getElementById('intel-followers-stats');
+  const le = document.getElementById('intel-followers-list');
+  if (!statsEl || !le) return;
+  if (!followers.length) {
+    statsEl.innerHTML = '';
+    le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No followers uploaded yet. Download the template, fill it in, then upload the CSV.</div>`;
+    return;
+  }
+  const byPlatform = {};
+  followers.forEach(f => { byPlatform[f.platform] = (byPlatform[f.platform]||0)+1; });
+  statsEl.innerHTML = Object.entries(byPlatform).map(([p,n]) =>
+    `<div class="cost-stat"><div class="cost-stat-label" style="text-transform:capitalize">${p}</div><div class="cost-stat-value" style="font-size:18px">${n.toLocaleString()}</div></div>`).join('');
+  const preview = followers.slice(0, 200);
+  le.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:12px;color:var(--text-muted)">Showing ${preview.length} of ${followers.length.toLocaleString()}</div>
+      <button class="btn btn-sm btn-danger" onclick="clearFollowers()" style="font-size:11px">Clear All</button>
+    </div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead><tr style="color:var(--text-muted);border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:5px 0">Username</th>
+        <th style="text-align:left;padding:5px 0">Platform</th>
+        <th style="text-align:right;padding:5px 0">Followers</th>
+        <th style="text-align:left;padding:5px 0">Bio</th>
+        <th style="text-align:left;padding:5px 0">Source</th>
+      </tr></thead><tbody>
+      ${preview.map(f => `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;font-family:monospace">${f.username||'—'}</td>
+        <td style="padding:5px 0;text-transform:capitalize;color:var(--text-dim)">${f.platform||'—'}</td>
+        <td style="padding:5px 0;text-align:right;color:var(--text-dim)">${f.follower_count?Number(f.follower_count).toLocaleString():'—'}</td>
+        <td style="padding:5px 0;color:var(--text-dim);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.bio||''}</td>
+        <td style="padding:5px 0;color:var(--text-muted);font-size:11px">${f.source||''}</td>
+      </tr>`).join('')}
+      </tbody></table>`;
+}
+
+async function uploadFollowers(input, clientId) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split('\n').filter(Boolean);
+  if (lines.length < 2) return showToast('Empty or header-only file', 'error');
+
+  const parseCSVLine = line => {
+    const out = []; let cur = ''; let inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { out.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur.trim()); return out;
+  };
+
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/\W+/g,'_'));
+  const col = name => headers.findIndex(h => h.includes(name));
+  const uCol = col('username') !== -1 ? col('username') : col('handle') !== -1 ? col('handle') : col('user');
+  const pCol = col('platform');
+  const fCol = col('follower') !== -1 ? col('follower') : col('count');
+  const bCol = col('bio') !== -1 ? col('bio') : col('description');
+  const eCol = col('email');
+
+  const newRows = lines.slice(1).map(line => {
+    const c = parseCSVLine(line);
+    return { username: c[uCol]||'', platform: c[pCol]||'instagram',
+      follower_count: parseInt(c[fCol])||0, bio: c[bCol]||'',
+      email: eCol >= 0 ? c[eCol]||'' : '',
+      source: file.name, uploaded_at: new Date().toISOString().slice(0,10) };
+  }).filter(r => r.username);
+
+  if (!newRows.length) return showToast('No valid rows found — check column headers', 'error');
+  window._intel.followers = [...window._intel.followers, ...newRows];
+  await saveIntelSection('followers');
+  renderIntelFollowers();
+  input.value = '';
+  showToast(`${newRows.length.toLocaleString()} followers uploaded`);
+}
+
+async function clearFollowers() {
+  if (!confirm('Clear all uploaded followers? Cannot be undone.')) return;
+  window._intel.followers = [];
+  await saveIntelSection('followers');
+  renderIntelFollowers();
+}
+
+function downloadFollowerTemplate() {
+  const csv = 'username,platform,follower_count,bio,email\n@username,instagram,1500,Fitness lover and entrepreneur,hello@email.com\n@user2,tiktok,3200,Dubai food blogger,\n@user3,x,800,Small business owner UAE,user3@email.com\n';
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv],{type:'text/csv'})), download: 'followers-template.csv' });
+  a.click();
+}
+
+async function deleteIntelItem(section, idx) {
+  const arr = section === 'hot-sources' ? window._intel['hot-sources'] : window._intel[section];
+  if (!arr) return;
+  arr.splice(idx, 1);
+  await saveIntelSection(section);
+  if (section === 'products') renderIntelProducts();
+  else if (section === 'competitors') renderIntelCompetitors();
+  else if (section === 'hot-sources') renderIntelSources();
+  else if (section === 'keywords') renderIntelKeywords();
+  else if (section === 'followers') renderIntelFollowers();
 }
 
 // ─── Actions ───

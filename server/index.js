@@ -566,7 +566,58 @@ YOUR TASK:
 5. Once approved, post with natural staggered timing
 6. Run cross-engagement after posts go live`,
   };
-  return commands[command] || (ctx + command);
+  const basePrompt = commands[command] || (ctx + command);
+  return basePrompt + buildKnowledgeContext(clientConfig.clientId);
+}
+
+// Append knowledge base context to every prompt so Claude has full brand intelligence
+function buildKnowledgeContext(clientId) {
+  if (!clientId) return '';
+  const kDir = path.join(CLIENTS_DIR, clientId, 'knowledge');
+  const read = file => { try { return JSON.parse(fs.readFileSync(path.join(kDir, file), 'utf8')); } catch { return []; } };
+
+  const products    = read('products.json');
+  const competitors = read('competitors.json');
+  const keywords    = read('keywords.json');
+  const sources     = read('hot-sources.json').filter(s => s.enabled !== false);
+
+  if (!products.length && !competitors.length && !keywords.length && !sources.length) return '';
+
+  const lines = ['\n\n─── BRAND INTELLIGENCE (read this before acting) ───'];
+
+  if (products.length) {
+    lines.push('\nPRODUCTS & OFFERS:');
+    products.forEach(p => {
+      lines.push(`• ${p.name}${p.price ? ` (${p.price})` : ''}${p.url ? ` — ${p.url}` : ''}`);
+      if (p.description) lines.push(`  ${p.description}`);
+      if (p.pain_points?.length) lines.push(`  Pain points: ${p.pain_points.join('; ')}`);
+      if (p.usps?.length) lines.push(`  Benefits: ${p.usps.join('; ')}`);
+    });
+  }
+
+  if (competitors.length) {
+    lines.push('\nCOMPETITORS (never mention these brands in public):');
+    competitors.filter(c => c.enabled !== false).forEach(c => {
+      const handles = [c.instagram, c.tiktok, c.x].filter(Boolean).join(', ');
+      lines.push(`• ${c.name}${c.website ? ` (${c.website.replace(/^https?:\/\//,'')})` : ''}${handles ? ` — socials: ${handles}` : ''}`);
+      if (c.weaknesses?.length) lines.push(`  Their weaknesses: ${c.weaknesses.join('; ')}`);
+    });
+  }
+
+  if (keywords.length) {
+    const buying = keywords.filter(k => k.intent === 'transactional' || k.intent === 'commercial').map(k => k.keyword);
+    const pains  = keywords.filter(k => k.intent === 'pain-point').map(k => k.keyword);
+    if (buying.length) lines.push(`\nBUYING SIGNAL KEYWORDS (engage immediately when you see these): ${buying.join(', ')}`);
+    if (pains.length)  lines.push(`PAIN-POINT SIGNALS (offer help/solution when spotted): ${pains.join(', ')}`);
+  }
+
+  if (sources.length) {
+    lines.push('\nHOT SOURCES TO MINE (prioritise outreach from these):');
+    sources.slice(0, 15).forEach(s => lines.push(`• ${s.platform} ${s.type}: ${s.handle_or_url}${s.why ? ` — ${s.why}` : ''}`));
+  }
+
+  lines.push('─────────────────────────────────────────────────────');
+  return lines.join('\n');
 }
 
 // ─── Shared run spawn logic ───
@@ -1429,6 +1480,32 @@ app.get('/api/clients/:id/leadgen/log', requireLicense, (req, res) => {
 app.get('/api/backup/status', requireLicense, (req, res) => {
   const status = backup.loadStatus(DATA_DIR);
   res.json({ ...status, r2Configured: backup.isR2Configured() });
+});
+
+// ─── Knowledge base per client (products, competitors, hot-sources, keywords, followers) ───
+const KNOWLEDGE_SECTIONS = new Set(['products', 'competitors', 'hot-sources', 'keywords', 'followers']);
+
+function knowledgeDir(id) {
+  const d = path.join(CLIENTS_DIR, id, 'knowledge');
+  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+app.get('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
+  const { id, section } = req.params;
+  if (!KNOWLEDGE_SECTIONS.has(section)) return res.status(400).json({ error: 'Invalid section' });
+  const f = path.join(knowledgeDir(id), `${section}.json`);
+  if (!fs.existsSync(f)) return res.json([]);
+  try { res.json(JSON.parse(fs.readFileSync(f, 'utf8'))); } catch { res.json([]); }
+});
+
+app.put('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
+  const { id, section } = req.params;
+  if (!KNOWLEDGE_SECTIONS.has(section)) return res.status(400).json({ error: 'Invalid section' });
+  if (!fs.existsSync(path.join(CLIENTS_DIR, id))) return res.status(404).json({ error: 'Client not found' });
+  const data = Array.isArray(req.body) ? req.body : [];
+  fs.writeFileSync(path.join(knowledgeDir(id), `${section}.json`), JSON.stringify(data, null, 2));
+  res.json({ success: true, count: data.length });
 });
 
 // ─── SMTP test ───
