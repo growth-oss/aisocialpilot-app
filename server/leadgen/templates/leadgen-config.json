@@ -1,0 +1,45 @@
+{
+  "_comment": "Lead generation config for one client. Edit per brand then save.",
+
+  "enabled": true,
+
+  "brand": {
+    "whatsapp_number": "+971XXXXXXXXX",
+    "whatsapp_label": "chat with us on WhatsApp",
+    "dm_cta": "Send us a DM for details",
+    "website_url": "https://example.com",
+    "promo_active": false,
+    "promo_ends_at": null
+  },
+
+  "scoring": {
+    "comment_on_competitor": 30,
+    "like_on_competitor":    10,
+    "follows_competitor":    20,
+    "has_question_in_post":  25,
+    "follower_count_1k_5k":  10,
+    "follower_count_5k_50k": 20,
+    "follower_count_50k_plus": 30,
+    "bio_keyword_match":     15,
+    "niche_hashtag_match":   10
+  },
+
+  "thresholds": {
+    "min_score_to_engage":           20,
+    "min_score_for_comment":         40,
+    "min_score_for_dm":              60,
+    "min_score_for_coupon":          70,
+    "influencer_min_followers":    5000
+  },
+
+  "pipeline": {
+    "cooldown_between_engagements_hours": 48,
+    "dm_followback_wait_days":           3,
+    "warmup_days":                       14,
+    "warmup_multiplier":                 0.5
+  },
+
+  "niche_keywords": [
+    "skincare", "beauty", "wellness", "natural", "organic"
+  ]
+}

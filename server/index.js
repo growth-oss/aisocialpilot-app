@@ -6,6 +6,7 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 const crypto = require('crypto');
 const backup = require('./backup');
+const lgDb   = require('./leadgen/db');
 
 // Track in-flight automation processes keyed by runId
 const runningProcesses = new Map();
@@ -845,6 +846,159 @@ app.get('/api/debug-claude', (req, res) => {
   }
 
   res.json(results);
+});
+
+// ─── Lead Gen ─────────────────────────────────────────────────────────────────
+
+const LEADGEN_TEMPLATE_DIR = path.join(__dirname, 'leadgen', 'templates');
+
+// Helper: resolve the per-client data directory
+function clientDir(id) {
+  return path.join(CLIENTS_DIR, id);
+}
+
+// Seed a file into the client's leadgen dir on first use
+function seedLeadgenFile(cDir, filename) {
+  const dest = path.join(cDir, 'leadgen', filename);
+  if (!fs.existsSync(dest)) {
+    const src = path.join(LEADGEN_TEMPLATE_DIR, filename);
+    if (fs.existsSync(src)) {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+  }
+  return dest;
+}
+
+// GET /api/clients/:id/leadgen/config — returns leadgen-config + personas + coupons + hot-sources
+app.get('/api/clients/:id/leadgen/config', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const readJson = (file) => {
+    const p = seedLeadgenFile(cDir, file);
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
+  };
+
+  res.json({
+    config:    readJson('leadgen-config.json'),
+    personas:  readJson('personas.json'),
+    coupons:   readJson('coupon-config.json'),
+    sources:   readJson('hot-sources.json'),
+  });
+});
+
+// PUT /api/clients/:id/leadgen/config — save one or more config sections
+app.put('/api/clients/:id/leadgen/config', requireLicense, (req, res) => {
+  const cDir  = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const sections = { config: 'leadgen-config.json', personas: 'personas.json', coupons: 'coupon-config.json', sources: 'hot-sources.json' };
+  const body     = req.body;
+  const saved    = [];
+
+  for (const [key, filename] of Object.entries(sections)) {
+    if (body[key] !== undefined) {
+      const dest = path.join(cDir, 'leadgen', filename);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, JSON.stringify(body[key], null, 2));
+      saved.push(key);
+
+      // Sync hot_sources table if sources changed
+      if (key === 'sources') {
+        try {
+          for (const src of body[key]) lgDb.upsertHotSource(cDir, src);
+        } catch {}
+      }
+    }
+  }
+
+  res.json({ saved });
+});
+
+// GET /api/clients/:id/leadgen/stats
+app.get('/api/clients/:id/leadgen/stats', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  try {
+    res.json(lgDb.getStats(cDir));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/clients/:id/leadgen/leads?platform=&stage=&minScore=&converted=&limit=&offset=
+app.get('/api/clients/:id/leadgen/leads', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const q = req.query;
+  try {
+    const leads = lgDb.getLeads(cDir, {
+      platform:  q.platform || undefined,
+      stage:     q.stage !== undefined ? parseInt(q.stage) : undefined,
+      minScore:  q.minScore !== undefined ? parseInt(q.minScore) : undefined,
+      converted: q.converted !== undefined ? q.converted === '1' || q.converted === 'true' : undefined,
+      limit:     parseInt(q.limit)  || 100,
+      offset:    parseInt(q.offset) || 0,
+    });
+    res.json(leads);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/clients/:id/leadgen/leads/:leadId — update stage, mark converted, DND, notes
+app.patch('/api/clients/:id/leadgen/leads/:leadId', requireLicense, (req, res) => {
+  const cDir   = clientDir(req.params.id);
+  const leadId = parseInt(req.params.leadId);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const { action, stage, notes } = req.body;
+  try {
+    if (action === 'convert') {
+      lgDb.markConverted(cDir, leadId);
+    } else if (action === 'dnd') {
+      lgDb.markDoNotEngage(cDir, leadId);
+    } else if (stage !== undefined) {
+      lgDb.updateLeadStage(cDir, leadId, stage, { notes });
+    } else if (notes !== undefined) {
+      lgDb.updateLeadStage(cDir, leadId,
+        lgDb.getLeadById(cDir, leadId)?.engagement_stage ?? 0,
+        { notes }
+      );
+    }
+    res.json({ ok: true, lead: lgDb.getLeadById(cDir, leadId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/clients/:id/leadgen/leads/:leadId
+app.delete('/api/clients/:id/leadgen/leads/:leadId', requireLicense, (req, res) => {
+  const cDir   = clientDir(req.params.id);
+  const leadId = parseInt(req.params.leadId);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  try {
+    lgDb.deleteLead(cDir, leadId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/clients/:id/leadgen/log?limit=&offset=
+app.get('/api/clients/:id/leadgen/log', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  try {
+    res.json(lgDb.getLog(cDir, {
+      limit:  parseInt(req.query.limit)  || 50,
+      offset: parseInt(req.query.offset) || 0,
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Backup ───────────────────────────────────────────────────────────────────

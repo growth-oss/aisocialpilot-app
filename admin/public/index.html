@@ -1005,6 +1005,7 @@ function renderClientForm(client) {
       <div class="tab" onclick="switchTab(this, 'tab-proxy')">Proxy</div>
       <div class="tab" onclick="switchTab(this, 'tab-schedule')">Schedule</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-logs')">Logs</div>` : ''}
+      ${isEdit ? `<div class="tab" onclick="switchTab(this, 'tab-leadgen'); loadLeadGenTab('${c.clientId}')">Lead Gen</div>` : ''}
     </div>
 
     <!-- General -->
@@ -1136,6 +1137,103 @@ function renderClientForm(client) {
       <div id="runs-table" style="font-size:13px;">
         <div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading...</div>
       </div>
+    </div>` : ''}
+
+    ${isEdit ? `
+    <!-- Lead Gen -->
+    <div id="tab-leadgen" class="hidden">
+
+      <!-- Stats bar -->
+      <div id="lg-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;">
+        <div style="color:var(--text-muted);text-align:center;padding:20px 0;grid-column:1/-1">Loading…</div>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="tabs" style="margin-bottom:16px">
+        <div class="tab active" onclick="switchLgTab(this,'lg-pipeline')">Pipeline</div>
+        <div class="tab" onclick="switchLgTab(this,'lg-log'); renderLeadLog('${c.clientId}')">Activity Log</div>
+        <div class="tab" onclick="switchLgTab(this,'lg-config')">Config</div>
+        <div class="tab" onclick="switchLgTab(this,'lg-sources')">Sources</div>
+      </div>
+
+      <!-- Pipeline -->
+      <div id="lg-pipeline" class="card">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+          <select id="lg-filter-platform" onchange="renderLeadTable('${c.clientId}')" style="font-size:12px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+            <option value="">All platforms</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+            <option value="x">X / Twitter</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+          <select id="lg-filter-stage" onchange="renderLeadTable('${c.clientId}')" style="font-size:12px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+            <option value="">All stages</option>
+            <option value="0">Discovered</option>
+            <option value="1">Story Viewed</option>
+            <option value="2">Liked</option>
+            <option value="3">Followed</option>
+            <option value="4">Commented</option>
+            <option value="5">Replied Q</option>
+            <option value="6">DM Sent</option>
+          </select>
+          <select id="lg-filter-converted" onchange="renderLeadTable('${c.clientId}')" style="font-size:12px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text)">
+            <option value="">All leads</option>
+            <option value="0">Active</option>
+            <option value="1">Converted</option>
+          </select>
+          <button class="btn btn-sm btn-ghost" onclick="renderLeadTable('${c.clientId}')">Refresh</button>
+        </div>
+        <div id="lg-lead-table" style="font-size:13px;">
+          <div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Activity Log -->
+      <div id="lg-log" class="card hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span style="font-size:13px;color:var(--text-dim)">Last 50 outreach actions</span>
+          <button class="btn btn-sm btn-ghost" onclick="renderLeadLog('${c.clientId}')">Refresh</button>
+        </div>
+        <div id="lg-log-table" style="font-size:13px;">
+          <div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Config -->
+      <div id="lg-config" class="card hidden">
+        <div class="card-title" style="margin-bottom:12px">Lead Gen Config</div>
+        <div class="card-desc" style="margin-bottom:14px">Edit JSON directly. Save when done. Changes take effect on next automation run.</div>
+        <div class="field" style="margin-bottom:12px">
+          <label>Main Config (leadgen-config.json)</label>
+          <textarea id="lg-cfg-main" rows="14" style="font-family:'JetBrains Mono',monospace;font-size:12px;width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:12px;resize:vertical"></textarea>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <label>Personas (personas.json)</label>
+          <textarea id="lg-cfg-personas" rows="14" style="font-family:'JetBrains Mono',monospace;font-size:12px;width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:12px;resize:vertical"></textarea>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <label>Coupon Config (coupon-config.json)</label>
+          <textarea id="lg-cfg-coupons" rows="10" style="font-family:'JetBrains Mono',monospace;font-size:12px;width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:12px;resize:vertical"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveLeadGenConfig('${c.clientId}')">Save Config</button>
+        </div>
+        <div id="lg-cfg-status" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+
+      <!-- Sources -->
+      <div id="lg-sources" class="card hidden">
+        <div class="card-title" style="margin-bottom:12px">Hot Sources</div>
+        <div class="card-desc" style="margin-bottom:14px">Competitor accounts and hashtags Claude will mine for warm leads. Edit as JSON array.</div>
+        <div class="field" style="margin-bottom:12px">
+          <textarea id="lg-cfg-sources" rows="16" style="font-family:'JetBrains Mono',monospace;font-size:12px;width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:12px;resize:vertical"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveLeadGenSources('${c.clientId}')">Save Sources</button>
+        </div>
+        <div id="lg-src-status" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+
     </div>` : ''}
 
     <div class="btn-row">
@@ -1582,6 +1680,211 @@ async function runClient(clientId, command, label) {
 // Close overlays on backdrop click
 document.getElementById('cmd-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeCmdPicker(); });
 document.getElementById('run-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeRunPanel(); });
+
+// ─── Lead Gen ─────────────────────────────────────────────────────────────────
+
+const LG_STAGE_LABELS = ['Discovered','Story Viewed','Liked','Followed','Commented','Replied Q','DM Sent'];
+const LG_STAGE_COLORS = ['var(--text-muted)','#38bdf8','#a78bfa','#34d399','#f59e0b','#fb923c','var(--accent)'];
+const LG_ACTION_ICONS = { story_view:'👁', like:'❤️', follow:'➕', comment:'💬', reply:'↩️', dm:'✉️', dm_pivot:'🔀', coupon_sent:'🎟️' };
+
+async function loadLeadGenTab(clientId) {
+  await Promise.all([
+    renderLeadStats(clientId),
+    renderLeadTable(clientId),
+    loadLeadGenConfigFields(clientId),
+  ]);
+}
+
+async function renderLeadStats(clientId) {
+  const el = document.getElementById('lg-stats');
+  if (!el) return;
+  try {
+    const s = await api('GET', `/clients/${clientId}/leadgen/stats`);
+    const card = (label, value, color='var(--text)') =>
+      `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:${color}">${value}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">${label}</div>
+      </div>`;
+    el.innerHTML =
+      card('Total Leads', s.totalLeads) +
+      card('Hot Leads (≥70)', s.hotLeads, 'var(--amber)') +
+      card('In Pipeline', s.inPipeline, 'var(--accent)') +
+      card('Converted', s.conversions, 'var(--green)') +
+      card('DM Pivots', s.dmPivots) +
+      card('Coupon Used', s.couponUsed) +
+      card('Influencers', s.influencers, '#f472b6');
+  } catch (err) {
+    el.innerHTML = `<div style="color:var(--text-dim);padding:12px">Could not load stats: ${err.message}</div>`;
+  }
+}
+
+async function renderLeadTable(clientId) {
+  const el = document.getElementById('lg-lead-table');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading…</div>';
+
+  const platform  = document.getElementById('lg-filter-platform')?.value  || '';
+  const stage     = document.getElementById('lg-filter-stage')?.value;
+  const converted = document.getElementById('lg-filter-converted')?.value;
+
+  const params = new URLSearchParams({ limit: 100 });
+  if (platform)  params.set('platform', platform);
+  if (stage !== undefined && stage !== '') params.set('stage', stage);
+  if (converted !== undefined && converted !== '') params.set('converted', converted);
+
+  try {
+    const leads = await api('GET', `/clients/${clientId}/leadgen/leads?${params}`);
+    if (!leads.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:24px 0">No leads yet. Run a competitor scrape to start filling the pipeline.</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 6px;font-weight:500">User</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Platform</th>
+            <th style="text-align:center;padding:8px 6px;font-weight:500">Score</th>
+            <th style="text-align:center;padding:8px 6px;font-weight:500">Stage</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Source</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Last Action</th>
+            <th style="text-align:center;padding:8px 6px;font-weight:500">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${leads.map(l => `
+            <tr style="border-bottom:1px solid var(--border);font-size:12px" id="lead-row-${l.id}">
+              <td style="padding:8px 6px">
+                <div style="font-weight:500">${l.display_name || l.username}</div>
+                <div style="color:var(--text-dim);font-size:11px">@${l.username}${l.follower_count ? ' · ' + fmtNum(l.follower_count) + ' followers' : ''}</div>
+                ${l.is_converted ? '<span style="font-size:10px;background:var(--green-dim);color:var(--green);padding:2px 6px;border-radius:10px">Converted</span>' : ''}
+                ${l.coupon_referenced ? '<span style="font-size:10px;background:var(--amber-dim);color:var(--amber);padding:2px 6px;border-radius:10px;margin-left:4px">Coupon</span>' : ''}
+                ${l.is_influencer ? '<span style="font-size:10px;background:rgba(244,114,182,0.1);color:#f472b6;padding:2px 6px;border-radius:10px;margin-left:4px">Influencer</span>' : ''}
+              </td>
+              <td style="padding:8px 6px;color:var(--text-dim)">${l.platform}</td>
+              <td style="padding:8px 6px;text-align:center">
+                <span style="font-weight:600;color:${l.total_score >= 70 ? 'var(--amber)' : l.total_score >= 40 ? 'var(--accent)' : 'var(--text-dim)'}">${l.total_score}</span>
+              </td>
+              <td style="padding:8px 6px;text-align:center">
+                <span style="font-size:11px;padding:3px 8px;border-radius:10px;background:rgba(99,102,241,0.1);color:${LG_STAGE_COLORS[l.engagement_stage] || 'var(--text-dim)'}">${LG_STAGE_LABELS[l.engagement_stage] || l.engagement_stage}</span>
+              </td>
+              <td style="padding:8px 6px;color:var(--text-dim);font-size:11px">${l.source_type || '—'}${l.source_handle ? '<br>' + l.source_handle : ''}</td>
+              <td style="padding:8px 6px;color:var(--text-dim);font-size:11px">${l.last_engaged_at ? new Date(l.last_engaged_at + 'Z').toLocaleDateString() : '—'}</td>
+              <td style="padding:8px 6px;text-align:center;white-space:nowrap">
+                ${!l.is_converted ? `<button class="btn btn-sm btn-ghost" style="font-size:10px;padding:3px 8px;color:var(--green);border-color:var(--green)" onclick="lgPatchLead('${clientId}',${l.id},'convert')">✓ Convert</button> ` : ''}
+                <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:3px 8px;color:var(--red);border-color:var(--red)" onclick="lgPatchLead('${clientId}',${l.id},'dnd')">✕ DND</button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:10px">${leads.length} leads shown</div>
+    `;
+  } catch (err) {
+    el.innerHTML = `<div style="color:var(--red);padding:12px">${err.message}</div>`;
+  }
+}
+
+async function renderLeadLog(clientId) {
+  const el = document.getElementById('lg-log-table');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading…</div>';
+  try {
+    const rows = await api('GET', `/clients/${clientId}/leadgen/log?limit=50`);
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:24px 0">No actions logged yet.</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 6px;font-weight:500">When</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Lead</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Action</th>
+            <th style="text-align:left;padding:8px 6px;font-weight:500">Persona</th>
+            <th style="text-align:center;padding:8px 6px;font-weight:500">OK</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr style="border-bottom:1px solid var(--border);font-size:12px">
+              <td style="padding:8px 6px;color:var(--text-dim);white-space:nowrap">${new Date(r.timestamp + 'Z').toLocaleString()}</td>
+              <td style="padding:8px 6px">${r.username ? '@' + r.username : '—'} <span style="color:var(--text-dim)">${r.platform}</span></td>
+              <td style="padding:8px 6px">${LG_ACTION_ICONS[r.action_type] || ''} ${r.action_type}${r.post_url ? `<br><a href="${r.post_url}" target="_blank" style="color:var(--accent);font-size:11px">post ↗</a>` : ''}</td>
+              <td style="padding:8px 6px;color:var(--text-dim);font-size:11px">${r.persona_id || '—'}</td>
+              <td style="padding:8px 6px;text-align:center">${r.success ? '✓' : '✗'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    el.innerHTML = `<div style="color:var(--red);padding:12px">${err.message}</div>`;
+  }
+}
+
+async function loadLeadGenConfigFields(clientId) {
+  try {
+    const d = await api('GET', `/clients/${clientId}/leadgen/config`);
+    const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = JSON.stringify(val, null, 2); };
+    set('lg-cfg-main',    d.config);
+    set('lg-cfg-personas', d.personas);
+    set('lg-cfg-coupons', d.coupons);
+    set('lg-cfg-sources', d.sources);
+  } catch {}
+}
+
+async function saveLeadGenConfig(clientId) {
+  const st = document.getElementById('lg-cfg-status');
+  try {
+    const parse = id => JSON.parse(document.getElementById(id).value);
+    await api('PUT', `/clients/${clientId}/leadgen/config`, {
+      config:   parse('lg-cfg-main'),
+      personas: parse('lg-cfg-personas'),
+      coupons:  parse('lg-cfg-coupons'),
+    });
+    if (st) { st.textContent = '✓ Saved'; st.style.color = 'var(--green)'; }
+  } catch (err) {
+    if (st) { st.textContent = '✗ ' + err.message; st.style.color = 'var(--red)'; }
+  }
+}
+
+async function saveLeadGenSources(clientId) {
+  const st = document.getElementById('lg-src-status');
+  try {
+    const sources = JSON.parse(document.getElementById('lg-cfg-sources').value);
+    await api('PUT', `/clients/${clientId}/leadgen/config`, { sources });
+    if (st) { st.textContent = '✓ Saved'; st.style.color = 'var(--green)'; }
+  } catch (err) {
+    if (st) { st.textContent = '✗ ' + err.message; st.style.color = 'var(--red)'; }
+  }
+}
+
+async function lgPatchLead(clientId, leadId, action) {
+  try {
+    await api('PATCH', `/clients/${clientId}/leadgen/leads/${leadId}`, { action });
+    renderLeadTable(clientId);
+    renderLeadStats(clientId);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function switchLgTab(el, tabId) {
+  el.closest('.tabs').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['lg-pipeline','lg-log','lg-config','lg-sources'].forEach(id => {
+    const e = document.getElementById(id);
+    if (e) e.classList.toggle('hidden', id !== tabId);
+  });
+}
+
+function fmtNum(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n;
+}
 
 // ─── Boot ───
 init();

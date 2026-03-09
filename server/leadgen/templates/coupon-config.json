@@ -1,0 +1,37 @@
+{
+  "_comment": "Coupon codes are NEVER posted publicly. Shared only in private DMs after the lead reaches min_score_for_coupon.",
+
+  "active_coupons": [
+    {
+      "id": "coupon_welcome",
+      "code": "WELCOME15",
+      "label": "15% off your first order",
+      "expires_at": null,
+      "max_uses": null,
+      "platforms": ["instagram", "tiktok", "x", "whatsapp"],
+      "min_lead_score": 70,
+      "enabled": true
+    }
+  ],
+
+  "urgency_phrases": {
+    "generic": [
+      "This offer ends soon — don't miss it!",
+      "Only a few spots left at this price",
+      "Grab it before it's gone"
+    ],
+    "arabic": [
+      "العرض بينتهي قريب — لا تفوته!",
+      "باقي كمية محدودة بهالسعر"
+    ]
+  },
+
+  "dm_coupon_template": "Hey {name}! I wanted to share something exclusive with you — use code **{code}** for {label}. Valid at {website_url} 🙌",
+
+  "attribution": {
+    "track_utm": true,
+    "utm_source": "socialpilot_leadgen",
+    "utm_medium": "dm",
+    "utm_campaign": "ambassador_outreach"
+  }
+}
