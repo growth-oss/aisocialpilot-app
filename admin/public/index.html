@@ -2013,10 +2013,9 @@ window._intel_editIdx = {};
 function switchIntelTab(el, tabId) {
   el.closest('.tabs').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  document.querySelectorAll('[id^="intel-"]').forEach(d => {
-    if (d.id !== 'intel-product-form' && d.id !== 'intel-competitor-form' &&
-        d.id !== 'intel-source-form' && d.id !== 'intel-keyword-form') d.classList.add('hidden');
-  });
+  // Only hide the 5 top-level tab card divs — not their children (terminals, stats, etc.)
+  ['intel-products','intel-competitors','intel-sources','intel-keywords','intel-followers']
+    .forEach(id => { const d = document.getElementById(id); if (d) d.classList.add('hidden'); });
   document.getElementById(tabId).classList.remove('hidden');
 }
 
@@ -2386,7 +2385,7 @@ async function runIntelResearch(command, params) {
 
   const termId = terminalMap[command];
   const termEl = termId ? document.getElementById(termId) : null;
-  if (termEl) { termEl.style.display = 'block'; termEl.textContent = '> Starting AI research...\n'; }
+  if (termEl) { termEl.classList.remove('hidden'); termEl.style.display = 'block'; termEl.textContent = '> Starting AI research...\n'; }
 
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
@@ -2444,7 +2443,7 @@ async function runIntelResearch(command, params) {
     if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
     showToast('Research failed: ' + err.message, 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = btn.textContent.replace('⏳ Running...', '⚡ ' + (btn.textContent.includes('Scrape') ? 'Run AI Scrape' : btn.textContent.includes('Discover') ? 'Discover Sources' : btn.textContent.includes('Keyword') ? 'Research Keywords' : 'Run AI Research')); }
+    if (btn) { btn.disabled = false; const labelMap = {'products-scrape':'Run AI Scrape','sources-discover':'Discover Sources','keywords-research':'Research Keywords','competitor-research':'Run AI Research'}; btn.textContent = '⚡ ' + (labelMap[command] || 'Run AI Research'); }
   }
 }
 
