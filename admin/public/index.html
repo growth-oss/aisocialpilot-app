@@ -2323,6 +2323,10 @@ function renderIntelCompetitors() {
           <button class="btn btn-sm btn-primary" id="aci-btn-${i}" onclick="runCompResearch(${i})">⚡ Run AI Research</button>
         </div>
         <div id="comp-jobs-${i}"></div>
+        <div id="comp-hunt-history-${i}" style="border-top:1px solid var(--border);padding:12px 14px">
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">🎯 Hunt History</div>
+          <div id="comp-hunt-history-rows-${i}" style="font-size:12px;color:var(--text-dim)">Loading…</div>
+        </div>
         ${intelPreview}
       </div>
     </div>`;
@@ -2606,6 +2610,30 @@ function toggleCompCard(i) {
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : 'block';
   card.classList.toggle('is-expanded', !open);
+  if (!open) loadCompHuntHistory(i);
+}
+
+async function loadCompHuntHistory(i) {
+  const comp = window._intel?.competitors?.[i];
+  if (!comp) return;
+  const el = document.getElementById(`comp-hunt-history-rows-${i}`);
+  if (!el) return;
+  try {
+    const history = await api('GET', `/clients/${window._intel.clientId}/intel/hunt-history?competitor=${encodeURIComponent(comp.name)}`);
+    if (!history.length) { el.innerHTML = '<span style="color:var(--text-muted)">No hunts run yet — click 🎯 Hunt to start</span>'; return; }
+    el.innerHTML = history.map(h => {
+      const ago = relativeTime(h.startedAt);
+      const dur = h.finishedAt ? Math.round((new Date(h.finishedAt)-new Date(h.startedAt))/1000) + 's' : '—';
+      const icon = h.status === 'done' ? '✓' : '✗';
+      const color = h.status === 'done' ? '#22c55e' : '#ef4444';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid var(--border-subtle)">
+        <span style="color:${color};font-weight:600;width:12px">${icon}</span>
+        <span style="flex:1">${ago}</span>
+        <span style="color:var(--text-muted)">${dur}</span>
+        <span style="color:#22c55e;font-weight:600;min-width:60px;text-align:right">${h.leadsTotal} leads total</span>
+      </div>`;
+    }).join('');
+  } catch { el.innerHTML = '<span style="color:var(--text-muted)">Could not load history</span>'; }
 }
 
 function startCompBadgeTimer(idx, name, startedAt) {
@@ -2666,7 +2694,7 @@ async function runCompResearch(i) {
                   <span style="color:#f59e0b;font-size:14px">⏳</span>
                   <span style="font-weight:600;color:var(--text);flex:1">${params.name}</span>
                   <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600">${intelElapsed(ev.startedAt)}</span>
-                  <span style="color:var(--text-dim);font-size:11px">est. 2-5 min · safe to navigate away</span>
+                  <span style="color:#22c55e;font-size:11px;font-weight:600">✅ Runs in background — safe to navigate away</span>
                   <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('competitor-research','${runId}')">Stop</button>
                 </div>
                 <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:200px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
@@ -2780,7 +2808,7 @@ async function runCompHunt(i) {
                   <span style="color:#22c55e;font-size:14px">⏳</span>
                   <span style="font-weight:600;color:var(--text);flex:1">🎯 Hunting ${params.name} audience</span>
                   <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums;color:#22c55e;font-weight:600">${intelElapsed(ev.startedAt)}</span>
-                  <span style="color:var(--text-dim);font-size:11px">est. 5-10 min · safe to navigate away</span>
+                  <span style="color:#22c55e;font-size:11px;font-weight:600">✅ Runs in background — safe to navigate away</span>
                   <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('competitor-hunt','${runId}')">Stop</button>
                 </div>
                 <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:200px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
@@ -2808,6 +2836,7 @@ async function runCompHunt(i) {
               if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Hunt complete — ${count} total leads in pipeline</span>\n`;
               if (hdr) hdr.innerHTML = `<span style="color:#22c55e;font-size:14px">✓</span> <span style="font-weight:600;color:var(--text);flex:1">Hunt done — leads added to pipeline</span>`;
               showToast(`✓ ${params.name} hunt complete — check Lead Gen tab`);
+              loadCompHuntHistory(i);
             } else {
               const msg = `Hunt failed (code ${ev.code ?? 'null'})`;
               if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;

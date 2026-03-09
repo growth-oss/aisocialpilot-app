@@ -2149,6 +2149,24 @@ function intelJobFinish(job) {
   for (const r of job.listeners) { try { r.end(); } catch {} }
   job.listeners.clear();
   job.finishedAt = new Date().toISOString();
+  // Persist hunt runs to a log file so history survives restarts
+  if (job.command === 'competitor-hunt') {
+    try {
+      const huntLogPath = path.join(CLIENTS_DIR, job.clientId, 'leadgen', 'hunt-history.json');
+      let history = [];
+      try { history = JSON.parse(fs.readFileSync(huntLogPath, 'utf8')); } catch {}
+      history.unshift({
+        runId: job.runId,
+        competitorName: job.meta?.competitorName || null,
+        status: job.status,
+        startedAt: job.startedAt,
+        finishedAt: job.finishedAt,
+        leadsTotal: job.extractedCount || 0,
+      });
+      if (history.length > 50) history = history.slice(0, 50); // keep last 50
+      fs.writeFileSync(huntLogPath, JSON.stringify(history, null, 2));
+    } catch (e) { console.error('[intel] hunt-history write error:', e.message); }
+  }
   // Keep only 10 jobs per client to avoid unbounded memory
   const clientJobs = [...intelJobs.values()].filter(j => j.clientId === job.clientId);
   if (clientJobs.length > 10) {
@@ -2240,7 +2258,10 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   // Register background job — lives even after browser disconnects
   const job = {
     runId: runResult.runId, clientId: req.params.id, command,
-    label: INTEL_LABELS[command] || command,
+    label: command === 'competitor-hunt'
+      ? `🎯 Hunt: ${params.name || 'competitor'}`
+      : (INTEL_LABELS[command] || command),
+    meta: { competitorName: params.name || null },
     status: 'running',
     startedAt: runResult.startedAt, finishedAt: null,
     lines: [], accOutput: '',
@@ -2276,6 +2297,16 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
 
   // Browser disconnect: just remove this SSE connection, job keeps running
   req.on('close', () => { job.listeners.delete(res); });
+});
+
+// GET /api/clients/:id/intel/hunt-history?competitor=X — persistent hunt run history
+app.get('/api/clients/:id/intel/hunt-history', requireLicense, (req, res) => {
+  const huntLogPath = path.join(CLIENTS_DIR, req.params.id, 'leadgen', 'hunt-history.json');
+  let history = [];
+  try { history = JSON.parse(fs.readFileSync(huntLogPath, 'utf8')); } catch {}
+  const { competitor } = req.query;
+  if (competitor) history = history.filter(h => h.competitorName === competitor);
+  res.json(history.slice(0, 20));
 });
 
 // GET /api/clients/:id/intel/jobs — list recent intel jobs for this client
