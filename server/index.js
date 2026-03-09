@@ -1068,9 +1068,15 @@ function applyIntelData(clientId, parsed) {
   if (section === 'competitors') {
     const existing = readArr('competitors.json');
     const comp = Array.isArray(data) ? data : [data];
+    const normName = n => (n||'').toLowerCase().replace(/\s+/g,' ').trim();
     // Normalise: top_products & weaknesses may be strings or objects — keep as-is
     for (const c of comp) {
-      const idx = existing.findIndex(e => e.name === c.name);
+      // Match by normalized name OR by website/instagram to avoid duplicates from typos
+      const idx = existing.findIndex(e =>
+        normName(e.name) === normName(c.name) ||
+        (c.website && e.website && e.website === c.website) ||
+        (c.instagram && e.instagram && e.instagram === c.instagram)
+      );
       if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
       else existing.push(c);
     }
