@@ -2667,32 +2667,83 @@ async function deleteIntelItem(section, idx) {
 
 // command: 'products-scrape' | 'competitor-research' | 'sources-discover' | 'keywords-research'
 // params: object with command-specific fields
+// Active intel run tracking (survives tab switches, safe to navigate away)
+window._intelRuns = {}; // command → { runId, timer, startedAt }
+
+const INTEL_LABEL_MAP = {'products-scrape':'Run AI Scrape','sources-discover':'Discover Sources','keywords-research':'Research Keywords','competitor-research':'Run AI Research'};
+const INTEL_TERM_MAP  = {'products-scrape':'intel-terminal-products','competitor-research':'intel-terminal-competitors','sources-discover':'intel-terminal-sources','keywords-research':'intel-terminal-keywords'};
+
+function intelElapsed(startedAt) {
+  const s = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s/60)}m ${s%60}s`;
+}
+
+function intelStatusBar(command, runId, startedAt) {
+  const termId = INTEL_TERM_MAP[command];
+  if (!termId) return;
+  const barId = termId + '-bar';
+  let bar = document.getElementById(barId);
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = barId;
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;background:#12121f;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);';
+    const term = document.getElementById(termId);
+    if (term && term.parentNode) term.parentNode.insertBefore(bar, term.nextSibling);
+  }
+  // Update timer
+  clearInterval(window._intelRuns[command]?.timer);
+  window._intelRuns[command] = { runId, startedAt, timer: setInterval(() => {
+    const el = document.getElementById(barId);
+    if (el) el.querySelector('.intel-elapsed').textContent = intelElapsed(startedAt);
+  }, 1000)};
+  bar.innerHTML = `<span style="color:#f59e0b">⏳</span>
+    <span>Running in background — safe to navigate away</span>
+    <span class="intel-elapsed" style="font-variant-numeric:tabular-nums">${intelElapsed(startedAt)}</span>
+    <span style="color:var(--text-dim)">· est. 2-5 min</span>
+    <button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px" onclick="cancelIntelRun('${command}','${runId}')">Stop</button>`;
+  bar.style.display = 'flex';
+}
+
+function intelStatusDone(command, success, msg) {
+  clearInterval(window._intelRuns[command]?.timer);
+  const barId = (INTEL_TERM_MAP[command] || '') + '-bar';
+  const bar = document.getElementById(barId);
+  if (bar) {
+    const elapsed = window._intelRuns[command]?.startedAt ? intelElapsed(window._intelRuns[command].startedAt) : '';
+    bar.innerHTML = success
+      ? `<span style="color:#22c55e">✓</span> <span>${msg}</span> <span style="color:var(--text-dim)">${elapsed}</span>`
+      : `<span style="color:#ef4444">✗</span> <span>${msg}</span> <span style="color:var(--text-dim)">${elapsed}</span>`;
+    setTimeout(() => { const b = document.getElementById(barId); if (b) b.style.display = 'none'; }, 8000);
+  }
+  if (window._intelRuns[command]) window._intelRuns[command].timer = null;
+}
+
+async function cancelIntelRun(command, runId) {
+  const clientId = window._intel.clientId;
+  if (!clientId || !runId) return;
+  await fetch(`/api/clients/${clientId}/intel/jobs/${runId}`, { method: 'DELETE' });
+  intelStatusDone(command, false, 'Research cancelled');
+  const termId = INTEL_TERM_MAP[command];
+  const termEl = termId ? document.getElementById(termId) : null;
+  if (termEl) termEl.innerHTML += '\n<span class="t-error">⊘ Cancelled by user</span>\n';
+  // Re-enable button
+  document.querySelectorAll('.intel-research-panel .btn-primary').forEach(b => {
+    if (b.textContent.includes('Running')) { b.disabled = false; b.textContent = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run'); }
+  });
+}
+
 async function runIntelResearch(command, params) {
   const clientId = window._intel.clientId;
   if (!clientId) return showToast('Open a client first', 'error');
 
-  const terminalMap = {
-    'products-scrape':    'intel-terminal-products',
-    'competitor-research':'intel-terminal-competitors',
-    'sources-discover':   'intel-terminal-sources',
-    'keywords-research':  'intel-terminal-keywords',
-  };
-
-  const sectionMap = {
-    'products-scrape':    'products',
-    'competitor-research':'competitors',
-    'sources-discover':   'hot-sources',
-    'keywords-research':  'keywords',
-  };
-
-  const termId = terminalMap[command];
+  const termId = INTEL_TERM_MAP[command];
   const termEl = termId ? document.getElementById(termId) : null;
   if (termEl) { termEl.classList.remove('hidden'); termEl.style.display = 'block'; termEl.textContent = '> Starting AI research...\n'; }
 
   const btn = event?.target;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
 
-  let buffer = '';
+  let buffer = '', runId = null;
   try {
     const res = await fetch(`/api/clients/${clientId}/intel/run`, {
       method: 'POST',
@@ -2704,6 +2755,7 @@ async function runIntelResearch(command, params) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       if (termEl) termEl.innerHTML += `<span class="t-error">\n✗ Error: ${err.error}\n</span>`;
       showToast(err.error || 'Research failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run'); }
       return;
     }
 
@@ -2720,22 +2772,29 @@ async function runIntelResearch(command, params) {
         if (!line.startsWith('data: ')) continue;
         try {
           const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'start') {
+            runId = ev.runId;
+            intelStatusBar(command, runId, ev.startedAt);
+            if (termEl) termEl.textContent = `> ${ev.label} started — running in background\n> Safe to add more competitors or switch tabs\n\n`;
+          }
           if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
-            termEl.textContent += ev.text;
-            termEl.scrollTop = termEl.scrollHeight;
+            // Filter to show only meaningful lines (skip blank/repetitive)
+            const text = ev.text;
+            if (text.trim()) { termEl.textContent += text; termEl.scrollTop = termEl.scrollHeight; }
           }
           if (ev.type === 'done') {
             if (ev.extracted) {
-              const count = ev.extractedCount;
               const section = ev.extractedSection;
-              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${count} item(s) into ${section}. Refreshing tab...</span>\n`;
-              showToast(`AI extracted ${count} ${section} — saved!`);
-              // Reload intel data and re-render the affected section
+              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${ev.extractedCount} item(s) → saved to ${section}</span>\n`;
+              intelStatusDone(command, true, `Done — ${ev.extractedCount} ${section} saved`);
+              showToast(`✓ ${ev.extractedCount} ${section} extracted and saved`);
               await handleIntelResult(clientId, section);
-            } else if (ev.status !== 'completed' && ev.code !== 0) {
-              if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ Run finished with errors (code ${ev.code})</span>\n`;
+            } else if (ev.status === 'cancelled') {
+              // already handled by cancelIntelRun
             } else {
-              if (termEl) termEl.innerHTML += '\n<span class="t-error">⚠ Run completed but no structured data was found in output.\nMake sure your prompt produced [INTEL_DATA_START]...[INTEL_DATA_END] markers.</span>\n';
+              const msg = ev.code === 0 ? 'Completed — no structured data found in output' : `Failed (code ${ev.code ?? 'null'})`;
+              if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+              intelStatusDone(command, false, msg);
             }
           }
         } catch {}
@@ -2743,9 +2802,10 @@ async function runIntelResearch(command, params) {
     }
   } catch (err) {
     if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
-    showToast('Research failed: ' + err.message, 'error');
+    intelStatusDone(command, false, err.message);
+    showToast('Research error: ' + err.message, 'error');
   } finally {
-    if (btn) { btn.disabled = false; const labelMap = {'products-scrape':'Run AI Scrape','sources-discover':'Discover Sources','keywords-research':'Research Keywords','competitor-research':'Run AI Research'}; btn.textContent = '⚡ ' + (labelMap[command] || 'Run AI Research'); }
+    if (btn) { btn.disabled = false; btn.textContent = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run'); }
   }
 }
 

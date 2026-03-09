@@ -2051,11 +2051,40 @@ app.put('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
 });
 
 // ─── AI Intel research run (SSE streaming) ───────────────────────────────────
-// POST /api/clients/:id/intel/run  { command, params }
-// Spawns Claude with a research prompt, streams output as SSE, extracts structured
-// data from [INTEL_DATA_START]...[INTEL_DATA_END] markers, saves to knowledge files.
-const INTEL_COMMANDS = new Set(['products-scrape','competitor-research','sources-discover','keywords-research']);
+// ─── Intel background job store ────────────────────────────────────────────────
+// Jobs survive browser disconnects — safe to navigate away.
+// intelJobs: runId → { runId, clientId, command, label, status, startedAt,
+//   finishedAt, lines[], accOutput, extracted, extractedSection, extractedCount,
+//   code, signal, listeners: Set<res> }
+const intelJobs = new Map();
 
+function intelJobBroadcast(job, type, data) {
+  const line = `data: ${JSON.stringify({ type, ...data })}\n\n`;
+  job.lines.push(line);
+  for (const r of job.listeners) { try { r.write(line); } catch {} }
+}
+
+function intelJobFinish(job) {
+  for (const r of job.listeners) { try { r.end(); } catch {} }
+  job.listeners.clear();
+  job.finishedAt = new Date().toISOString();
+  // Keep only 10 jobs per client to avoid unbounded memory
+  const clientJobs = [...intelJobs.values()].filter(j => j.clientId === job.clientId);
+  if (clientJobs.length > 10) {
+    const oldest = clientJobs.sort((a,b) => (a.startedAt||'').localeCompare(b.startedAt||''))[0];
+    if (oldest.status !== 'running') intelJobs.delete(oldest.runId);
+  }
+}
+
+const INTEL_COMMANDS = new Set(['products-scrape','competitor-research','sources-discover','keywords-research']);
+const INTEL_LABELS = {
+  'products-scrape':    'Products Scrape',
+  'competitor-research':'Competitor Research',
+  'sources-discover':   'Hot Sources Discovery',
+  'keywords-research':  'Keywords Research',
+};
+
+// POST /api/clients/:id/intel/run  — start a background research job, stream via SSE
 app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   const { command, params = {} } = req.body;
   if (!INTEL_COMMANDS.has(command)) return res.status(400).json({ error: `Unknown intel command: ${command}` });
@@ -2067,8 +2096,6 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key required for AI research' });
 
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDirPath, 'config.json'), 'utf8'));
-
-  // Build the intel research prompt
   const intelPrompt = buildIntelPrompt(command, params, clientConfig, req.params.id);
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -2076,28 +2103,21 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const send = (type, data) => {
-    try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {}
-  };
-
-  let accumulatedOutput = '';
-
   let runResult;
   try {
     runResult = spawnRun(
       req.params.id,
       command,
       (type, text) => {
-        if (type === 'output') accumulatedOutput += text;
-        send(type, { text });
+        if (!job) return;
+        if (type === 'output') job.accOutput += text;
+        intelJobBroadcast(job, type, { text });
       },
       (runId, code, signal, startedAt, status) => {
-        // Try to extract and save intel data
-        let extracted = false;
-        let extractedSection = null;
-        let extractedCount = 0;
+        if (!job) return;
+        let extracted = false, extractedSection = null, extractedCount = 0;
         if (status === 'completed' || code === 0) {
-          const parsed = parseIntelData(accumulatedOutput);
+          const parsed = parseIntelData(job.accOutput);
           if (parsed) {
             try {
               applyIntelData(req.params.id, parsed);
@@ -2105,36 +2125,93 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
               extractedSection = parsed.section;
               extractedCount = Array.isArray(parsed.data) ? parsed.data.length : 1;
               console.log(`[intel] Extracted ${extractedCount} items into ${extractedSection} for ${req.params.id}`);
-            } catch (e) {
-              console.error('[intel] applyIntelData error:', e.message);
-            }
+            } catch (e) { console.error('[intel] applyIntelData error:', e.message); }
           }
         }
-        if (signal) send('output', { text: `\n[Process killed: ${signal}]\n` });
-        send('done', { code, runId, status, extracted, extractedSection, extractedCount });
-        res.end();
+        job.status = (signal && signal !== 'SIGTERM') ? 'failed' : (extracted || code === 0) ? 'done' : 'failed';
+        job.code = code; job.signal = signal;
+        job.extracted = extracted; job.extractedSection = extractedSection; job.extractedCount = extractedCount;
+        if (signal) intelJobBroadcast(job, 'output', { text: `\n[Process ${signal}]\n` });
+        intelJobBroadcast(job, 'done', { code, runId, status, extracted, extractedSection, extractedCount });
+        intelJobFinish(job);
       },
-      intelPrompt  // promptOverride
+      intelPrompt
     );
   } catch (err) {
-    send('error', { text: `Failed to start: ${err.message}` });
-    send('done', { code: 1, status: 'failed' });
-    res.end();
+    const errLine = `data: ${JSON.stringify({ type:'done', code:1, status:'failed' })}\n\n`;
+    try { res.write(`data: ${JSON.stringify({ type:'error', text: err.message })}\n\n`); res.write(errLine); res.end(); } catch {}
     return;
   }
 
-  send('start', { runId: runResult.runId, command, clientName: clientConfig.name, startedAt: runResult.startedAt });
+  // Register background job — lives even after browser disconnects
+  const job = {
+    runId: runResult.runId, clientId: req.params.id, command,
+    label: INTEL_LABELS[command] || command,
+    status: 'running',
+    startedAt: runResult.startedAt, finishedAt: null,
+    lines: [], accOutput: '',
+    extracted: false, extractedSection: null, extractedCount: 0,
+    code: null, signal: null,
+    listeners: new Set([res]),
+  };
+  intelJobs.set(runResult.runId, job);
 
-  // Same 10s grace period as the main run endpoint — Railway proxy drops SSE briefly
-  const intelT0 = Date.now();
-  req.on('close', () => {
-    const elapsed = Date.now() - intelT0;
-    const entry = runningProcesses.get(runResult.runId);
-    if (entry && elapsed >= 10000) {
-      if (entry.proc) entry.proc.kill('SIGTERM');
-      runningProcesses.delete(runResult.runId);
-    }
+  // Send start event (queued in lines so reconnects can see it too)
+  intelJobBroadcast(job, 'start', {
+    runId: runResult.runId, command, label: job.label,
+    clientName: clientConfig.name, startedAt: runResult.startedAt,
+    message: '✅ Research running in background — safe to navigate away',
   });
+
+  // Browser disconnect: just remove this SSE connection, job keeps running
+  req.on('close', () => { job.listeners.delete(res); });
+});
+
+// GET /api/clients/:id/intel/jobs — list recent intel jobs for this client
+app.get('/api/clients/:id/intel/jobs', requireLicense, (req, res) => {
+  const jobs = [...intelJobs.values()]
+    .filter(j => j.clientId === req.params.id)
+    .sort((a, b) => (b.startedAt||'').localeCompare(a.startedAt||''))
+    .slice(0, 15)
+    .map(j => ({
+      runId: j.runId, command: j.command, label: j.label, status: j.status,
+      startedAt: j.startedAt, finishedAt: j.finishedAt,
+      extracted: j.extracted, extractedSection: j.extractedSection, extractedCount: j.extractedCount,
+      code: j.code,
+    }));
+  res.json(jobs);
+});
+
+// GET /api/clients/:id/intel/jobs/:runId/stream — reconnect SSE: drains buffer then streams live
+app.get('/api/clients/:id/intel/jobs/:runId/stream', requireLicense, (req, res) => {
+  const job = intelJobs.get(req.params.runId);
+  if (!job || job.clientId !== req.params.id) return res.status(404).json({ error: 'Job not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Drain buffered output first
+  for (const line of job.lines) { try { res.write(line); } catch {} }
+
+  if (job.status !== 'running') { res.end(); return; }
+  job.listeners.add(res);
+  req.on('close', () => { job.listeners.delete(res); });
+});
+
+// DELETE /api/clients/:id/intel/jobs/:runId — cancel a running job
+app.delete('/api/clients/:id/intel/jobs/:runId', requireLicense, (req, res) => {
+  const job = intelJobs.get(req.params.runId);
+  if (!job || job.clientId !== req.params.id) return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'running') return res.json({ ok: true, status: job.status });
+
+  const entry = runningProcesses.get(job.runId);
+  if (entry && entry.proc) { entry.proc.kill('SIGTERM'); runningProcesses.delete(job.runId); }
+  job.status = 'cancelled';
+  intelJobBroadcast(job, 'done', { code: null, status: 'cancelled', extracted: false });
+  intelJobFinish(job);
+  res.json({ ok: true });
 });
 
 // ─── Followers: streaming CSV upload → NDJSON ─────────────────────────────────
