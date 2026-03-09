@@ -1741,6 +1741,7 @@ function renderClientForm(client) {
       <div id="intel-products" class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:14px;font-weight:600">Products &amp; Offers <span id="intel-products-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
+          <button class="btn btn-sm btn-ghost" onclick="openProductImport()" style="font-size:12px">⬆ Import</button>
           <button class="btn btn-sm btn-ghost" onclick="showIntelForm('product')">+ Add Product</button>
         </div>
 
@@ -4491,8 +4492,250 @@ async function clearLeadGenSchedule(clientId) {
   }
 }
 
+// ─── Product Import ───────────────────────────────────────────────────────────
+let _importedProducts = [];
+
+function openProductImport() {
+  document.getElementById('product-import-overlay').classList.remove('hidden');
+  switchImportTab('shopify');
+}
+
+function closeProductImport() {
+  document.getElementById('product-import-overlay').classList.add('hidden');
+  clearImportPreview();
+  document.getElementById('pimport-file').value = '';
+  document.getElementById('pimport-json-text').value = '';
+}
+
+function switchImportTab(tab) {
+  ['shopify','json'].forEach(t => {
+    document.getElementById(`pimport-${t}`).classList.toggle('hidden', t !== tab);
+    document.getElementById(`pimport-tab-${t}`).className = `btn btn-sm ${t === tab ? 'btn-primary' : 'btn-ghost'}`;
+  });
+}
+
+function handleImportDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (file) handleImportFile(file);
+}
+
+function handleImportFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => parseShopifyCSV(e.target.result);
+  reader.readAsText(file);
+}
+
+function parseShopifyCSV(csvText) {
+  // Simple CSV parser (handles quoted fields with commas)
+  function parseCSVLine(line) {
+    const result = [], re = /("(?:[^"]|"")*"|[^,]*),?/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      if (m.index === re.lastIndex) { re.lastIndex++; continue; }
+      let v = m[1];
+      if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1,-1).replace(/""/g,'"');
+      result.push(v);
+    }
+    return result;
+  }
+
+  const lines = csvText.split('\n').filter(l => l.trim());
+  if (!lines.length) { showToast('Empty file', 'error'); return; }
+
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
+
+  // Shopify column mapping (case-insensitive)
+  const col = name => {
+    const idx = headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+    return idx >= 0 ? idx : null;
+  };
+
+  const colHandle       = col('Handle');
+  const colTitle        = col('Title');
+  const colBody         = col('Body (HTML)') ?? col('Body');
+  const colPrice        = col('Variant Price');
+  const colComparePrice = col('Variant Compare At Price');
+  const colImage        = col('Image Src');
+  const colImageAlt     = col('Image Alt Text');
+  const colTags         = col('Tags');
+  const colType         = col('Type') ?? col('Product Category');
+  const colStatus       = col('Status');
+  const colVendor       = col('Vendor');
+
+  // Group rows by Handle (Shopify repeats handle for variant rows)
+  const productMap = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCSVLine(lines[i]);
+    if (!row.length || !row[0]?.trim()) continue;
+
+    const handle = colHandle !== null ? row[colHandle]?.trim() : `row-${i}`;
+    if (!handle) continue;
+
+    if (!productMap.has(handle)) {
+      const title = colTitle !== null ? row[colTitle]?.trim() : '';
+      if (!title) continue; // skip variant-only rows without title
+
+      const bodyHtml = colBody !== null ? row[colBody] || '' : '';
+      const description = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ').trim().slice(0, 500);
+      const price = colPrice !== null ? row[colPrice]?.trim() : '';
+      const comparePrice = colComparePrice !== null ? row[colComparePrice]?.trim() : '';
+      const tags = colTags !== null ? (row[colTags] || '').split(',').map(t=>t.trim()).filter(Boolean) : [];
+      const category = colType !== null ? row[colType]?.trim() : '';
+      const vendor = colVendor !== null ? row[colVendor]?.trim() : '';
+      const status = colStatus !== null ? row[colStatus]?.trim() : '';
+
+      const domain = document.getElementById('pimport-domain')?.value?.trim() || '';
+      const url = domain ? `${domain.replace(/\/$/, '')}/products/${handle}` : `/products/${handle}`;
+
+      const imgSrc = colImage !== null ? row[colImage]?.trim() : '';
+      const imgAlt = colImageAlt !== null ? row[colImageAlt]?.trim() : '';
+
+      productMap.set(handle, {
+        name: title,
+        url,
+        price: price ? price + (price.includes(' ') ? '' : ' AED') : '',
+        compare_price: comparePrice || '',
+        description,
+        category,
+        vendor,
+        tags,
+        status: status?.toLowerCase(),
+        keywords: tags,
+        pain_points: [],
+        usps: [],
+        images: imgSrc ? [{ url: imgSrc, alt: imgAlt, social_ready: imgAlt?.toLowerCase().includes('lifestyle') || false, type: 'product' }] : [],
+      });
+    } else {
+      // Additional row = variant or extra image
+      const existing = productMap.get(handle);
+      const imgSrc = colImage !== null ? row[colImage]?.trim() : '';
+      if (imgSrc && !existing.images.find(im => im.url === imgSrc)) {
+        const imgAlt = colImageAlt !== null ? row[colImageAlt]?.trim() : '';
+        existing.images.push({ url: imgSrc, alt: imgAlt, social_ready: false, type: 'product' });
+      }
+    }
+  }
+
+  const products = [...productMap.values()];
+  if (!products.length) { showToast('No products found in CSV — check the file format', 'error'); return; }
+
+  showImportPreview(products);
+}
+
+function parseJsonImport() {
+  try {
+    const raw = JSON.parse(document.getElementById('pimport-json-text').value);
+    const products = Array.isArray(raw) ? raw : [raw];
+    if (!products.length) { showToast('Empty array', 'error'); return; }
+    showImportPreview(products);
+  } catch(e) { showToast('Invalid JSON: ' + e.message, 'error'); }
+}
+
+function showImportPreview(products) {
+  _importedProducts = products;
+  const preview = document.getElementById('pimport-preview');
+  const list = document.getElementById('pimport-preview-list');
+  const count = document.getElementById('pimport-preview-count');
+  preview.classList.remove('hidden');
+  count.textContent = `${products.length} product${products.length !== 1 ? 's' : ''} ready to import`;
+  list.innerHTML = products.map(p => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border-subtle)">
+      ${p.images?.[0]?.url ? `<img src="${p.images[0].url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">` : '<div style="width:36px;height:36px;background:var(--bg-input);border-radius:4px;flex-shrink:0"></div>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${p.price || 'No price'} ${p.category ? '· ' + p.category : ''}</div>
+      </div>
+    </div>`).join('');
+}
+
+function clearImportPreview() {
+  _importedProducts = [];
+  document.getElementById('pimport-preview').classList.add('hidden');
+  document.getElementById('pimport-preview-list').innerHTML = '';
+}
+
+async function confirmProductImport() {
+  if (!_importedProducts.length) return;
+  const btn = document.getElementById('pimport-confirm-btn');
+  const st = document.getElementById('pimport-status');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  try {
+    const result = await api('POST', `/clients/${window._intel.clientId}/knowledge/products/import`, { products: _importedProducts });
+    st.textContent = `✓ ${result.imported} added, ${result.updated} updated (${result.total} total)`;
+    st.style.color = 'var(--green)';
+    showToast(`✓ Imported ${result.imported + result.updated} products`);
+    // Reload products in the intel panel
+    const data = await api('GET', `/clients/${window._intel.clientId}/knowledge/products`);
+    window._intel.products = data;
+    renderIntelProducts();
+    setTimeout(() => closeProductImport(), 2000);
+  } catch(e) {
+    st.textContent = '✗ ' + e.message; st.style.color = 'var(--red)';
+  } finally { btn.disabled = false; btn.textContent = 'Import Products'; }
+}
+
 // ─── Boot ───
 init();
 </script>
+
+<!-- ─── Product Import Modal ─────────────────────────────────────────────── -->
+<div id="product-import-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;padding:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <h3 style="font-size:16px;font-weight:700;margin:0">⬆ Import Products</h3>
+      <button class="btn btn-sm btn-ghost" onclick="closeProductImport()">✕ Close</button>
+    </div>
+
+    <!-- Format tabs -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="pimport-tab-shopify" class="btn btn-sm btn-primary" onclick="switchImportTab('shopify')">Shopify CSV</button>
+      <button id="pimport-tab-json" class="btn btn-sm btn-ghost" onclick="switchImportTab('json')">Generic JSON</button>
+    </div>
+
+    <!-- Shopify tab -->
+    <div id="pimport-shopify">
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">
+        Export from Shopify: <strong>Products → Export → All products → CSV for Excel</strong>.<br>
+        We'll import: Title, Price, Description, Images, Tags.
+      </p>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px">Your Shopify store URL (to build product links)</label>
+        <input type="text" id="pimport-domain" placeholder="https://yourstore.myshopify.com"
+               style="width:100%;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </div>
+      <div id="pimport-dropzone" onclick="document.getElementById('pimport-file').click()"
+           style="border:2px dashed var(--border);border-radius:var(--radius-sm);padding:32px;text-align:center;cursor:pointer;transition:border-color .2s"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+           ondragleave="this.style.borderColor='var(--border)'"
+           ondrop="event.preventDefault();this.style.borderColor='var(--border)';handleImportDrop(event)">
+        <div style="font-size:24px;margin-bottom:8px">📄</div>
+        <div style="font-size:13px;font-weight:600">Drop Shopify CSV here or click to browse</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">products_export.csv</div>
+      </div>
+      <input type="file" id="pimport-file" accept=".csv" style="display:none" onchange="handleImportFile(this.files[0])">
+    </div>
+
+    <!-- JSON tab -->
+    <div id="pimport-json" class="hidden">
+      <p style="font-size:12px;color:var(--text-dim);margin-bottom:8px">Paste a JSON array of products. Each object should have at minimum: <code>name</code> and <code>url</code>.</p>
+      <textarea id="pimport-json-text" style="width:100%;height:140px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:8px;font-family:monospace;resize:vertical" placeholder='[{"name":"Pillow","price":"199 AED","url":"https://...","description":"..."}]'></textarea>
+      <button class="btn btn-sm btn-ghost" onclick="parseJsonImport()" style="margin-top:8px">Parse JSON</button>
+    </div>
+
+    <!-- Preview -->
+    <div id="pimport-preview" class="hidden" style="margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span id="pimport-preview-count" style="font-size:13px;font-weight:600"></span>
+        <button class="btn btn-sm btn-ghost" onclick="clearImportPreview()">Clear</button>
+      </div>
+      <div id="pimport-preview-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button class="btn btn-primary" id="pimport-confirm-btn" onclick="confirmProductImport()">Import Products</button>
+        <span id="pimport-status" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

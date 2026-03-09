@@ -2400,6 +2400,32 @@ app.put('/api/clients/:id/knowledge/:section', requireLicense, (req, res) => {
   res.json({ success: true, count: data.length });
 });
 
+app.post('/api/clients/:id/knowledge/products/import', requireLicense, (req, res) => {
+  const { products } = req.body;
+  if (!Array.isArray(products) || !products.length) return res.status(400).json({ error: 'products array required' });
+
+  const kDir = path.join(CLIENTS_DIR, req.params.id, 'knowledge');
+  fs.mkdirSync(kDir, { recursive: true });
+  const filePath = path.join(kDir, 'products.json');
+
+  let existing = [];
+  try { existing = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch {}
+
+  let imported = 0, updated = 0;
+  for (const p of products) {
+    if (!p.name) continue;
+    const idx = existing.findIndex(e =>
+      (e.url && p.url && e.url === p.url) ||
+      e.name.toLowerCase() === p.name.toLowerCase()
+    );
+    if (idx >= 0) { existing[idx] = { ...existing[idx], ...p }; updated++; }
+    else { existing.push(p); imported++; }
+  }
+
+  fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+  res.json({ imported, updated, total: existing.length });
+});
+
 // ─── AI Intel research run (SSE streaming) ───────────────────────────────────
 // ─── Intel background job store ────────────────────────────────────────────────
 // Jobs survive browser disconnects — safe to navigate away.
