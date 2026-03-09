@@ -2108,6 +2108,7 @@ function intelJobBroadcast(job, type, data) {
 }
 
 function intelJobFinish(job) {
+  if (job._timeoutTimer) { clearTimeout(job._timeoutTimer); job._timeoutTimer = null; }
   for (const r of job.listeners) { try { r.end(); } catch {} }
   job.listeners.clear();
   job.finishedAt = new Date().toISOString();
@@ -2198,6 +2199,23 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
     listeners: new Set([res]),
   };
   intelJobs.set(runResult.runId, job);
+
+  // Hard 10-minute timeout — kill if Claude gets stuck
+  const INTEL_TIMEOUT_MS = 10 * 60 * 1000;
+  const intelTimeoutTimer = setTimeout(() => {
+    if (job.status !== 'running') return;
+    console.log(`[intel] Timeout after 10 min for runId=${runResult.runId}, killing`);
+    const entry = runningProcesses.get(runResult.runId);
+    if (entry && entry.proc) entry.proc.kill('SIGTERM');
+    runningProcesses.delete(runResult.runId);
+    job.status = 'failed';
+    intelJobBroadcast(job, 'output', { text: '\n[Timed out after 10 minutes — process killed]\n' });
+    intelJobBroadcast(job, 'done', { code: null, status: 'failed', extracted: false });
+    intelJobFinish(job);
+  }, INTEL_TIMEOUT_MS);
+  // Clear timeout if job finishes normally
+  const origFinish = intelJobFinish.bind(null, job);
+  job._timeoutTimer = intelTimeoutTimer;
 
   // Send start event (queued in lines so reconnects can see it too)
   intelJobBroadcast(job, 'start', {
