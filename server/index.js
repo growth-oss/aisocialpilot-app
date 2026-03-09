@@ -1961,6 +1961,37 @@ app.get('/api/clients/:id/leadgen/log', requireLicense, (req, res) => {
   }
 });
 
+// GET /api/clients/:id/leadgen/competitor-view?handle=X
+// Returns intel findings + pipeline funnel + lead list + active DMs for one competitor source
+app.get('/api/clients/:id/leadgen/competitor-view', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const { handle } = req.query;
+  if (!handle) return res.status(400).json({ error: 'handle param required' });
+
+  // Load saved competitor intel from knowledge base
+  const knowledgePath = path.join(cDir, 'knowledge', 'competitors.json');
+  const allComps = fs.existsSync(knowledgePath) ? JSON.parse(fs.readFileSync(knowledgePath, 'utf8')) : [];
+  const h = handle.replace(/^@/, '').toLowerCase();
+  const intel = allComps.find(c =>
+    (c.name || '').toLowerCase() === h ||
+    (c.instagram || '').replace(/^@/, '').toLowerCase() === h ||
+    (c.tiktok    || '').replace(/^@/, '').toLowerCase() === h ||
+    (c.x         || '').replace(/^@/, '').toLowerCase() === h
+  ) || null;
+
+  // Lead pipeline data from leadgen db
+  const view = lgDb.getCompetitorView(cDir, handle);
+
+  // Per-lead outreach log (last 30 actions for active DM leads)
+  const leadLogs = {};
+  for (const lead of view.activeDMs) {
+    leadLogs[lead.username] = lgDb.getLog(cDir, { username: lead.username, limit: 10 });
+  }
+
+  res.json({ intel, ...view, leadLogs });
+});
+
 // ─── Backup ───────────────────────────────────────────────────────────────────
 
 // Status: last backup time, size, whether R2 is configured

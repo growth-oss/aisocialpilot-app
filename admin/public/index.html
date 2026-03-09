@@ -505,6 +505,87 @@
   .cmd-item-text strong { display: block; font-size: 13px; font-weight: 600; }
   .cmd-item-text span { font-size: 11px; color: var(--text-dim); }
   .cmd-cancel { padding: 12px 20px; border-top: 1px solid var(--border); }
+
+  /* ─── Competitor 360° modal ─── */
+  .c360-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.15s ease; padding: 20px;
+  }
+  .c360-panel {
+    background: #0d0d14; border: 1px solid var(--border); border-radius: var(--radius);
+    width: 100%; max-width: 860px; max-height: 90vh;
+    display: flex; flex-direction: column; animation: slideUp 0.2s ease;
+  }
+  .c360-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .c360-title { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .c360-handle { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+  .c360-stats { display: flex; gap: 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .c360-stat {
+    flex: 1; padding: 14px 0; text-align: center;
+    border-right: 1px solid var(--border);
+  }
+  .c360-stat:last-child { border-right: none; }
+  .c360-stat-val { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .c360-stat-lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .c360-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .c360-tab {
+    padding: 10px 20px; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .c360-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .c360-body { overflow-y: auto; flex: 1; padding: 20px; }
+  .c360-section { display: none; }
+  .c360-section.active { display: block; }
+
+  /* Pipeline funnel */
+  .c360-funnel { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .c360-stage {
+    flex: 1; min-width: 80px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 8px; text-align: center; cursor: default;
+  }
+  .c360-stage.has-leads { border-color: var(--border-focus); }
+  .c360-stage-count { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .c360-stage-label { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.3; }
+  .c360-stage-arrow { display: flex; align-items: center; color: var(--text-dim); font-size: 14px; padding-top: 14px; }
+
+  /* Lead cards */
+  .c360-lead {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .c360-lead:last-child { border-bottom: none; }
+  .c360-avatar {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .c360-lead-info { flex: 1; min-width: 0; }
+  .c360-lead-user { font-size: 13px; font-weight: 600; }
+  .c360-lead-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .c360-lead-stage { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: var(--bg-input); white-space: nowrap; }
+  .c360-lead-stage.stage-5, .c360-lead-stage.stage-6, .c360-lead-stage.stage-7 { background: rgba(99,102,241,0.15); color: var(--accent); }
+  .c360-lead-score { font-size: 12px; color: var(--text-muted); text-align: right; min-width: 36px; }
+
+  /* DM thread */
+  .c360-thread { margin-top: 8px; }
+  .c360-msg { margin: 4px 0; font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); max-width: 90%; }
+  .c360-msg.sent { background: var(--accent-glow); margin-left: auto; text-align: right; }
+  .c360-msg.received { background: var(--bg-input); border: 1px solid var(--border); }
+  .c360-msg-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+
+  /* Intel chip tags */
+  .c360-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .c360-tag { font-size: 11px; padding: 2px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 20px; color: var(--text-dim); }
+  .c360-tag.hot { border-color: #ef4444; color: #ef4444; }
+  .c360-tag.hash { border-color: var(--border-focus); color: var(--accent); }
+  .c360-intel-block { margin-bottom: 16px; }
+  .c360-intel-lbl { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .c360-intel-txt { font-size: 13px; color: var(--text); line-height: 1.5; }
+  .c360-empty { text-align: center; padding: 40px 0; color: var(--text-muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -529,6 +610,47 @@
 <div id="toast" class="toast"></div>
 
 <!-- Run output panel -->
+<!-- ─── Competitor 360° modal ─── -->
+<div id="c360-overlay" class="c360-overlay hidden" onclick="if(event.target===this)closeC360()">
+  <div class="c360-panel">
+    <div class="c360-header">
+      <div class="c360-title">
+        <span>🎯</span>
+        <span id="c360-title-name">Competitor</span>
+        <span id="c360-title-handles" class="c360-handle"></span>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="closeC360()">✕ Close</button>
+    </div>
+    <div class="c360-stats">
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-total">—</div><div class="c360-stat-lbl">Leads Found</div></div>
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-pipeline">—</div><div class="c360-stat-lbl">In Pipeline</div></div>
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-dms">—</div><div class="c360-stat-lbl">DMs Sent</div></div>
+      <div class="c360-stat"><div class="c360-stat-val" id="c360-converted">—</div><div class="c360-stat-lbl">Converted</div></div>
+    </div>
+    <div class="c360-tabs">
+      <div class="c360-tab active" onclick="switchC360Tab('intel')">🔬 Research Intel</div>
+      <div class="c360-tab" onclick="switchC360Tab('pipeline')">🎯 Hunting Pipeline</div>
+      <div class="c360-tab" onclick="switchC360Tab('dms')">💬 Active DMs</div>
+    </div>
+    <div class="c360-body">
+      <!-- Intel section -->
+      <div id="c360-intel" class="c360-section active">
+        <div id="c360-intel-content"><div class="c360-empty">No AI research data yet. Click ⚡ Research on the competitor row to start.</div></div>
+      </div>
+      <!-- Pipeline section -->
+      <div id="c360-pipeline-sec" class="c360-section">
+        <div id="c360-funnel" class="c360-funnel"></div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Recent Leads</div>
+        <div id="c360-leads-list"></div>
+      </div>
+      <!-- Active DMs section -->
+      <div id="c360-dms-sec" class="c360-section">
+        <div id="c360-dms-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="run-overlay" class="run-overlay hidden">
   <div class="run-panel">
     <div class="run-panel-header">
@@ -2149,6 +2271,7 @@ function renderIntelCompetitors() {
           ${comp.instagram ? '📸' : ''}${comp.tiktok ? '🎵' : ''}${comp.x ? '𝕏' : ''}${comp.facebook ? '📘' : ''}${comp.reddit ? '🤖' : ''}
         </td>
         <td style="padding:10px 0;text-align:right;white-space:nowrap">
+          <button class="btn btn-sm btn-primary" onclick="openC360(${i})" style="margin-right:4px">🎯 360° View</button>
           <button class="btn btn-sm btn-ghost" onclick="prefillCompetitorResearch(${i})" style="margin-right:4px">⚡ Research</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('competitors',${i})" style="margin-left:4px">✕</button>
@@ -2157,6 +2280,171 @@ function renderIntelCompetitors() {
       ${comp.weaknesses?.length ? `<tr style="border-bottom:1px solid var(--border)"><td colspan="4" style="padding:2px 0 8px;font-size:12px;color:var(--text-dim)">⚠ ${comp.weaknesses.join(' · ')}${comp.notes ? ` — ${comp.notes}` : ''}</td></tr>` : ''}`
     ).join('')}
     </tbody></table>`;
+}
+
+// ── Competitor 360° View ──────────────────────────────────────────────────────
+const STAGE_LABELS = ['Discovered','Story Viewed','Liked','Followed','Commented','DM Sent','DM Replied','Converted'];
+const STAGE_EMOJI  = ['👁','📖','❤️','➕','💬','📩','↩️','✅'];
+
+async function openC360(idx) {
+  const comp = window._intel.competitors[idx];
+  if (!comp) return;
+  const clientId = window._intel.clientId;
+
+  // Set header
+  document.getElementById('c360-title-name').textContent = comp.name || 'Competitor';
+  const handles = [comp.instagram, comp.tiktok, comp.x].filter(Boolean).join(' · ');
+  document.getElementById('c360-title-handles').textContent = handles;
+
+  // Reset stats to loading state
+  ['c360-total','c360-pipeline','c360-dms','c360-converted'].forEach(id => { document.getElementById(id).textContent = '…'; });
+
+  // Show modal
+  document.getElementById('c360-overlay').classList.remove('hidden');
+  switchC360Tab('intel');
+
+  // Render saved intel immediately (no API needed)
+  renderC360Intel(comp);
+
+  // Load pipeline + leads from API (by instagram handle, or name as fallback)
+  const handle = comp.instagram || comp.tiktok || comp.x || comp.name || '';
+  try {
+    const data = await api('GET', `/clients/${clientId}/leadgen/competitor-view?handle=${encodeURIComponent(handle)}`);
+    if (data) {
+      document.getElementById('c360-total').textContent     = data.totalFound   || 0;
+      document.getElementById('c360-pipeline').textContent  = data.inPipeline   || 0;
+      document.getElementById('c360-dms').textContent       = data.dmsSent      || 0;
+      document.getElementById('c360-converted').textContent = data.converted    || 0;
+      renderC360Funnel(data.pipeline || []);
+      renderC360Leads(data.recentLeads || []);
+      renderC360DMs(data.activeDMs || [], data.leadLogs || {});
+    }
+  } catch (e) {
+    console.warn('c360 load error', e);
+  }
+}
+
+function closeC360() {
+  document.getElementById('c360-overlay').classList.add('hidden');
+}
+
+function switchC360Tab(tab) {
+  document.querySelectorAll('.c360-tab').forEach((t, i) => {
+    const names = ['intel','pipeline','dms'];
+    t.classList.toggle('active', names[i] === tab);
+  });
+  document.getElementById('c360-intel').classList.toggle('active', tab === 'intel');
+  document.getElementById('c360-pipeline-sec').classList.toggle('active', tab === 'pipeline');
+  document.getElementById('c360-dms-sec').classList.toggle('active', tab === 'dms');
+}
+
+function renderC360Intel(comp) {
+  const el = document.getElementById('c360-intel-content');
+  const hasAny = comp.weaknesses?.length || comp.complaint_keywords?.length || comp.top_products?.length || comp.hashtags?.length || comp.notes;
+  if (!hasAny) {
+    el.innerHTML = `<div class="c360-empty">No AI research data yet.<br>Click <strong>⚡ Research</strong> to let Claude crawl this competitor's store & social accounts.</div>`;
+    return;
+  }
+  let html = '';
+  if (comp.top_products?.length) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🏷 Top Products</div><div class="c360-tags">${comp.top_products.map(p => `<span class="c360-tag">${p}</span>`).join('')}</div></div>`;
+  }
+  if (comp.weaknesses?.length) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">⚠️ Weaknesses (exploit these)</div><div class="c360-tags">${comp.weaknesses.map(w => `<span class="c360-tag hot">${w}</span>`).join('')}</div></div>`;
+  }
+  if (comp.complaint_keywords?.length) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">🔥 Complaint Keywords (intercept these)</div><div class="c360-tags">${comp.complaint_keywords.map(k => `<span class="c360-tag hot">${k}</span>`).join('')}</div></div>`;
+  }
+  if (comp.hashtags?.length) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl"># Hashtags to Mine</div><div class="c360-tags">${comp.hashtags.map(h => `<span class="c360-tag hash">${h}</span>`).join('')}</div></div>`;
+  }
+  if (comp.notes) {
+    html += `<div class="c360-intel-block"><div class="c360-intel-lbl">📝 Notes</div><div class="c360-intel-txt">${comp.notes}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderC360Funnel(pipeline) {
+  const el = document.getElementById('c360-funnel');
+  el.innerHTML = pipeline.map((s, i) => `
+    ${i > 0 ? '<div class="c360-stage-arrow">›</div>' : ''}
+    <div class="c360-stage ${s.count > 0 ? 'has-leads' : ''}">
+      <div style="font-size:16px">${STAGE_EMOJI[s.stage] || ''}</div>
+      <div class="c360-stage-count">${s.count}</div>
+      <div class="c360-stage-label">${s.label}</div>
+    </div>
+  `).join('');
+}
+
+function renderC360Leads(leads) {
+  const el = document.getElementById('c360-leads-list');
+  if (!leads.length) { el.innerHTML = `<div class="c360-empty">No leads from this competitor yet. Run the outreach command to start hunting.</div>`; return; }
+  el.innerHTML = leads.map(l => {
+    const stage = Math.min(l.engagement_stage || 0, 7);
+    const stageLabel = STAGE_LABELS[stage] || 'Unknown';
+    const avatar = (l.display_name || l.username || '?')[0].toUpperCase();
+    const lastAgo = l.last_engaged_at ? relativeTime(l.last_engaged_at) : 'never';
+    return `<div class="c360-lead">
+      <div class="c360-avatar" style="background:${scoreColor(l.total_score)}">${avatar}</div>
+      <div class="c360-lead-info">
+        <div class="c360-lead-user">${l.display_name ? `${l.display_name} <span style="color:var(--text-muted);font-weight:400">@${l.username}</span>` : `@${l.username}`}</div>
+        <div class="c360-lead-meta">${l.platform} · ${l.follower_count ? l.follower_count.toLocaleString()+' followers · ' : ''}last action ${lastAgo}${l.notes ? ' · '+l.notes : ''}</div>
+      </div>
+      <span class="c360-lead-stage stage-${stage}">${STAGE_EMOJI[stage]} ${stageLabel}</span>
+      <div class="c360-lead-score" title="Lead score">${l.total_score || 0}pts</div>
+    </div>`;
+  }).join('');
+}
+
+function renderC360DMs(activeDMs, leadLogs) {
+  const el = document.getElementById('c360-dms-list');
+  if (!activeDMs.length) { el.innerHTML = `<div class="c360-empty">No active DM conversations yet.<br>Leads reach this stage after story view → like → follow → comment → DM.</div>`; return; }
+  el.innerHTML = activeDMs.map(l => {
+    const logs = leadLogs[l.username] || [];
+    const avatar = (l.display_name || l.username || '?')[0].toUpperCase();
+    const stage = Math.min(l.engagement_stage || 0, 7);
+    let threadHtml = '';
+    if (logs.length) {
+      threadHtml = `<div class="c360-thread">${logs.slice(0,6).reverse().map(e => {
+        const isReply = e.action_type === 'dm_reply_received';
+        return `<div class="c360-msg ${isReply ? 'received' : 'sent'}">
+          ${e.content_used || e.action_type}
+          <div class="c360-msg-meta">${isReply ? '↩ Their reply' : '✉ Sent'} · ${relativeTime(e.timestamp)}</div>
+        </div>`;
+      }).join('')}</div>`;
+    } else if (l.notes) {
+      threadHtml = `<div class="c360-thread"><div class="c360-msg sent">${l.notes}<div class="c360-msg-meta">Last noted · ${relativeTime(l.last_engaged_at)}</div></div></div>`;
+    }
+    return `<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div class="c360-avatar" style="background:${scoreColor(l.total_score)}">${avatar}</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">${l.display_name || '@'+l.username} <span style="color:var(--text-muted);font-size:11px;font-weight:400">· ${l.platform}</span></div>
+          <div style="font-size:11px;color:var(--text-muted)">${l.follower_count ? l.follower_count.toLocaleString()+' followers · ' : ''}score ${l.total_score || 0}pts</div>
+        </div>
+        <span class="c360-lead-stage stage-${stage}">${STAGE_EMOJI[stage]} ${STAGE_LABELS[stage]}</span>
+      </div>
+      ${threadHtml || `<div style="font-size:12px;color:var(--text-dim)">No message log yet.</div>`}
+    </div>`;
+  }).join('');
+}
+
+function scoreColor(score) {
+  if (score >= 80) return '#6366f1';
+  if (score >= 60) return '#8b5cf6';
+  if (score >= 40) return '#2563eb';
+  return '#374151';
+}
+
+function relativeTime(iso) {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
 }
 
 function prefillCompetitorResearch(idx) {

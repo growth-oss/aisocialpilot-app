@@ -144,7 +144,7 @@ function deleteLead(clientDir, leadId) {
   saveLeads(clientDir, leads);
 }
 
-function getLeads(clientDir, { platform, stage, minScore, converted, limit = 100, offset = 0 } = {}) {
+function getLeads(clientDir, { platform, stage, minScore, converted, source_handle, limit = 100, offset = 0 } = {}) {
   let leads = loadLeads(clientDir).filter(l => !l.is_do_not_engage);
 
   if (platform !== undefined && platform !== null && platform !== '')
@@ -155,6 +155,10 @@ function getLeads(clientDir, { platform, stage, minScore, converted, limit = 100
     leads = leads.filter(l => l.total_score >= minScore);
   if (converted !== undefined)
     leads = leads.filter(l => (l.is_converted ? 1 : 0) === (converted ? 1 : 0));
+  if (source_handle !== undefined && source_handle !== null && source_handle !== '') {
+    const h = source_handle.replace(/^@/, '').toLowerCase();
+    leads = leads.filter(l => l.source_handle && l.source_handle.replace(/^@/, '').toLowerCase() === h);
+  }
 
   leads.sort((a, b) => {
     if (b.total_score !== a.total_score) return b.total_score - a.total_score;
@@ -227,18 +231,45 @@ function logAction(clientDir, entry) {
   fs.appendFileSync(logPath(clientDir), line);
 }
 
-function getLog(clientDir, { limit = 50, offset = 0 } = {}) {
+function getLog(clientDir, { limit = 50, offset = 0, username } = {}) {
   const p = logPath(clientDir);
   if (!fs.existsSync(p)) return [];
 
-  const lines = fs.readFileSync(p, 'utf8')
+  let lines = fs.readFileSync(p, 'utf8')
     .split('\n')
     .filter(Boolean)
     .reverse(); // newest first
 
-  return lines.slice(offset, offset + limit).map(l => {
-    try { return JSON.parse(l); } catch { return null; }
-  }).filter(Boolean);
+  const parsed = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const filtered = username ? parsed.filter(e => e.username === username) : parsed;
+  return filtered.slice(offset, offset + limit);
+}
+
+// Returns pipeline stats + recent leads for one competitor source handle
+function getCompetitorView(clientDir, handle) {
+  const STAGE_LABELS = ['Discovered','Story Viewed','Liked','Followed','Commented','DM Sent','DM Replied','Converted'];
+  const h = (handle || '').replace(/^@/, '').toLowerCase();
+
+  const allLeads = loadLeads(clientDir).filter(l => !l.is_do_not_engage);
+  const leads = allLeads.filter(l => l.source_handle && l.source_handle.replace(/^@/, '').toLowerCase() === h);
+
+  const stageCounts = {};
+  for (let i = 0; i <= 7; i++) stageCounts[i] = 0;
+  leads.forEach(l => { const s = Math.min(l.engagement_stage || 0, 7); stageCounts[s]++; });
+
+  const pipeline = STAGE_LABELS.map((label, i) => ({ stage: i, label, count: stageCounts[i] }));
+  const activeDMs = leads.filter(l => l.engagement_stage >= 5).sort((a, b) => (b.last_engaged_at || '').localeCompare(a.last_engaged_at || ''));
+  const recentLeads = [...leads].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 60);
+
+  return {
+    totalFound:   leads.length,
+    inPipeline:   leads.filter(l => l.engagement_stage > 0 && !l.is_converted).length,
+    dmsSent:      leads.filter(l => l.engagement_stage >= 5).length,
+    converted:    leads.filter(l => l.is_converted).length,
+    pipeline,
+    activeDMs,
+    recentLeads,
+  };
 }
 
 // ─── Hot sources ──────────────────────────────────────────────────────────────
@@ -310,6 +341,8 @@ module.exports = {
   // log
   logAction,
   getLog,
+  // competitor 360
+  getCompetitorView,
   // hot sources
   upsertHotSource,
   touchHotSource,
