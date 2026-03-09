@@ -2,20 +2,23 @@ FROM mcr.microsoft.com/playwright:v1.58.2-noble
 
 WORKDIR /app
 
-# Install Node.js server dependencies
-COPY package.json .
-RUN npm install --production
-
-# Install Claude Code CLI (the automation brain)
-RUN npm install -g @anthropic-ai/claude-code
-
-# Install VNC + virtual display for live browser viewing in admin panel
+# Install build tools (needed for native addons like better-sqlite3)
+# and VNC + virtual display — combined into one layer to minimise image size
 RUN apt-get update && apt-get install -y \
+  build-essential \
+  python3 \
   xvfb \
   x11vnc \
   novnc \
   websockify \
   --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js server dependencies (better-sqlite3 compiles here)
+COPY package.json .
+RUN npm install --production
+
+# Install Claude Code CLI (the automation brain)
+RUN npm install -g @anthropic-ai/claude-code
 
 # Copy application code
 COPY server/ server/
