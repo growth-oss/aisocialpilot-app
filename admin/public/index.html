@@ -2271,6 +2271,7 @@ function renderIntelCompetitors() {
           ${comp.instagram ? '📸' : ''}${comp.tiktok ? '🎵' : ''}${comp.x ? '𝕏' : ''}${comp.facebook ? '📘' : ''}${comp.reddit ? '🤖' : ''}
         </td>
         <td style="padding:10px 0;text-align:right;white-space:nowrap">
+          <span id="comp-status-${CSS.escape(comp.name)}" style="margin-right:8px;display:inline-block">${(window._compResearchStatus[comp.name]?.status === 'running') ? '<span style="color:#f59e0b;font-size:11px">⏳ Researching…</span>' : (window._compResearchStatus[comp.name]?.status === 'done') ? '<span style="color:#22c55e;font-size:11px">✓ Researched</span>' : ''}</span>
           <button class="btn btn-sm btn-primary" onclick="openC360(${i})" style="margin-right:4px">🎯 360° View</button>
           <button class="btn btn-sm btn-ghost" onclick="prefillCompetitorResearch(${i})" style="margin-right:4px">⚡ Research</button>
           <button class="btn btn-sm btn-ghost" onclick="editIntelCompetitor(${i})">Edit</button>
@@ -2521,6 +2522,27 @@ function relativeTime(iso) {
   return `${Math.floor(h/24)}d ago`;
 }
 
+// Update the status badge on a competitor's table row
+function updateCompetitorRowBadge(compName, status, startedAt) {
+  const el = document.getElementById(`comp-status-${CSS.escape(compName)}`);
+  if (!el) return;
+  if (status === 'running') {
+    el.innerHTML = `<span style="color:#f59e0b;font-size:11px">⏳ Researching…</span>`;
+    // Tick elapsed inside badge
+    if (el._statusTimer) clearInterval(el._statusTimer);
+    el._statusTimer = setInterval(() => {
+      const span = el.querySelector('span');
+      if (span && startedAt) span.textContent = `⏳ ${intelElapsed(startedAt)}`;
+    }, 1000);
+  } else if (status === 'done') {
+    if (el._statusTimer) clearInterval(el._statusTimer);
+    el.innerHTML = `<span style="color:#22c55e;font-size:11px">✓ Researched</span>`;
+  } else {
+    if (el._statusTimer) clearInterval(el._statusTimer);
+    el.innerHTML = `<span style="color:#ef4444;font-size:11px">✗ ${status}</span>`;
+  }
+}
+
 function prefillCompetitorResearch(idx) {
   const c = window._intel.competitors[idx];
   // Pre-fill the AI Research panel with this competitor's saved data
@@ -2744,6 +2766,8 @@ async function deleteIntelItem(section, idx) {
 // Active intel run tracking (survives tab switches, safe to navigate away)
 // Per-runId job card registry: runId → { timer, startedAt, command }
 window._intelRuns = {};
+// Per-competitor status: competitorName → { status, runId, startedAt }
+window._compResearchStatus = {};
 
 const INTEL_LABEL_MAP = {'products-scrape':'Run AI Scrape','sources-discover':'Discover Sources','keywords-research':'Research Keywords','competitor-research':'Run AI Research'};
 const INTEL_JOBS_MAP  = {'products-scrape':'intel-jobs-products','competitor-research':'intel-jobs-competitors','sources-discover':'intel-jobs-sources','keywords-research':'intel-jobs-keywords'};
@@ -2759,21 +2783,26 @@ function createIntelJobCard(command, runId, label, startedAt, params) {
   const container = document.getElementById(containerId);
   if (!container) return { card: null, terminal: null };
 
+  // Remove any previously completed cards — keep only this new running one
+  container.querySelectorAll('[data-job-done="1"]').forEach(el => el.remove());
+
   const subtitle = params?.name || params?.storeUrl || '';
   const card = document.createElement('div');
   card.id = `intel-job-${runId}`;
+  card.dataset.jobRunId = runId;
   card.style.cssText = 'border:1px solid var(--border-focus);border-radius:var(--radius-sm);margin-bottom:8px;overflow:hidden';
   card.innerHTML = `
-    <div id="intel-job-hdr-${runId}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#12121f;font-size:11px;color:var(--text-muted);">
-      <span style="color:#f59e0b">⏳</span>
-      <span style="font-weight:600;color:var(--text)">${label}${subtitle ? ' — ' + subtitle : ''}</span>
-      <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums">${intelElapsed(startedAt)}</span>
-      <span style="color:var(--text-dim)">· est. 2-5 min · safe to navigate away</span>
-      <button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 7px;font-size:10px" onclick="cancelIntelRun('${command}','${runId}')">Stop</button>
+    <div id="intel-job-hdr-${runId}" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#12121f;font-size:12px;">
+      <span style="color:#f59e0b;font-size:14px">⏳</span>
+      <span style="font-weight:600;color:var(--text);flex:1">${subtitle || label}</span>
+      <span id="intel-job-elapsed-${runId}" style="font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600">${intelElapsed(startedAt)}</span>
+      <span style="color:var(--text-dim);font-size:11px">est. 2-5 min</span>
+      <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('${command}','${runId}')">Stop</button>
     </div>
-    <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:200px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
+    <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:180px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
   `;
-  container.prepend(card);
+  container.innerHTML = ''; // one card at a time — replace everything
+  container.appendChild(card);
 
   // Start per-job elapsed timer
   window._intelRuns[runId] = {
@@ -2792,13 +2821,18 @@ function createIntelJobCard(command, runId, label, startedAt, params) {
 
 // Mark a job card as done/failed (keyed by runId)
 function intelJobDone(runId, success, msg) {
-  if (window._intelRuns[runId]) { clearInterval(window._intelRuns[runId].timer); }
+  const run = window._intelRuns[runId];
+  if (run) clearInterval(run.timer);
+  const card = document.getElementById(`intel-job-${runId}`);
+  if (card) card.dataset.jobDone = '1'; // flag for cleanup on next run
   const hdr = document.getElementById(`intel-job-hdr-${runId}`);
   if (hdr) {
-    const elapsed = window._intelRuns[runId]?.startedAt ? intelElapsed(window._intelRuns[runId].startedAt) : '';
-    hdr.innerHTML = success
-      ? `<span style="color:#22c55e">✓</span> <span style="font-weight:600;color:var(--text)">${msg}</span> <span style="color:var(--text-dim);margin-left:4px">${elapsed}</span>`
-      : `<span style="color:#ef4444">✗</span> <span style="font-weight:600;color:var(--text)">${msg}</span> <span style="color:var(--text-dim);margin-left:4px">${elapsed}</span>`;
+    const elapsed = run?.startedAt ? intelElapsed(run.startedAt) : '';
+    const icon = success ? '✓' : '✗';
+    const color = success ? '#22c55e' : '#ef4444';
+    hdr.innerHTML = `<span style="color:${color};font-size:14px">${icon}</span> <span style="font-weight:600;color:var(--text);flex:1">${msg}</span> <span style="color:var(--text-dim)">${elapsed}</span>`;
+    // Fade out and remove after 12s if successful
+    if (success) setTimeout(() => { const c = document.getElementById(`intel-job-${runId}`); if (c) c.style.opacity = '0.4'; }, 8000);
   }
 }
 
@@ -2850,23 +2884,32 @@ async function runIntelResearch(command, params) {
             runId = ev.runId;
             const { terminal } = createIntelJobCard(command, runId, ev.label || INTEL_LABEL_MAP[command], ev.startedAt, params);
             termEl = terminal;
+            // Track per-competitor status
+            if (command === 'competitor-research' && params?.name) {
+              window._compResearchStatus[params.name] = { status: 'running', runId, startedAt: ev.startedAt };
+              updateCompetitorRowBadge(params.name, 'running', ev.startedAt);
+            }
           }
           if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
             if (ev.text.trim()) { termEl.textContent += ev.text; termEl.scrollTop = termEl.scrollHeight; }
           }
           if (ev.type === 'done') {
+            const compName = command === 'competitor-research' ? params?.name : null;
             if (ev.extracted) {
               const section = ev.extractedSection;
               if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${ev.extractedCount} item(s) → saved to ${section}</span>\n`;
               intelJobDone(runId, true, `Done — ${ev.extractedCount} ${section} saved`);
+              if (compName) updateCompetitorRowBadge(compName, 'done');
               showToast(`✓ ${ev.extractedCount} ${section} extracted and saved`);
               await handleIntelResult(clientId, section);
             } else if (ev.status === 'cancelled') {
               intelJobDone(runId, false, 'Cancelled');
+              if (compName) updateCompetitorRowBadge(compName, 'cancelled');
             } else {
               const msg = ev.code === 0 ? 'Completed — no data markers found' : `Failed (code ${ev.code ?? 'null'})`;
               if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
               intelJobDone(runId, false, msg);
+              if (compName) updateCompetitorRowBadge(compName, 'failed');
             }
           }
         } catch {}
