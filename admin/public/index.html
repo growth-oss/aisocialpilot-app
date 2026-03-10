@@ -2351,9 +2351,9 @@ function renderIntelProducts() {
       : '';
     return `
     <div data-prod-idx="${i}" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;display:flex;gap:12px">
-      <div style="flex-shrink:0;text-align:center">
+      <div style="flex-shrink:0;width:56px">
         ${imgSrc ? `<img src="${imgSrc}" alt="" title="${imgSrc}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--border);display:block" onerror="this.style.opacity='.3'">` : '<div style="width:56px;height:56px;background:var(--bg-input);border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px">&#128722;</div>'}
-        ${prod.images?.length > 1 ? `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">${prod.images.length} imgs</div>` : ''}
+        ${prod.images?.length > 1 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:3px">${prod.images.slice(1,5).map(im => {const s=im.local_url||im.url||''; return s ? `<img src="${s}" title="${s}" style="width:25px;height:25px;object-fit:cover;border-radius:2px;border:1px solid var(--border);cursor:pointer" onerror="this.style.opacity='.2'" onclick="window.open('${s}','_blank')">` : '';}).join('')}</div>` : ''}
       </div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
@@ -3460,41 +3460,56 @@ async function runIntelResearch(command, params) {
     const runId = runIdRef.val;
     if (!runId) { enableBtn(); return; }
 
-    if (termElRef.val) termElRef.val.innerHTML += `\n<span style="color:var(--accent)">↻ Connection dropped — polling for completion…</span>\n`;
-
-    const poll = async () => {
-      try {
-        const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
-        const job = jobs.find(j => j.runId === runId);
-        if (!job || job.status === 'running') {
-          setTimeout(poll, 4000);
-          return;
-        }
-        // Job finished — process result
-        if (job.extracted) {
-          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${job.extractedCount} item(s) → saved to ${job.extractedSection}</span>\n`;
-          intelJobDone(runId, true, `Done — ${job.extractedCount} ${job.extractedSection} saved`);
-          showToast(`✓ ${job.extractedCount} ${job.extractedSection} extracted and saved`);
-          await handleIntelResult(clientId, job.extractedSection);
-        } else if (job.status === 'cancelled') {
-          intelJobDone(runId, false, 'Cancelled');
-        } else {
-          const msg = job.code === 0 ? 'Completed — no data markers found' : `Failed (code ${job.code ?? 'null'})`;
-          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
-          intelJobDone(runId, false, msg);
-        }
-        enableBtn();
-      } catch { setTimeout(poll, 6000); }
-    };
-    setTimeout(poll, 4000);
-    // btn stays disabled until poll resolves
+    // Stream dropped — reconnect to /stream endpoint which replays all buffered output
+    reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn);
 
   } catch (err) {
-    if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
-    if (runIdRef.val) intelJobDone(runIdRef.val, false, err.message);
-    showToast('Research error: ' + err.message, 'error');
-    enableBtn();
+    // Network error — if job already started, reconnect instead of giving up
+    const runId = runIdRef.val;
+    if (runId) {
+      if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
+      reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn);
+    } else {
+      showToast('Research error: ' + err.message, 'error');
+      enableBtn();
+    }
   }
+}
+
+async function reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn) {
+  if (termElRef.val) termElRef.val.innerHTML += `\n<span style="color:var(--accent)">↻ Reconnecting…</span>\n`;
+  // Small delay before reconnect attempt
+  await new Promise(r => setTimeout(r, 3000));
+  try {
+    const res = await fetch(`/api/clients/${clientId}/intel/jobs/${runId}/stream`);
+    if (res.ok) {
+      // Drain buffered + live output via reconnect stream
+      const gotDone = await drainIntelStream(res, command, params, clientId, termElRef, { val: runId });
+      if (gotDone) { enableBtn(); return; }
+    }
+  } catch {}
+  // Stream ended without done — poll job status as final fallback
+  const pollFn = async () => {
+    try {
+      const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
+      const job = jobs.find(j => j.runId === runId);
+      if (!job || job.status === 'running') { setTimeout(pollFn, 5000); return; }
+      if (job.extracted) {
+        if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${job.extractedCount} item(s) → ${job.extractedSection}</span>\n`;
+        intelJobDone(runId, true, `Done — ${job.extractedCount} ${job.extractedSection} saved`);
+        showToast(`✓ ${job.extractedCount} ${job.extractedSection} extracted and saved`);
+        await handleIntelResult(clientId, job.extractedSection);
+      } else if (job.status === 'cancelled') {
+        intelJobDone(runId, false, 'Cancelled');
+      } else {
+        const msg = job.code === 0 ? 'Completed — no data markers found' : `Failed (code ${job.code ?? 'null'})`;
+        if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+        intelJobDone(runId, false, msg);
+      }
+      enableBtn();
+    } catch { setTimeout(pollFn, 6000); }
+  };
+  setTimeout(pollFn, 2000);
 }
 
 // Reload the affected intel section after AI research completes
