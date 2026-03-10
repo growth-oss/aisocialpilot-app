@@ -1741,8 +1741,11 @@ function renderClientForm(client) {
       <div id="intel-products" class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <div style="font-size:14px;font-weight:600">Products &amp; Offers <span id="intel-products-count" style="color:var(--text-muted);font-weight:400;font-size:12px"></span></div>
-          <button class="btn btn-sm btn-ghost" onclick="openProductImport()" style="font-size:12px">⬆ Import</button>
-          <button class="btn btn-sm btn-ghost" onclick="showIntelForm('product')">+ Add Product</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-ghost" onclick="openProductImport()" style="font-size:12px">⬆ Import</button>
+            <button class="btn btn-sm btn-ghost" onclick="showIntelForm('product')">+ Add</button>
+            <button class="btn btn-sm btn-danger" onclick="clearAllProducts()" id="clear-products-btn" style="display:none">🗑 Clear All</button>
+          </div>
         </div>
 
         <!-- AI Scrape Panel -->
@@ -2299,6 +2302,8 @@ function renderIntelProducts() {
   const p = window._intel.products;
   const ce = document.getElementById('intel-products-count');
   if (ce) ce.textContent = p.length ? `(${p.length})` : '';
+  const clearBtn = document.getElementById('clear-products-btn');
+  if (clearBtn) clearBtn.style.display = p.length ? '' : 'none';
   const le = document.getElementById('intel-products-list');
   if (!le) return;
   if (!p.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No products yet — add your first one above.</div>`; return; }
@@ -2339,6 +2344,16 @@ function renderIntelProducts() {
   }).join('');
   // Start polling pull status
   checkAndShowPullStatus(window._intel.clientId);
+}
+
+async function clearAllProducts() {
+  if (!confirm(`Remove all ${window._intel.products.length} products? This cannot be undone.`)) return;
+  try {
+    await api('PUT', `/clients/${window._intel.clientId}/knowledge/products`, []);
+    window._intel.products = [];
+    renderIntelProducts();
+    showToast('All products removed');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 async function checkAndShowPullStatus(clientId) {
