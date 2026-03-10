@@ -1498,7 +1498,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
     `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
-    `cat ${se(tmpPromptFile)} | claude --output-format stream-json --dangerously-skip-permissions 2>&1`,
+    `cat ${se(tmpPromptFile)} | claude --output-format stream-json --verbose --dangerously-skip-permissions 2>&1`,
   ].join('\n') + '\n', { mode: 0o755 });
 
   const proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
