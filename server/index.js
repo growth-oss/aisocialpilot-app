@@ -1027,7 +1027,18 @@ STEPS:
    - Print "⬇ Scraping product [N]/${maxCount}: [name]" before opening each page
    - Wait for page load + scroll to load images
    - Extract: name, price, URL, description (strip HTML tags)
-   - Collect all product image URLs
+
+   IMAGE EXTRACTION (follow this priority order):
+   a) Try Shopify JSON API first: fetch /products/{handle}.json — use product.images[].src array. This is the most reliable source.
+   b) If not Shopify or API fails: look for product gallery images specifically:
+      - Selectors to TRY (in order): .product__media img, .product-gallery img, [data-product-single-media-wrapper] img, .product__photo img, .product-single__photo img, .slick-track img, .swiper-slide img, .product-images img
+      - Filter: only include images with src containing the product handle OR images wider than 300px (exclude logos/icons)
+      - Skip images whose src contains: logo, icon, badge, header, nav, sprite, placeholder
+   c) Check for JSON-LD structured data: <script type="application/ld+json"> with @type Product — use image field
+   d) Check page for window.__product or window.ShopifyAnalytics.meta.product
+   e) As last resort, grab all <img> tags and pick the LARGEST ones by rendered size
+
+   - Collect up to 4 product-specific images per product
    - Generate 4-6 pain_points in English
    - Generate 3-4 pain_points in Gulf Arabic dialect (UAE casual)
    - Generate 4-6 usps (unique selling points)
