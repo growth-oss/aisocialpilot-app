@@ -1497,7 +1497,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
     `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
-    `cat ${se(tmpPromptFile)} | stdbuf -oL -eL claude --print --dangerously-skip-permissions`,
+    `cat ${se(tmpPromptFile)} | claude --output-format stream-json --dangerously-skip-permissions 2>&1`,
   ].join('\n') + '\n', { mode: 0o755 });
 
   const proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
@@ -1510,9 +1510,40 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   const inputTokens = charsToTokens(prompt.length);
   let outputChars = 0;
 
+  // stream-json outputs JSONL: one JSON object per line as events happen
+  // We parse each line and forward the text content; fall back to raw if not valid JSON
+  let _streamBuf = '';
   proc.stdout.on('data', chunk => {
-    outputChars += chunk.length;
-    onData('output', chunk.toString());
+    _streamBuf += chunk.toString();
+    const lines = _streamBuf.split('\n');
+    _streamBuf = lines.pop(); // keep incomplete line in buffer
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const ev = JSON.parse(line);
+        // stream-json event types: system, assistant, result, tool_use, tool_result
+        if (ev.type === 'assistant' && ev.message?.content) {
+          for (const block of ev.message.content) {
+            if (block.type === 'text' && block.text) {
+              outputChars += block.text.length;
+              onData('output', block.text);
+            }
+          }
+        } else if (ev.type === 'result' && ev.result) {
+          // Final result text
+          outputChars += ev.result.length;
+          onData('output', ev.result);
+        }
+        // tool_use/tool_result events: show a brief indicator
+        else if (ev.type === 'tool_use' && ev.name) {
+          onData('progress', `[tool: ${ev.name}]\n`);
+        }
+      } catch {
+        // Not JSON (e.g. error output) — forward as-is
+        outputChars += line.length;
+        onData('output', line + '\n');
+      }
+    }
   });
   proc.stderr.on('data', chunk => {
     const txt = chunk.toString();
