@@ -2381,13 +2381,22 @@ function renderIntelProducts() {
 }
 
 async function clearAllProducts() {
-  if (!confirm(`Remove all ${window._intel.products.length} products? This cannot be undone.`)) return;
+  const count = window._intel.products.length;
+  if (!confirm(`Remove all ${count} products? This cannot be undone.`)) return;
+  // Update UI immediately (optimistic)
+  window._intel.products = [];
+  renderIntelProducts();
+  showToast('All products removed');
+  // Sync to server in background
   try {
     await api('PUT', `/clients/${window._intel.clientId}/knowledge/products`, []);
-    window._intel.products = [];
+  } catch(e) {
+    // Revert on failure
+    showToast('Error saving — restoring products', 'error');
+    const data = await api('GET', `/clients/${window._intel.clientId}/knowledge/products`).catch(() => []);
+    window._intel.products = Array.isArray(data) ? data : [];
     renderIntelProducts();
-    showToast('All products removed');
-  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
 }
 
 async function checkAndShowPullStatus(clientId) {
