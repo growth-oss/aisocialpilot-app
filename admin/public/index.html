@@ -345,6 +345,7 @@
     font-size: 11px;
     line-height: 1.6;
     color: #a0a8b8;
+    min-height: 60px;
     max-height: 260px;
     overflow-y: auto;
     white-space: pre-wrap;
@@ -3342,10 +3343,10 @@ function createIntelJobCard(command, runId, label, startedAt, params) {
     startedAt, command,
   };
 
-  return {
-    card,
-    terminal: document.getElementById(`intel-job-term-${runId}`),
-  };
+  const termEl = document.getElementById(`intel-job-term-${runId}`);
+  if (termEl) termEl.textContent = '⏳ Starting — Claude is writing the browser script…\n';
+
+  return { card, terminal: termEl };
 }
 
 // Mark a job card as done/failed (keyed by runId)
