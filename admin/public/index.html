@@ -2267,6 +2267,40 @@ async function loadIntelTab(clientId) {
   renderIntelFollowers();
   // Load follower stats async (may be large NDJSON, don't block)
   loadFollowerStats(clientId).catch(() => {});
+  // Restore any in-progress intel jobs (e.g. user navigated away and came back)
+  restoreRunningIntelJobs(clientId).catch(() => {});
+}
+
+async function restoreRunningIntelJobs(clientId) {
+  const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
+  for (const job of jobs) {
+    if (job.status !== 'running') continue;
+    // Show a reconnecting card and poll until done
+    const termElRef = { val: null };
+    const runIdRef  = { val: job.runId };
+    const { terminal } = createIntelJobCard(job.command, job.runId, job.label || INTEL_LABEL_MAP[job.command] || job.command, job.startedAt, {});
+    termElRef.val = terminal;
+    if (terminal) terminal.innerHTML += `<span style="color:var(--accent)">↻ Reconnected — waiting for completion…</span>\n`;
+
+    const poll = async () => {
+      try {
+        const jobs2 = await api('GET', `/clients/${clientId}/intel/jobs`);
+        const j = jobs2.find(x => x.runId === job.runId);
+        if (!j || j.status === 'running') { setTimeout(poll, 4000); return; }
+        if (j.extracted) {
+          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${j.extractedCount} item(s) → ${j.extractedSection}</span>\n`;
+          intelJobDone(job.runId, true, `Done — ${j.extractedCount} ${j.extractedSection} saved`);
+          showToast(`✓ ${j.extractedCount} ${j.extractedSection} extracted and saved`);
+          await handleIntelResult(clientId, j.extractedSection);
+        } else if (j.status === 'cancelled') {
+          intelJobDone(job.runId, false, 'Cancelled');
+        } else {
+          intelJobDone(job.runId, false, j.code === 0 ? 'Completed — no data markers found' : `Failed (code ${j.code ?? 'null'})`);
+        }
+      } catch { setTimeout(poll, 6000); }
+    };
+    setTimeout(poll, 4000);
+  }
 }
 
 async function saveIntelSection(section) {
@@ -3331,14 +3365,80 @@ async function cancelIntelRun(command, runId) {
   if (termEl) termEl.innerHTML += '\n<span class="t-error">⊘ Cancelled by user</span>\n';
 }
 
+// Process a single SSE event from an intel stream
+async function handleIntelEvent(ev, command, params, clientId, termElRef, runIdRef) {
+  if (ev.type === 'start') {
+    runIdRef.val = ev.runId;
+    const { terminal } = createIntelJobCard(command, ev.runId, ev.label || INTEL_LABEL_MAP[command], ev.startedAt, params);
+    termElRef.val = terminal;
+    if (command === 'competitor-research' && params?.name) {
+      window._compResearchStatus[params.name] = { status: 'running', runId: ev.runId, startedAt: ev.startedAt };
+      updateCompetitorRowBadge(params.name, 'running', ev.startedAt);
+    }
+  }
+  if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termElRef.val) {
+    if (ev.text.trim()) { termElRef.val.textContent += ev.text; termElRef.val.scrollTop = termElRef.val.scrollHeight; }
+  }
+  if (ev.type === 'done') {
+    const compName = command === 'competitor-research' ? params?.name : null;
+    const runId = runIdRef.val;
+    if (ev.extracted) {
+      const section = ev.extractedSection;
+      if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${ev.extractedCount} item(s) → saved to ${section}</span>\n`;
+      intelJobDone(runId, true, `Done — ${ev.extractedCount} ${section} saved`);
+      if (compName) updateCompetitorRowBadge(compName, 'done');
+      showToast(`✓ ${ev.extractedCount} ${section} extracted and saved`);
+      await handleIntelResult(clientId, section);
+    } else if (ev.status === 'cancelled') {
+      intelJobDone(runId, false, 'Cancelled');
+      if (compName) updateCompetitorRowBadge(compName, 'cancelled');
+    } else {
+      const msg = ev.code === 0 ? 'Completed — no data markers found' : `Failed (code ${ev.code ?? 'null'})`;
+      if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+      intelJobDone(runId, false, msg);
+      if (compName) updateCompetitorRowBadge(compName, 'failed');
+    }
+    return true; // signals done
+  }
+  return false;
+}
+
+// Drain an SSE stream (fetch Response) into the intel event handler; returns true if 'done' received
+async function drainIntelStream(res, command, params, clientId, termElRef, runIdRef) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        const ev = JSON.parse(line.slice(6));
+        const finished = await handleIntelEvent(ev, command, params, clientId, termElRef, runIdRef);
+        if (finished) return true;
+      } catch {}
+    }
+  }
+  return false; // stream ended without done event
+}
+
 async function runIntelResearch(command, params) {
   const clientId = window._intel.clientId;
   if (!clientId) return showToast('Open a client first', 'error');
 
   const btn = event?.target;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
+  const btnLabel = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run');
+  const disableBtn = () => { if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; } };
+  const enableBtn  = () => { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } };
+  disableBtn();
 
-  let buffer = '', runId = null, termEl = null;
+  const termElRef = { val: null };
+  const runIdRef  = { val: null };
+
   try {
     const res = await fetch(`/api/clients/${clientId}/intel/run`, {
       method: 'POST',
@@ -3349,64 +3449,51 @@ async function runIntelResearch(command, params) {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       showToast(err.error || 'Research failed', 'error');
-      if (btn) { btn.disabled = false; btn.textContent = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run'); }
+      enableBtn();
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
+    const gotDone = await drainIntelStream(res, command, params, clientId, termElRef, runIdRef);
+    if (gotDone) { enableBtn(); return; }
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const ev = JSON.parse(line.slice(6));
-          if (ev.type === 'start') {
-            runId = ev.runId;
-            const { terminal } = createIntelJobCard(command, runId, ev.label || INTEL_LABEL_MAP[command], ev.startedAt, params);
-            termEl = terminal;
-            // Track per-competitor status
-            if (command === 'competitor-research' && params?.name) {
-              window._compResearchStatus[params.name] = { status: 'running', runId, startedAt: ev.startedAt };
-              updateCompetitorRowBadge(params.name, 'running', ev.startedAt);
-            }
-          }
-          if ((ev.type === 'output' || ev.type === 'progress') && ev.text && termEl) {
-            if (ev.text.trim()) { termEl.textContent += ev.text; termEl.scrollTop = termEl.scrollHeight; }
-          }
-          if (ev.type === 'done') {
-            const compName = command === 'competitor-research' ? params?.name : null;
-            if (ev.extracted) {
-              const section = ev.extractedSection;
-              if (termEl) termEl.innerHTML += `\n<span class="t-success">✓ Extracted ${ev.extractedCount} item(s) → saved to ${section}</span>\n`;
-              intelJobDone(runId, true, `Done — ${ev.extractedCount} ${section} saved`);
-              if (compName) updateCompetitorRowBadge(compName, 'done');
-              showToast(`✓ ${ev.extractedCount} ${section} extracted and saved`);
-              await handleIntelResult(clientId, section);
-            } else if (ev.status === 'cancelled') {
-              intelJobDone(runId, false, 'Cancelled');
-              if (compName) updateCompetitorRowBadge(compName, 'cancelled');
-            } else {
-              const msg = ev.code === 0 ? 'Completed — no data markers found' : `Failed (code ${ev.code ?? 'null'})`;
-              if (termEl) termEl.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
-              intelJobDone(runId, false, msg);
-              if (compName) updateCompetitorRowBadge(compName, 'failed');
-            }
-          }
-        } catch {}
-      }
-    }
+    // Stream dropped before done — job still running server-side. Poll until complete.
+    const runId = runIdRef.val;
+    if (!runId) { enableBtn(); return; }
+
+    if (termElRef.val) termElRef.val.innerHTML += `\n<span style="color:var(--accent)">↻ Connection dropped — polling for completion…</span>\n`;
+
+    const poll = async () => {
+      try {
+        const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
+        const job = jobs.find(j => j.runId === runId);
+        if (!job || job.status === 'running') {
+          setTimeout(poll, 4000);
+          return;
+        }
+        // Job finished — process result
+        if (job.extracted) {
+          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${job.extractedCount} item(s) → saved to ${job.extractedSection}</span>\n`;
+          intelJobDone(runId, true, `Done — ${job.extractedCount} ${job.extractedSection} saved`);
+          showToast(`✓ ${job.extractedCount} ${job.extractedSection} extracted and saved`);
+          await handleIntelResult(clientId, job.extractedSection);
+        } else if (job.status === 'cancelled') {
+          intelJobDone(runId, false, 'Cancelled');
+        } else {
+          const msg = job.code === 0 ? 'Completed — no data markers found' : `Failed (code ${job.code ?? 'null'})`;
+          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
+          intelJobDone(runId, false, msg);
+        }
+        enableBtn();
+      } catch { setTimeout(poll, 6000); }
+    };
+    setTimeout(poll, 4000);
+    // btn stays disabled until poll resolves
+
   } catch (err) {
-    if (termEl) termEl.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
-    if (runId) intelJobDone(runId, false, err.message);
+    if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
+    if (runIdRef.val) intelJobDone(runIdRef.val, false, err.message);
     showToast('Research error: ' + err.message, 'error');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run'); }
+    enableBtn();
   }
 }
 
