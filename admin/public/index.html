@@ -2274,66 +2274,24 @@ async function loadIntelTab(clientId) {
 
 async function restoreRunningIntelJobs(clientId) {
   const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
-  // If no running jobs in memory, check the persisted last-run file
-  // (handles server restart mid-job — intelJobs Map was cleared)
   const hasRunning = jobs.some(j => j.status === 'running');
   if (!hasRunning) {
+    // Check persisted last-run in case server restarted mid-job
     try {
       const last = await api('GET', `/clients/${clientId}/intel/last-run`);
       if (last && last.status === 'running') {
-        // Server restarted mid-job — show banner and reload data
         showToast('⚠ Previous scrape was interrupted by a server restart — please re-run', 'error');
-      } else if (last && last.status === 'completed' && last.extracted) {
-        await handleIntelResult(clientId, last.extractedSection);
       }
     } catch {}
+    return;
   }
   for (const job of jobs) {
     if (job.status !== 'running') continue;
-    // Show a reconnecting card and poll until done
     const termElRef = { val: null };
-    const runIdRef  = { val: job.runId };
     const { terminal } = createIntelJobCard(job.command, job.runId, job.label || INTEL_LABEL_MAP[job.command] || job.command, job.startedAt, {});
     termElRef.val = terminal;
-    if (terminal) terminal.innerHTML += `<span style="color:var(--accent)">↻ Reconnected — waiting for completion…</span>\n`;
-
-    let _restoreTailOffset = 0;
-    let _restoreMisses = 0;
-    const poll = async () => {
-      try {
-        const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${job.runId}/tail?offset=${_restoreTailOffset}`).then(r => r.json()).catch(() => null);
-        if (tail && tail.text && termElRef.val) {
-          termElRef.val.textContent += tail.text;
-          termElRef.val.scrollTop = termElRef.val.scrollHeight;
-          _restoreTailOffset = tail.totalLines;
-        }
-        const jobs2 = await api('GET', `/clients/${clientId}/intel/jobs`);
-        const j = jobs2.find(x => x.runId === job.runId);
-        if (!j) {
-          _restoreMisses++;
-          if (_restoreMisses >= 3) {
-            if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Completed (server restarted — reloading data)</span>\n`;
-            intelJobDone(job.runId, true, 'Completed — data reloaded');
-            await handleIntelResult(clientId, 'products');
-            return;
-          }
-          setTimeout(poll, 4000); return;
-        }
-        _restoreMisses = 0;
-        if (j.status === 'running') { setTimeout(poll, 4000); return; }
-        if (j.extracted) {
-          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${j.extractedCount} item(s) → ${j.extractedSection}</span>\n`;
-          intelJobDone(job.runId, true, `Done — ${j.extractedCount} ${j.extractedSection} saved`);
-          showToast(`✓ ${j.extractedCount} ${j.extractedSection} extracted and saved`);
-          await handleIntelResult(clientId, j.extractedSection);
-        } else if (j.status === 'cancelled') {
-          intelJobDone(job.runId, false, 'Cancelled');
-        } else {
-          intelJobDone(job.runId, false, j.code === 0 ? 'Completed — no data markers found' : `Failed (code ${j.code ?? 'null'})`);
-        }
-      } catch { setTimeout(poll, 6000); }
-    };
-    setTimeout(poll, 4000);
+    if (terminal) terminal.textContent += '↻ Reconnected — polling for updates…\n';
+    pollIntelJob(clientId, job.runId, termElRef, null);
   }
 }
 
@@ -3366,6 +3324,9 @@ function createIntelJobCard(command, runId, label, startedAt, params) {
   `;
   container.innerHTML = ''; // one card at a time — replace everything
   container.appendChild(card);
+  // Open the parent <details> panel so the card is visible
+  const details = container.closest('details');
+  if (details) details.open = true;
 
   // Start per-job elapsed timer
   window._intelRuns[runId] = {
@@ -3469,75 +3430,15 @@ async function drainIntelStream(res, command, params, clientId, termElRef, runId
   return false; // stream ended without done event
 }
 
-async function runIntelResearch(command, params) {
-  const clientId = window._intel.clientId;
-  if (!clientId) return showToast('Open a client first', 'error');
-
-  const btn = event?.target;
-  const btnLabel = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run');
-  const disableBtn = () => { if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; } };
-  const enableBtn  = () => { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } };
-  disableBtn();
-
-  const termElRef = { val: null };
-  const runIdRef  = { val: null };
-
-  try {
-    const res = await fetch(`/api/clients/${clientId}/intel/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command, params }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      showToast(err.error || 'Research failed', 'error');
-      enableBtn();
-      return;
-    }
-
-    const gotDone = await drainIntelStream(res, command, params, clientId, termElRef, runIdRef);
-    if (gotDone) { enableBtn(); return; }
-
-    // Stream dropped before done — job still running server-side. Poll until complete.
-    const runId = runIdRef.val;
-    if (!runId) { enableBtn(); return; }
-
-    // Stream dropped — reconnect to /stream endpoint which replays all buffered output
-    reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn);
-
-  } catch (err) {
-    // Network error — if job already started, reconnect instead of giving up
-    const runId = runIdRef.val;
-    if (runId) {
-      if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">✗ ${err.message}</span>\n`;
-      reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn);
-    } else {
-      showToast('Research error: ' + err.message, 'error');
-      enableBtn();
-    }
-  }
-}
-
-async function reconnectIntelStream(clientId, runId, command, params, termElRef, enableBtn) {
-  if (termElRef.val) termElRef.val.innerHTML += `\n<span style="color:var(--accent)">↻ Reconnecting…</span>\n`;
-  // Small delay before reconnect attempt
-  await new Promise(r => setTimeout(r, 3000));
-  try {
-    const res = await fetch(`/api/clients/${clientId}/intel/jobs/${runId}/stream`);
-    if (res.ok) {
-      // Drain buffered + live output via reconnect stream
-      const gotDone = await drainIntelStream(res, command, params, clientId, termElRef, { val: runId });
-      if (gotDone) { enableBtn(); return; }
-    }
-  } catch {}
-  // Stream ended without done — poll status + tail output every 5s
+// Poll a running intel job — updates terminal every 5s, handles completion/failure
+function pollIntelJob(clientId, runId, termElRef, enableBtn) {
   let _tailOffset = 0;
   let _misses = 0;
-  const pollFn = async () => {
+  const poll = async () => {
     try {
-      // Fetch latest output lines to keep terminal live
-      const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${runId}/tail?offset=${_tailOffset}`).then(r => r.json()).catch(() => null);
+      // Fetch buffered output since last poll
+      const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${runId}/tail?offset=${_tailOffset}`)
+        .then(r => r.json()).catch(() => null);
       if (tail && tail.text && termElRef.val) {
         termElRef.val.textContent += tail.text;
         termElRef.val.scrollTop = termElRef.val.scrollHeight;
@@ -3547,20 +3448,20 @@ async function reconnectIntelStream(clientId, runId, command, params, termElRef,
       const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
       const job = jobs.find(j => j.runId === runId);
       if (!job) {
-        // Job missing — server may have restarted (intelJobs Map cleared)
         _misses++;
         if (_misses >= 3) {
-          // Assume server restarted: job finished before restart, data already saved
-          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Job completed (server restarted — reloading data)</span>\n`;
+          // Server restarted — job data may have been saved before restart
+          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">↻ Server restarted — reloading saved data…</span>\n`;
           intelJobDone(runId, true, 'Completed — data reloaded');
-          await handleIntelResult(clientId, 'products');
-          enableBtn();
+          await handleIntelResult(clientId, 'products').catch(() => {});
+          if (enableBtn) enableBtn();
           return;
         }
-        setTimeout(pollFn, 5000); return;
+        setTimeout(poll, 5000); return;
       }
       _misses = 0;
-      if (job.status === 'running') { setTimeout(pollFn, 5000); return; }
+      if (job.status === 'running') { setTimeout(poll, 5000); return; }
+      // Job finished
       if (job.extracted) {
         if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${job.extractedCount} item(s) → ${job.extractedSection}</span>\n`;
         intelJobDone(runId, true, `Done — ${job.extractedCount} ${job.extractedSection} saved`);
@@ -3573,10 +3474,38 @@ async function reconnectIntelStream(clientId, runId, command, params, termElRef,
         if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-error">⚠ ${msg}</span>\n`;
         intelJobDone(runId, false, msg);
       }
-      enableBtn();
-    } catch { setTimeout(pollFn, 6000); }
+      if (enableBtn) enableBtn();
+    } catch { setTimeout(poll, 6000); }
   };
-  setTimeout(pollFn, 2000);
+  setTimeout(poll, 3000);
+}
+
+async function runIntelResearch(command, params) {
+  const clientId = window._intel.clientId;
+  if (!clientId) return showToast('Open a client first', 'error');
+
+  const btn = event?.target;
+  const btnLabel = '⚡ ' + (INTEL_LABEL_MAP[command] || 'Run');
+  const disableBtn = () => { if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; } };
+  const enableBtn  = () => { if (btn) { btn.disabled = false; btn.textContent = btnLabel; } };
+  disableBtn();
+
+  try {
+    const data = await api('POST', `/clients/${clientId}/intel/run`, { command, params });
+    // Server returns {runId, startedAt, label} — no SSE, we just poll
+    const { runId, startedAt, label } = data;
+    const termElRef = { val: null };
+    const { terminal } = createIntelJobCard(command, runId, label || INTEL_LABEL_MAP[command] || command, startedAt, params);
+    termElRef.val = terminal;
+    if (command === 'competitor-research' && params?.name) {
+      window._compResearchStatus[params.name] = { status: 'running', runId, startedAt };
+      updateCompetitorRowBadge(params.name, 'running', startedAt);
+    }
+    pollIntelJob(clientId, runId, termElRef, enableBtn);
+  } catch (err) {
+    showToast('Research error: ' + (err.message || err), 'error');
+    enableBtn();
+  }
 }
 
 // Reload the affected intel section after AI research completes

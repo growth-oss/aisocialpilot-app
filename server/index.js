@@ -1514,14 +1514,6 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // stream-json outputs JSONL: one JSON object per line as events happen
   // We parse each line and forward the text content; fall back to raw if not valid JSON
   let _streamBuf = '';
-  let _lastOutputAt = Date.now();
-  // Heartbeat: every 30s with no output, send elapsed time so terminal shows activity
-  const _heartbeatTimer = setInterval(() => {
-    const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
-    const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
-    const t = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-    onData('progress', `⏳ Still running… (${t} elapsed)\n`);
-  }, 30000);
   proc.stdout.on('data', chunk => {
     _streamBuf += chunk.toString();
     const lines = _streamBuf.split('\n');
@@ -1571,7 +1563,6 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const completedAt = new Date().toISOString();
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
 
-    clearInterval(_heartbeatTimer);
     console.log(`[run ${runId}] close: code=${code} signal=${signal}`);
 
     const outputTokens = charsToTokens(outputChars);
@@ -2656,6 +2647,7 @@ function intelJobBroadcast(job, type, data) {
 
 function intelJobFinish(job) {
   if (job._timeoutTimer) { clearTimeout(job._timeoutTimer); job._timeoutTimer = null; }
+  if (job._heartbeatTimer) { clearInterval(job._heartbeatTimer); job._heartbeatTimer = null; }
   for (const r of job.listeners) { try { r.end(); } catch {} }
   job.listeners.clear();
   job.finishedAt = new Date().toISOString();
@@ -2694,7 +2686,8 @@ const INTEL_LABELS = {
   'competitor-hunt':    'Audience Hunt',
 };
 
-// POST /api/clients/:id/intel/run  — start a background research job, stream via SSE
+// POST /api/clients/:id/intel/run  — start a background research job, returns JSON {runId}
+// Client polls /tail and /intel/jobs every 5s — no SSE (Railway drops SSE connections instantly)
 app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   const { command, params = {} } = req.body;
   if (!INTEL_COMMANDS.has(command)) return res.status(400).json({ error: `Unknown intel command: ${command}` });
@@ -2708,10 +2701,20 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDirPath, 'config.json'), 'utf8'));
   const intelPrompt = buildIntelPrompt(command, params, clientConfig, req.params.id);
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+  // Register job object first so the onData callback can reference it
+  const job = {
+    runId: null, clientId: req.params.id, command,
+    label: command === 'competitor-hunt'
+      ? `🎯 Hunt: ${params.name || 'competitor'}`
+      : (INTEL_LABELS[command] || command),
+    meta: { competitorName: params.name || null },
+    status: 'running',
+    startedAt: null, finishedAt: null,
+    lines: [], accOutput: '',
+    extracted: false, extractedSection: null, extractedCount: 0,
+    code: null, signal: null,
+    listeners: new Set(),
+  };
 
   let runResult;
   try {
@@ -2719,15 +2722,12 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
       req.params.id,
       command,
       (type, text) => {
-        if (!job) return;
         if (type === 'output') job.accOutput += text;
         intelJobBroadcast(job, type, { text });
       },
       (runId, code, signal, startedAt, status) => {
-        if (!job) return;
         let extracted = false, extractedSection = null, extractedCount = 0;
         if (command === 'competitor-hunt') {
-          // Hunt writes directly to leads.json — count new leads as extracted count
           if (status === 'completed' || code === 0) {
             try {
               const lgDb = require('./leadgen/db');
@@ -2770,65 +2770,51 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
       intelPrompt
     );
   } catch (err) {
-    const errLine = `data: ${JSON.stringify({ type:'done', code:1, status:'failed' })}\n\n`;
-    try { res.write(`data: ${JSON.stringify({ type:'error', text: err.message })}\n\n`); res.write(errLine); res.end(); } catch {}
-    return;
+    return res.status(500).json({ error: err.message });
   }
 
-  // Register background job — lives even after browser disconnects
-  const job = {
-    runId: runResult.runId, clientId: req.params.id, command,
-    label: command === 'competitor-hunt'
-      ? `🎯 Hunt: ${params.name || 'competitor'}`
-      : (INTEL_LABELS[command] || command),
-    meta: { competitorName: params.name || null },
-    status: 'running',
-    startedAt: runResult.startedAt, finishedAt: null,
-    lines: [], accOutput: '',
-    extracted: false, extractedSection: null, extractedCount: 0,
-    code: null, signal: null,
-    listeners: new Set([res]),
-  };
+  // Finalize job registration
+  job.runId = runResult.runId;
+  job.startedAt = runResult.startedAt;
   intelJobs.set(runResult.runId, job);
 
-  // Persist job start to disk — survives server restarts so UI can show "last run"
-  const _intelStateFile = path.join(clientDirPath, 'logs', 'last-intel-run.json');
+  // Persist job start to disk — survives server restarts
   try {
     fs.mkdirSync(path.join(clientDirPath, 'logs'), { recursive: true });
-    fs.writeFileSync(_intelStateFile, JSON.stringify({
+    fs.writeFileSync(path.join(clientDirPath, 'logs', 'last-intel-run.json'), JSON.stringify({
       runId: job.runId, command, label: job.label,
       status: 'running', startedAt: job.startedAt, finishedAt: null,
       extracted: false, extractedSection: null, extractedCount: 0,
     }));
   } catch {}
 
-  // Hard timeout — research=10min, hunt=30min (browser automation needs more time)
+  // Hard timeout
   const INTEL_TIMEOUT_MS = command === 'competitor-hunt' ? 30 * 60 * 1000 : 10 * 60 * 1000;
   const timeoutLabel = command === 'competitor-hunt' ? '30 minutes' : '10 minutes';
   const intelTimeoutTimer = setTimeout(() => {
     if (job.status !== 'running') return;
-    console.log(`[intel] Timeout after ${timeoutLabel} for runId=${runResult.runId}, killing`);
-    const entry = runningProcesses.get(runResult.runId);
+    const entry = runningProcesses.get(job.runId);
     if (entry && entry.proc) entry.proc.kill('SIGTERM');
-    runningProcesses.delete(runResult.runId);
+    runningProcesses.delete(job.runId);
     job.status = 'failed';
-    intelJobBroadcast(job, 'output', { text: `\n[Timed out after ${timeoutLabel} — process killed]\n` });
+    intelJobBroadcast(job, 'output', { text: `\n[Timed out after ${timeoutLabel}]\n` });
     intelJobBroadcast(job, 'done', { code: null, status: 'failed', extracted: false });
     intelJobFinish(job);
   }, INTEL_TIMEOUT_MS);
-  // Clear timeout if job finishes normally
-  const origFinish = intelJobFinish.bind(null, job);
   job._timeoutTimer = intelTimeoutTimer;
 
-  // Send start event (queued in lines so reconnects can see it too)
-  intelJobBroadcast(job, 'start', {
-    runId: runResult.runId, command, label: job.label,
-    clientName: clientConfig.name, startedAt: runResult.startedAt,
-    message: '✅ Research running in background — safe to navigate away',
-  });
+  // Heartbeat every 30s — written to job.lines so polling clients see activity
+  const _hbStart = Date.parse(job.startedAt);
+  const _heartbeatTimer = setInterval(() => {
+    if (job.status !== 'running') { clearInterval(_heartbeatTimer); return; }
+    const elapsed = Math.round((Date.now() - _hbStart) / 1000);
+    const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+    intelJobBroadcast(job, 'progress', { text: `⏳ Still running… (${mins}m ${secs}s elapsed)\n` });
+  }, 30000);
+  job._heartbeatTimer = _heartbeatTimer;
 
-  // Browser disconnect: just remove this SSE connection, job keeps running
-  req.on('close', () => { job.listeners.delete(res); });
+  // Return runId as JSON — client will poll /tail and /intel/jobs
+  res.json({ runId: job.runId, startedAt: job.startedAt, label: job.label, command });
 });
 
 // GET /api/clients/:id/intel/hunt-history?competitor=X — persistent hunt run history
