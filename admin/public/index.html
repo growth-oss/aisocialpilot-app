@@ -3507,6 +3507,7 @@ async function reconnectIntelStream(clientId, runId, command, params, termElRef,
   } catch {}
   // Stream ended without done — poll status + tail output every 5s
   let _tailOffset = 0;
+  let _misses = 0;
   const pollFn = async () => {
     try {
       // Fetch latest output lines to keep terminal live
@@ -3519,7 +3520,21 @@ async function reconnectIntelStream(clientId, runId, command, params, termElRef,
 
       const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
       const job = jobs.find(j => j.runId === runId);
-      if (!job || job.status === 'running') { setTimeout(pollFn, 5000); return; }
+      if (!job) {
+        // Job missing — server may have restarted (intelJobs Map cleared)
+        _misses++;
+        if (_misses >= 3) {
+          // Assume server restarted: job finished before restart, data already saved
+          if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Job completed (server restarted — reloading data)</span>\n`;
+          intelJobDone(runId, true, 'Completed — data reloaded');
+          await handleIntelResult(clientId, 'products');
+          enableBtn();
+          return;
+        }
+        setTimeout(pollFn, 5000); return;
+      }
+      _misses = 0;
+      if (job.status === 'running') { setTimeout(pollFn, 5000); return; }
       if (job.extracted) {
         if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${job.extractedCount} item(s) → ${job.extractedSection}</span>\n`;
         intelJobDone(runId, true, `Done — ${job.extractedCount} ${job.extractedSection} saved`);
