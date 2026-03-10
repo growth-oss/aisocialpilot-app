@@ -2810,6 +2810,22 @@ app.get('/api/clients/:id/intel/jobs/:runId/stream', requireLicense, (req, res) 
   req.on('close', () => { job.listeners.delete(res); });
 });
 
+// GET /api/clients/:id/intel/jobs/:runId/tail — return buffered output as JSON for polling
+app.get('/api/clients/:id/intel/jobs/:runId/tail', requireLicense, (req, res) => {
+  const job = intelJobs.get(req.params.runId);
+  if (!job || job.clientId !== req.params.id) return res.status(404).json({ error: 'Job not found' });
+  const offset = parseInt(req.query.offset) || 0;
+  // Extract plain text from buffered SSE lines
+  const texts = [];
+  for (const line of job.lines.slice(offset)) {
+    try {
+      const ev = JSON.parse(line.replace(/^data: /, '').trim());
+      if ((ev.type === 'output' || ev.type === 'progress') && ev.text) texts.push(ev.text);
+    } catch {}
+  }
+  res.json({ status: job.status, totalLines: job.lines.length, text: texts.join('') });
+});
+
 // DELETE /api/clients/:id/intel/jobs/:runId — cancel a running job
 app.delete('/api/clients/:id/intel/jobs/:runId', requireLicense, (req, res) => {
   const job = intelJobs.get(req.params.runId);

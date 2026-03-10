@@ -2283,8 +2283,15 @@ async function restoreRunningIntelJobs(clientId) {
     termElRef.val = terminal;
     if (terminal) terminal.innerHTML += `<span style="color:var(--accent)">↻ Reconnected — waiting for completion…</span>\n`;
 
+    let _restoreTailOffset = 0;
     const poll = async () => {
       try {
+        const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${job.runId}/tail?offset=${_restoreTailOffset}`).then(r => r.json()).catch(() => null);
+        if (tail && tail.text && termElRef.val) {
+          termElRef.val.textContent += tail.text;
+          termElRef.val.scrollTop = termElRef.val.scrollHeight;
+          _restoreTailOffset = tail.totalLines;
+        }
         const jobs2 = await api('GET', `/clients/${clientId}/intel/jobs`);
         const j = jobs2.find(x => x.runId === job.runId);
         if (!j || j.status === 'running') { setTimeout(poll, 4000); return; }
@@ -3498,9 +3505,18 @@ async function reconnectIntelStream(clientId, runId, command, params, termElRef,
       if (gotDone) { enableBtn(); return; }
     }
   } catch {}
-  // Stream ended without done — poll job status as final fallback
+  // Stream ended without done — poll status + tail output every 5s
+  let _tailOffset = 0;
   const pollFn = async () => {
     try {
+      // Fetch latest output lines to keep terminal live
+      const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${runId}/tail?offset=${_tailOffset}`).then(r => r.json()).catch(() => null);
+      if (tail && tail.text && termElRef.val) {
+        termElRef.val.textContent += tail.text;
+        termElRef.val.scrollTop = termElRef.val.scrollHeight;
+        _tailOffset = tail.totalLines;
+      }
+
       const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
       const job = jobs.find(j => j.runId === runId);
       if (!job || job.status === 'running') { setTimeout(pollFn, 5000); return; }
