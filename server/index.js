@@ -2707,6 +2707,76 @@ app.get('/api/debug-claude', (req, res) => {
   res.json(results);
 });
 
+// ─── Proxy test ──────────────────────────────────────────────────────────────
+app.get('/api/clients/:id/proxy-test', requireLicense, async (req, res) => {
+  const cDir = path.join(CLIENTS_DIR, req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const cc = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8'));
+  const proxyUrl = cc.proxy?.url;
+  if (!proxyUrl) return res.json({ proxy: null, message: 'No proxy configured' });
+
+  const results = { proxy: proxyUrl.replace(/:([^:@]+)@/, ':***@'), expectedGeo: cc.proxy?.geo || 'any' };
+
+  // Test 1: direct curl through proxy to ipinfo.io
+  try {
+    const out = execSync(
+      `curl -s --max-time 15 --proxy ${JSON.stringify(proxyUrl)} https://ipinfo.io/json`,
+      { encoding: 'utf8', timeout: 20000 }
+    );
+    results.ipinfo = JSON.parse(out);
+    results.actualCountry = results.ipinfo.country;
+    results.geoMatch = !cc.proxy?.geo || results.ipinfo.country === cc.proxy.geo;
+  } catch (e) {
+    results.ipinfo = null;
+    results.curlError = (e.stderr || e.message || '').substring(0, 500);
+    results.geoMatch = false;
+  }
+
+  // Test 2: test via Playwright (same way automation does it)
+  try {
+    const script = `
+const { chromium } = require('playwright');
+(async () => {
+  const u = new URL(${JSON.stringify(proxyUrl.includes('://') ? proxyUrl : 'http://' + proxyUrl)});
+  const opts = {
+    headless: false,
+    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage'],
+    proxy: { server: u.protocol + '//' + u.host }
+  };
+  if (u.username) opts.proxy.username = decodeURIComponent(u.username);
+  if (u.password) opts.proxy.password = decodeURIComponent(u.password);
+  let ctx;
+  try {
+    ctx = await chromium.launch(opts);
+    const page = await ctx.newPage();
+    await page.goto('https://ipinfo.io/json', { timeout: 20000 });
+    const text = await page.textContent('body');
+    console.log(text);
+  } finally { if (ctx) await ctx.close(); }
+})();`;
+    const tmpFile = `/tmp/proxy-test-${Date.now()}.js`;
+    fs.writeFileSync(tmpFile, script);
+    const out = execSync(`node ${tmpFile}`, { encoding: 'utf8', timeout: 30000, env: { ...process.env, DISPLAY: ':99' } });
+    try { results.playwrightIpinfo = JSON.parse(out.trim()); } catch { results.playwrightRaw = out.trim().substring(0, 300); }
+    fs.unlinkSync(tmpFile);
+  } catch (e) {
+    results.playwrightError = (e.stderr || e.message || '').substring(0, 500);
+  }
+
+  res.json(results);
+});
+
+// ─── Clear leads (wipe fake/test data) ──────────────────────────────────────
+app.delete('/api/clients/:id/leadgen/leads', requireLicense, (req, res) => {
+  const lgDir = path.join(CLIENTS_DIR, req.params.id, 'leadgen');
+  const leadsPath = path.join(lgDir, 'leads.json');
+  const logPath = path.join(lgDir, 'outreach-log.ndjson');
+  let cleared = [];
+  if (fs.existsSync(leadsPath)) { fs.writeFileSync(leadsPath, '[]'); cleared.push('leads.json'); }
+  if (fs.existsSync(logPath)) { fs.writeFileSync(logPath, ''); cleared.push('outreach-log.ndjson'); }
+  res.json({ success: true, cleared });
+});
+
 // ─── Lead Gen ─────────────────────────────────────────────────────────────────
 
 const LEADGEN_TEMPLATE_DIR = path.join(__dirname, 'leadgen', 'templates');
