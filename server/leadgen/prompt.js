@@ -166,6 +166,14 @@ Share coupons with qualifying leads as a special offer from the brand.`;
 Do NOT ask for confirmation. Do NOT pause. Make decisions and proceed.
 Only stop for: login required, proxy geo mismatch, account restriction warning.
 
+━━━ CRITICAL: NO FAKE DATA ━━━
+NEVER generate, simulate, or fabricate lead data. Every lead in leads.json MUST come from
+actually visiting a real Instagram profile in the browser and reading real data from the page.
+If you cannot open the browser, cannot connect through the proxy, or cannot load Instagram:
+STOP and report the error. Do NOT fall back to "simulated" or "deterministic" data.
+Do NOT invent usernames, follower counts, bios, or scores. If a scrape fails, write 0 leads
+and report what went wrong. Fake data is worse than no data — it corrupts the pipeline.
+
 ${approachBlock}
 
 ━━━ ENVIRONMENT ━━━
@@ -443,6 +451,8 @@ ${safetyBrandRule}
 - If prompted to log in or a QR code appears: STOP and log — never attempt automatic login
 - Randomise all delays — never use fixed intervals
 - If any rate limit is hit: stop that action type for the rest of the session, don't compensate on other actions
+- NEVER generate fake/simulated/synthetic leads — every lead MUST come from a real browser scrape
+- If browser launch fails or Instagram doesn't load: STOP and report the error, do NOT simulate results
 
 ━━━ SCREENSHOTS ━━━
 Save screenshots (for audit trail) at:

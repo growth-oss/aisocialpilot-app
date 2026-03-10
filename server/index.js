@@ -1493,7 +1493,10 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   const env = {
     ...process.env,
     ANTHROPIC_API_KEY: config.anthropicApiKey,
-    ANTHROPIC_MODEL: config.anthropicModel || 'claude-haiku-4-5-20251001',
+    // Browser-heavy commands need a stronger model; text-only can use the configured (cheaper) model
+    ANTHROPIC_MODEL: ['leadgen', 'outreach', 'reply-instagram', 'reply-tiktok'].includes(command)
+      ? 'claude-sonnet-4-6'
+      : (config.anthropicModel || 'claude-haiku-4-5-20251001'),
     SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
     EXPECTED_GEO: clientConfig.proxy?.geo || '',
     CLIENT_ID: clientConfig.clientId,
