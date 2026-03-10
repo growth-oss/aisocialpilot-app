@@ -2302,26 +2302,66 @@ function renderIntelProducts() {
   const le = document.getElementById('intel-products-list');
   if (!le) return;
   if (!p.length) { le.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:24px 0">No products yet — add your first one above.</div>`; return; }
-  le.innerHTML = p.map((prod, i) => `
-    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-        <div>
-          <span style="font-weight:600">${prod.name || 'Unnamed'}</span>
-          ${prod.price ? `<span style="color:var(--accent);font-size:12px;margin-left:8px;font-weight:500">${prod.price}</span>` : ''}
-          ${prod.url ? `<a href="${prod.url}" target="_blank" style="color:var(--text-muted);font-size:11px;margin-left:8px">${prod.url.replace(/^https?:\/\//,'').slice(0,40)}</a>` : ''}
+  le.innerHTML = `<div id="intel-products-pull-status"></div>` + p.map((prod, i) => {
+    const imgSrc = prod.images?.[0]?.local_url || prod.images?.[0]?.url || '';
+    const hasLocal = !!prod.images?.[0]?.local_url;
+    const imgBadge = prod.images?.length
+      ? (hasLocal
+          ? `<span style="display:inline-block;background:#14532d;border:1px solid #22c55e55;border-radius:20px;padding:1px 7px;font-size:10px;color:#22c55e;margin-left:6px">saved</span>`
+          : `<span style="display:inline-block;background:var(--bg-input);border:1px solid var(--border);border-radius:20px;padding:1px 7px;font-size:10px;color:var(--text-dim);margin-left:6px">CDN</span>`)
+      : '';
+    return `
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;display:flex;gap:12px">
+      ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)">` : ''}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div>
+            <span style="font-weight:600">${prod.name || 'Unnamed'}</span>${imgBadge}
+            ${prod.price ? `<span style="color:var(--accent);font-size:12px;margin-left:8px;font-weight:500">${prod.price}</span>` : ''}
+            ${prod.url ? `<a href="${prod.url}" target="_blank" style="color:var(--text-muted);font-size:11px;margin-left:8px">${prod.url.replace(/^https?:\/\//,'').slice(0,40)}</a>` : ''}
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn btn-sm btn-ghost" onclick="editIntelProduct(${i})">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('products',${i})">✕</button>
+          </div>
         </div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          <button class="btn btn-sm btn-ghost" onclick="editIntelProduct(${i})">Edit</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteIntelItem('products',${i})">✕</button>
+        ${prod.description ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">${prod.description}</div>` : ''}
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          ${prod.pain_points?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--red);margin-bottom:4px">Pain Points</div>${prod.pain_points.map(pt=>`<div style="font-size:12px;color:var(--text-dim)">• ${pt}</div>`).join('')}</div>` : ''}
+          ${prod.usps?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin-bottom:4px">Benefits</div>${prod.usps.map(u=>`<div style="font-size:12px;color:var(--text-dim)">✓ ${u}</div>`).join('')}</div>` : ''}
         </div>
+        ${prod.keywords?.length ? `<div style="margin-top:8px">${prod.keywords.map(k=>`<span style="display:inline-block;background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:20px;padding:2px 8px;font-size:11px;margin:2px">${k}</span>`).join('')}</div>` : ''}
       </div>
-      ${prod.description ? `<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">${prod.description}</div>` : ''}
-      <div style="display:flex;gap:20px;flex-wrap:wrap">
-        ${prod.pain_points?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--red);margin-bottom:4px">Pain Points</div>${prod.pain_points.map(pt=>`<div style="font-size:12px;color:var(--text-dim)">• ${pt}</div>`).join('')}</div>` : ''}
-        ${prod.usps?.length ? `<div style="flex:1;min-width:160px"><div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--green);margin-bottom:4px">Benefits</div>${prod.usps.map(u=>`<div style="font-size:12px;color:var(--text-dim)">✓ ${u}</div>`).join('')}</div>` : ''}
-      </div>
-      ${prod.keywords?.length ? `<div style="margin-top:8px">${prod.keywords.map(k=>`<span style="display:inline-block;background:var(--accent-glow);border:1px solid var(--border-focus);border-radius:20px;padding:2px 8px;font-size:11px;margin:2px">${k}</span>`).join('')}</div>` : ''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  // Start polling pull status
+  checkAndShowPullStatus(window._intel.clientId);
+}
+
+async function checkAndShowPullStatus(clientId) {
+  const el = document.getElementById('intel-products-pull-status');
+  if (!el) return;
+  try {
+    const s = await api('GET', `/clients/${clientId}/assets/pull-status`);
+    if (s.running) {
+      el.innerHTML = `<div style="background:#1a2a1a;border:1px solid #22c55e33;border-radius:4px;padding:8px 12px;font-size:12px;color:#22c55e;display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span>&#8659;</span> <span>Downloading product images\u2026 ${s.done}/${s.total} done${s.failed ? `, ${s.failed} failed` : ''}</span>
+      </div>`;
+      setTimeout(() => checkAndShowPullStatus(clientId), 2000);
+    } else if (s.total > 0) {
+      el.innerHTML = `<div style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:6px 12px;font-size:11px;color:var(--text-dim);display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span>&#10003; ${s.done} images saved locally${s.failed ? ` \u00b7 ${s.failed} failed` : ''}</span>
+        <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 8px" onclick="triggerPullImages()">&#8659; Re-pull</button>
+      </div>`;
+    } else {
+      el.innerHTML = '';
+    }
+  } catch { el.innerHTML = ''; }
+}
+
+async function triggerPullImages() {
+  await api('POST', `/clients/${window._intel.clientId}/assets/pull-images`);
+  checkAndShowPullStatus(window._intel.clientId);
 }
 
 function editIntelProduct(idx) {
@@ -4669,6 +4709,9 @@ async function confirmProductImport() {
     const data = await api('GET', `/clients/${window._intel.clientId}/knowledge/products`);
     window._intel.products = data;
     renderIntelProducts();
+    // Trigger image download in background
+    api('POST', `/clients/${window._intel.clientId}/assets/pull-images`).catch(() => {});
+    setTimeout(() => checkAndShowPullStatus(window._intel.clientId), 1000);
     setTimeout(() => closeProductImport(), 2000);
   } catch(e) {
     st.textContent = '✗ ' + e.message; st.style.color = 'var(--red)';

@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const httpProxy = require('http-proxy');
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +10,109 @@ const readline = require('readline');
 const backup = require('./backup');
 const lgDb           = require('./leadgen/db');
 const { buildLeadGenPrompt } = require('./leadgen/prompt');
+
+// ─── Product Image Downloader ─────────────────────────────────────────────────
+function slugify(str) {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+}
+
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const proto = url.startsWith('https') ? https : http;
+    const file = fs.createWriteStream(destPath);
+    const req = proto.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      timeout: 30000,
+    }, res => {
+      // Follow redirects (up to 5)
+      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
+        file.close();
+        fs.unlink(destPath, () => {});
+        return downloadFile(res.headers.location, destPath).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        file.close();
+        fs.unlink(destPath, () => {});
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      res.pipe(file);
+      file.on('finish', () => { file.close(); resolve(destPath); });
+      file.on('error', err => { fs.unlink(destPath, () => {}); reject(err); });
+    });
+    req.on('error', err => { fs.unlink(destPath, () => {}); reject(err); });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
+// Download all images for a client's products in the background.
+// Updates products.json with local_url for each downloaded image.
+// Writes progress to assets/pull-status.json
+async function downloadProductImages(clientId) {
+  const kDir      = path.join(CLIENTS_DIR, clientId, 'knowledge');
+  const assetsDir = path.join(CLIENTS_DIR, clientId, 'assets', 'products');
+  const statusPath= path.join(CLIENTS_DIR, clientId, 'assets', 'pull-status.json');
+
+  fs.mkdirSync(assetsDir, { recursive: true });
+
+  // Load products
+  let products = [];
+  try { products = JSON.parse(fs.readFileSync(path.join(kDir, 'products.json'), 'utf8')); } catch { return; }
+
+  const status = { running: true, total: 0, done: 0, failed: 0, startedAt: new Date().toISOString() };
+
+  // Count total images to download
+  for (const p of products) {
+    for (const img of (p.images || [])) {
+      if (img.url && !img.local_url) status.total++;
+    }
+  }
+  fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+  fs.writeFileSync(statusPath, JSON.stringify(status));
+  if (status.total === 0) {
+    status.running = false; status.finishedAt = new Date().toISOString();
+    fs.writeFileSync(statusPath, JSON.stringify(status));
+    return;
+  }
+
+  // Download each image
+  for (let pi = 0; pi < products.length; pi++) {
+    const p = products[pi];
+    const slug = slugify(p.name) || `product-${pi}`;
+    const productDir = path.join(assetsDir, slug);
+    fs.mkdirSync(productDir, { recursive: true });
+
+    for (let ii = 0; ii < (p.images || []).length; ii++) {
+      const img = p.images[ii];
+      if (!img.url || img.local_url) continue; // skip already downloaded
+
+      // Determine file extension from URL
+      const urlPath = img.url.split('?')[0];
+      const extMatch = urlPath.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+      const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+      const filename = `image-${ii}.${ext}`;
+      const destPath = path.join(productDir, filename);
+      const localUrl = `/api/clients/${clientId}/assets/products/${slug}/${filename}`;
+
+      try {
+        await downloadFile(img.url, destPath);
+        p.images[ii].local_url = localUrl;
+        status.done++;
+      } catch (e) {
+        console.error(`[assets] Failed to download ${img.url}: ${e.message}`);
+        status.failed++;
+      }
+      fs.writeFileSync(statusPath, JSON.stringify(status));
+    }
+  }
+
+  // Save updated products.json with local_urls
+  fs.writeFileSync(path.join(kDir, 'products.json'), JSON.stringify(products, null, 2));
+
+  status.running = false;
+  status.finishedAt = new Date().toISOString();
+  fs.writeFileSync(statusPath, JSON.stringify(status));
+  console.log(`[assets] Image pull complete for ${clientId}: ${status.done} downloaded, ${status.failed} failed`);
+}
 
 // Track in-flight automation processes keyed by runId
 const runningProcesses = new Map();
@@ -237,6 +341,15 @@ function requireLicense(req, res, next) {
   }
   next();
 }
+
+// ─── Serve locally downloaded product assets ───
+app.get('/api/clients/:id/assets/products/:slug/:filename', (req, res) => {
+  const filePath = path.join(CLIENTS_DIR, req.params.id, 'assets', 'products', req.params.slug, req.params.filename);
+  // Security: ensure path doesn't escape CLIENTS_DIR
+  if (!filePath.startsWith(CLIENTS_DIR)) return res.status(403).send('Forbidden');
+  if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
+  res.sendFile(filePath);
+});
 
 // ═══════════════════════════════════════
 // API ROUTES
@@ -2423,7 +2536,34 @@ app.post('/api/clients/:id/knowledge/products/import', requireLicense, (req, res
   }
 
   fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+
+  // Kick off background image download (don't await — return response immediately)
+  downloadProductImages(req.params.id).catch(e => console.error('[assets] auto-pull error:', e.message));
+
   res.json({ imported, updated, total: existing.length });
+});
+
+// GET /api/clients/:id/assets/pull-status — check image download progress
+app.get('/api/clients/:id/assets/pull-status', requireLicense, (req, res) => {
+  const statusPath = path.join(CLIENTS_DIR, req.params.id, 'assets', 'pull-status.json');
+  try {
+    res.json(JSON.parse(fs.readFileSync(statusPath, 'utf8')));
+  } catch {
+    res.json({ running: false, total: 0, done: 0, failed: 0 });
+  }
+});
+
+// POST /api/clients/:id/assets/pull-images — trigger background image download
+app.post('/api/clients/:id/assets/pull-images', requireLicense, (req, res) => {
+  const statusPath = path.join(CLIENTS_DIR, req.params.id, 'assets', 'pull-status.json');
+  // Check if already running
+  try {
+    const s = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+    if (s.running) return res.json({ message: 'Already running', status: s });
+  } catch {}
+  // Start download in background (don't await)
+  downloadProductImages(req.params.id).catch(e => console.error('[assets] pull error:', e.message));
+  res.json({ message: 'Image pull started' });
 });
 
 // ─── AI Intel research run (SSE streaming) ───────────────────────────────────
