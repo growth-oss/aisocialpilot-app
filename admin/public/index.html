@@ -2284,6 +2284,7 @@ async function restoreRunningIntelJobs(clientId) {
     if (terminal) terminal.innerHTML += `<span style="color:var(--accent)">↻ Reconnected — waiting for completion…</span>\n`;
 
     let _restoreTailOffset = 0;
+    let _restoreMisses = 0;
     const poll = async () => {
       try {
         const tail = await fetch(`/api/clients/${clientId}/intel/jobs/${job.runId}/tail?offset=${_restoreTailOffset}`).then(r => r.json()).catch(() => null);
@@ -2294,7 +2295,18 @@ async function restoreRunningIntelJobs(clientId) {
         }
         const jobs2 = await api('GET', `/clients/${clientId}/intel/jobs`);
         const j = jobs2.find(x => x.runId === job.runId);
-        if (!j || j.status === 'running') { setTimeout(poll, 4000); return; }
+        if (!j) {
+          _restoreMisses++;
+          if (_restoreMisses >= 3) {
+            if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Completed (server restarted — reloading data)</span>\n`;
+            intelJobDone(job.runId, true, 'Completed — data reloaded');
+            await handleIntelResult(clientId, 'products');
+            return;
+          }
+          setTimeout(poll, 4000); return;
+        }
+        _restoreMisses = 0;
+        if (j.status === 'running') { setTimeout(poll, 4000); return; }
         if (j.extracted) {
           if (termElRef.val) termElRef.val.innerHTML += `\n<span class="t-success">✓ Extracted ${j.extractedCount} item(s) → ${j.extractedSection}</span>\n`;
           intelJobDone(job.runId, true, `Done — ${j.extractedCount} ${j.extractedSection} saved`);

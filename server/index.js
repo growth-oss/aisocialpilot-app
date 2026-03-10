@@ -1463,7 +1463,8 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
 
   const runId = crypto.randomBytes(4).toString('hex');
-  const startedAt = new Date().toISOString();
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
 
   const prompt = promptOverride !== null ? promptOverride : buildPrompt(command, clientConfig);
   const env = {
@@ -1513,6 +1514,14 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // stream-json outputs JSONL: one JSON object per line as events happen
   // We parse each line and forward the text content; fall back to raw if not valid JSON
   let _streamBuf = '';
+  let _lastOutputAt = Date.now();
+  // Heartbeat: every 30s with no output, send elapsed time so terminal shows activity
+  const _heartbeatTimer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - runResult.startedAtMs) / 1000);
+    const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+    const t = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    onData('progress', `⏳ Still running… (${t} elapsed)\n`);
+  }, 30000);
   proc.stdout.on('data', chunk => {
     _streamBuf += chunk.toString();
     const lines = _streamBuf.split('\n');
@@ -1526,17 +1535,19 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
           for (const block of ev.message.content) {
             if (block.type === 'text' && block.text) {
               outputChars += block.text.length;
+              _lastOutputAt = Date.now();
               onData('output', block.text);
+            } else if (block.type === 'tool_use') {
+              // Show which tool and a summary of what it's doing
+              const desc = block.input?.description || block.input?.command?.split('\n')[0] || '';
+              const label = desc ? `[${block.name}: ${desc.substring(0, 80)}]` : `[${block.name}]`;
+              onData('progress', label + '\n');
             }
           }
         } else if (ev.type === 'result' && ev.result) {
           // Final result text
           outputChars += ev.result.length;
           onData('output', ev.result);
-        }
-        // tool_use/tool_result events: show a brief indicator
-        else if (ev.type === 'tool_use' && ev.name) {
-          onData('progress', `[tool: ${ev.name}]\n`);
         }
       } catch {
         // Not JSON (e.g. error output) — forward as-is
@@ -1560,6 +1571,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const completedAt = new Date().toISOString();
     const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
 
+    clearInterval(_heartbeatTimer);
     console.log(`[run ${runId}] close: code=${code} signal=${signal}`);
 
     const outputTokens = charsToTokens(outputChars);
@@ -1578,7 +1590,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     if (onClose) onClose(runId, code, signal, startedAt, status);
   });
 
-  return { runId, proc, startedAt, clientConfig };
+  return { runId, proc, startedAt, startedAtMs, clientConfig };
 }
 
 // ─── OpenAI direct API path (text-only commands, no browser) ───
