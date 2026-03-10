@@ -1028,17 +1028,23 @@ STEPS:
    - Wait for page load + scroll to load images
    - Extract: name, price, URL, description (strip HTML tags)
 
-   IMAGE EXTRACTION (follow this priority order):
-   a) Try Shopify JSON API first: fetch /products/{handle}.json — use product.images[].src array. This is the most reliable source.
-   b) If not Shopify or API fails: look for product gallery images specifically:
-      - Selectors to TRY (in order): .product__media img, .product-gallery img, [data-product-single-media-wrapper] img, .product__photo img, .product-single__photo img, .slick-track img, .swiper-slide img, .product-images img
-      - Filter: only include images with src containing the product handle OR images wider than 300px (exclude logos/icons)
-      - Skip images whose src contains: logo, icon, badge, header, nav, sprite, placeholder
-   c) Check for JSON-LD structured data: <script type="application/ld+json"> with @type Product — use image field
-   d) Check page for window.__product or window.ShopifyAnalytics.meta.product
-   e) As last resort, grab all <img> tags and pick the LARGEST ones by rendered size
+   IMAGE EXTRACTION — STRICT RULES:
+   ⚠ NEVER construct, guess, or infer image URLs from product names or handles. Only use URLs you actually read from the page or API.
+   ⚠ If you cannot find a real image URL, leave images: [] — an empty array is correct. A fake URL is always wrong.
+   ⚠ Verify each URL before including it: use page.evaluate() to check document.querySelector('img[src="URL"]') exists, or confirm it came from an API response.
 
-   - Collect up to 4 product-specific images per product
+   Follow this priority order:
+   a) Shopify JSON API — fetch the URL: [store_origin]/products/[handle].json
+      Parse the JSON. Use product.images[].src — these are guaranteed real URLs.
+      console.log each src URL you find so it's visible in the terminal.
+   b) If API returns 404 or no images: read the page HTML for <img> tags inside product gallery containers:
+      Selectors: .product__media img, .product-gallery img, [data-product-single-media-wrapper] img, .product__photo img, .product-images img
+      Use page.evaluate() to get the actual rendered src attribute — NOT innerHTML parsing.
+      Only include src values that start with "http" and contain "cdn.shopify.com" or the store's domain.
+   c) JSON-LD: page.evaluate() to find <script type="application/ld+json"> containing "@type":"Product" — use the "image" field.
+   d) If still nothing found: leave images: [] — do NOT fall back to guessing.
+
+   - Collect up to 4 verified image URLs per product
    - Generate 4-6 pain_points in English
    - Generate 3-4 pain_points in Gulf Arabic dialect (UAE casual)
    - Generate 4-6 usps (unique selling points)
