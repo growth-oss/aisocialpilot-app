@@ -1938,8 +1938,6 @@ Rules:
               { role: 'system', content: 'You are a JSON-only API. Return raw JSON arrays only. Never use markdown formatting or code blocks.' },
               { role: 'user', content: batchPrompt },
             ],
-            stream: true,
-            stream_options: { include_usage: true },
           }),
           signal: controller.signal,
         });
@@ -1949,26 +1947,15 @@ Rules:
           throw new Error(`OpenAI API error ${response.status}: ${errText}`);
         }
 
-        let streamBuf = '';
-        for await (const chunk of response.body) {
-          streamBuf += chunk.toString();
-          const lines = streamBuf.split('\n');
-          streamBuf = lines.pop();
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (payload === '[DONE]') break;
-            try {
-              const ev = JSON.parse(payload);
-              const content = ev.choices?.[0]?.delta?.content;
-              if (content) batchOutput += content;
-              if (ev.usage) {
-                usageTokens = usageTokens || { input: 0, output: 0 };
-                usageTokens.input += ev.usage.prompt_tokens || 0;
-                usageTokens.output += ev.usage.completion_tokens || 0;
-              }
-            } catch {}
-          }
+        const result = await response.json();
+        batchOutput = result.choices?.[0]?.message?.content || '';
+        if (result.usage) {
+          usageTokens = usageTokens || { input: 0, output: 0 };
+          usageTokens.input += result.usage.prompt_tokens || 0;
+          usageTokens.output += result.usage.completion_tokens || 0;
+        }
+        if (result.choices?.[0]?.finish_reason === 'length') {
+          emit('output', `  ⚠ Response truncated (hit token limit)\n`);
         }
       } catch (err) {
         if (err.name === 'AbortError') throw err;
@@ -2022,8 +2009,6 @@ Rules:
           model,
           max_tokens: 16000,
           messages: [{ role: 'user', content: prompt }],
-          stream: true,
-          stream_options: { include_usage: true },
         }),
         signal: controller.signal,
       });
@@ -2033,24 +2018,11 @@ Rules:
         throw new Error(`OpenAI API error ${response.status}: ${errText}`);
       }
 
-      let streamBuf = '';
-      for await (const chunk of response.body) {
-        streamBuf += chunk.toString();
-        const lines = streamBuf.split('\n');
-        streamBuf = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const payload = line.slice(6).trim();
-          if (payload === '[DONE]') break;
-          try {
-            const ev = JSON.parse(payload);
-            const content = ev.choices?.[0]?.delta?.content;
-            if (content) emit('output', content);
-            if (ev.usage) {
-              usageTokens = { input: ev.usage.prompt_tokens || 0, output: ev.usage.completion_tokens || 0 };
-            }
-          } catch {}
-        }
+      const result = await response.json();
+      const content = result.choices?.[0]?.message?.content || '';
+      if (content) emit('output', content);
+      if (result.usage) {
+        usageTokens = { input: result.usage.prompt_tokens || 0, output: result.usage.completion_tokens || 0 };
       }
     } catch (err) {
       if (err.name === 'AbortError') {
