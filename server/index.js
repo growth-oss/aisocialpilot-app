@@ -1319,17 +1319,37 @@ ${safetyBlock}`;
   return `Research intelligence for: ${command}\nParams: ${JSON.stringify(params)}\n${wrapperNote}`;
 }
 
-// Extract JSON data from Claude output between [INTEL_DATA_START] and [INTEL_DATA_END]
+// Extract JSON data from Claude/OpenAI output
+// Tries: [INTEL_DATA_START]...[INTEL_DATA_END] markers first,
+// then ```json blocks, then raw {"section":...} pattern
 function parseIntelData(text) {
+  // Method 1: explicit markers
   const start = text.indexOf('[INTEL_DATA_START]');
   const end   = text.indexOf('[INTEL_DATA_END]');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const json = text.slice(start + '[INTEL_DATA_START]'.length, end).trim();
-  try { return JSON.parse(json); }
-  catch (e) {
-    console.error('[intel] JSON parse error:', e.message, '— raw:', json.slice(0, 200));
-    return null;
+  if (start !== -1 && end !== -1 && end > start) {
+    const json = text.slice(start + '[INTEL_DATA_START]'.length, end).trim();
+    try { return JSON.parse(json); }
+    catch (e) { console.error('[intel] Marker JSON parse error:', e.message, '— raw:', json.slice(0, 200)); }
   }
+
+  // Method 2: ```json code block
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeBlockMatch) {
+    try {
+      const parsed = JSON.parse(codeBlockMatch[1].trim());
+      if (parsed && parsed.section) return parsed;
+    } catch (e) { console.error('[intel] Code block JSON parse error:', e.message); }
+  }
+
+  // Method 3: find raw JSON object with "section" key
+  const rawMatch = text.match(/\{\s*"section"\s*:\s*"[^"]+"\s*,\s*"data"\s*:\s*\[[\s\S]*\]\s*\}/);
+  if (rawMatch) {
+    try { return JSON.parse(rawMatch[0]); }
+    catch (e) { console.error('[intel] Raw JSON parse error:', e.message); }
+  }
+
+  console.error('[intel] No parseable JSON found in output (length=' + text.length + ')');
+  return null;
 }
 
 // Save extracted intel data to knowledge files and auto-propagate to dependent sections
@@ -1869,7 +1889,7 @@ ${knowledgeCtx ? 'Brand context:\n' + knowledgeCtx + '\n' : ''}
 Products fetched from store:
 ${JSON.stringify(products, null, 2)}
 
-Return ONLY valid JSON in this exact format (no markdown, no explanation before or after):
+Return ONLY valid JSON. Do NOT wrap in markdown code blocks. Output must start with [INTEL_DATA_START] and end with [INTEL_DATA_END] on their own lines:
 [INTEL_DATA_START]
 {
   "section": "products",
