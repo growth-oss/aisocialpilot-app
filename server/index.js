@@ -1509,7 +1509,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   fs.writeFileSync(tmpScript, [
     '#!/bin/bash',
     `export PATH=${se(process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}`,
-    `export NODE_PATH=${se(process.env.NODE_PATH || '')}`,
+    `export NODE_PATH=${se(process.env.NODE_PATH || '/app/node_modules')}`,
     `export PLAYWRIGHT_BROWSERS_PATH=${se(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
     `export ANTHROPIC_API_KEY=${se(env.ANTHROPIC_API_KEY)}`,
     `export ANTHROPIC_MODEL=${se(env.ANTHROPIC_MODEL)}`,
@@ -2756,7 +2756,7 @@ const { chromium } = require('playwright');
 })();`;
     const tmpFile = `/tmp/proxy-test-${Date.now()}.js`;
     fs.writeFileSync(tmpFile, script);
-    const out = execSync(`node ${tmpFile}`, { encoding: 'utf8', timeout: 30000, env: { ...process.env, DISPLAY: ':99' } });
+    const out = execSync(`node ${tmpFile}`, { encoding: 'utf8', timeout: 30000, env: { ...process.env, DISPLAY: ':99', NODE_PATH: process.env.NODE_PATH || '/app/node_modules' } });
     try { results.playwrightIpinfo = JSON.parse(out.trim()); } catch { results.playwrightRaw = out.trim().substring(0, 300); }
     fs.unlinkSync(tmpFile);
   } catch (e) {
