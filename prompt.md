@@ -104,6 +104,36 @@ POST /api/clients/:id/intel/run         — start AI research job
 - Memory file at `.claude/projects/.../memory/MEMORY.md` has the full project history.
 - Always read memory file first: it's the source of truth for what's built and what's current.
 
+## MANDATORY: Keep Docs In Sync With Every Commit
+
+**This is a hard rule.** Whenever you commit code changes, you MUST also update the relevant docs in the same commit (or an immediate follow-up). Stale docs cause confusion across sessions.
+
+### Files to keep in sync:
+
+| File | When to update |
+|------|---------------|
+| `prompt.md` (this file) | New client added, new feature/system built, architecture changed, new API routes, key file added/removed/moved |
+| `.claude/projects/.../memory/MEMORY.md` | Same as above — this is the persistent memory across sessions |
+| `templates/escalation-rules.md` | Conversion funnel changed, new escalation triggers, coupon tiers changed |
+| `templates/reply-templates.md` | New reply patterns, new engagement scenarios |
+| `.claude/CLAUDE.md` | Automation behavior changed, new run commands, browser/proxy logic changed |
+
+### Specifically:
+
+1. **New client added** → Add to "Active Clients" section in both `prompt.md` and `MEMORY.md`
+2. **New API route** → Add to "Key API Routes" in `prompt.md` and `MEMORY.md`
+3. **New feature/system** → Add to "Core Features Built" in `MEMORY.md`, update "Key Files" table in `prompt.md`
+4. **File moved/renamed/deleted** → Update "Key Files" and project structure in both files
+5. **Lead gen changes** → Update "Lead Gen System" section in `prompt.md`
+6. **New coupon codes or tiers** → Update both the client section in `prompt.md` AND `templates/escalation-rules.md`
+7. **Approach logic changed** → Update `prompt.md` Lead Gen section + `templates/escalation-rules.md`
+
+### How to check:
+
+Before every commit, ask yourself:
+- "Would a new Claude session understand what I just changed without reading the code?"
+- If no → update the docs.
+
 ## What to do first
 
 1. Read the memory file (it loads automatically if configured)
