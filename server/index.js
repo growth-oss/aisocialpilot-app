@@ -1031,20 +1031,23 @@ STEPS:
    IMAGE EXTRACTION — STRICT RULES:
    ⚠ NEVER construct, guess, or infer image URLs from product names or handles. Only use URLs you actually read from the page or API.
    ⚠ If you cannot find a real image URL, leave images: [] — an empty array is correct. A fake URL is always wrong.
-   ⚠ Verify each URL before including it: use page.evaluate() to check document.querySelector('img[src="URL"]') exists, or confirm it came from an API response.
+   ⚠ NEVER reuse an image URL from a previously scraped product. Every product must have its own distinct image URLs.
+   ⚠ After scraping all products, check: if any two products share the same image URL, you made an error. Re-scrape those products.
 
-   Follow this priority order:
-   a) Shopify JSON API — fetch the URL: [store_origin]/products/[handle].json
+   For EACH product, independently extract its images using this priority order:
+   a) Shopify JSON API — for the current product's page URL (e.g. https://store.com/products/some-handle),
+      extract the handle from the URL path, then fetch: [store_origin]/products/[that-handle].json
+      (NOT a generic URL — the handle must match THIS specific product)
       Parse the JSON. Use product.images[].src — these are guaranteed real URLs.
-      console.log each src URL you find so it's visible in the terminal.
-   b) If API returns 404 or no images: read the page HTML for <img> tags inside product gallery containers:
+      console.log("API images for [product name]: " + JSON.stringify(images)) to confirm they are unique.
+   b) If API returns 404 or no images: navigate to the product's own page and read the HTML for <img> tags:
       Selectors: .product__media img, .product-gallery img, [data-product-single-media-wrapper] img, .product__photo img, .product-images img
       Use page.evaluate() to get the actual rendered src attribute — NOT innerHTML parsing.
       Only include src values that start with "http" and contain "cdn.shopify.com" or the store's domain.
    c) JSON-LD: page.evaluate() to find <script type="application/ld+json"> containing "@type":"Product" — use the "image" field.
-   d) If still nothing found: leave images: [] — do NOT fall back to guessing.
+   d) If still nothing found: leave images: [] — do NOT copy images from another product.
 
-   - Collect up to 4 verified image URLs per product
+   - Collect up to 4 verified image URLs per product (must be unique across products)
    - Generate 4-6 pain_points in English
    - Generate 3-4 pain_points in Gulf Arabic dialect (UAE casual)
    - Generate 4-6 usps (unique selling points)
