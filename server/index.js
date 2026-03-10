@@ -1792,6 +1792,8 @@ async function runOpenAIIntel(clientId, command, params, onData, onClose) {
   runningProcesses.set(runId, { clientId, command, startedAt, abort: controller });
 
   let accOutput = '';
+  let usageTokens = null;
+  let status = 'completed';
   const emit = (type, text) => { if (type === 'output') accOutput += text; onData(type, text); };
 
   emit('output', `> Provider: OpenAI (${model}) — no browser needed\n\n`);
@@ -1872,104 +1874,192 @@ async function runOpenAIIntel(clientId, command, params, onData, onClose) {
       return { runId, startedAt };
     }
 
-    // Step 2: Send to OpenAI for enrichment
-    emit('output', `\n🤖 Sending ${products.length} product(s) to ${model} for enrichment...\n`);
-
+    // Step 2: Enrich via OpenAI in batches of 4 (avoids token limit truncation)
+    const BATCH_SIZE = 4;
     const knowledgeCtx = buildKnowledgeContext(clientId);
-    prompt = `You are a product intelligence agent for a social media marketing tool. Enrich these products with marketing data.
+    const allEnriched = [];
+    const batches = [];
+    for (let i = 0; i < products.length; i += BATCH_SIZE) batches.push(products.slice(i, i + BATCH_SIZE));
+
+    emit('output', `\n🤖 Enriching ${products.length} product(s) via ${model} in ${batches.length} batch(es)...\n`);
+
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      emit('output', `\n📦 Batch ${b+1}/${batches.length} (${batch.length} products)...\n`);
+
+      const batchPrompt = `You are a product intelligence agent. Enrich these ${batch.length} product(s) with marketing data.
 
 For each product, generate:
-- pain_points: 4-6 in English + 3-4 in Gulf Arabic dialect (UAE casual, use Gulf expressions)
+- pain_points: 4-6 in English + 3-4 in Gulf Arabic dialect (UAE casual)
 - usps: 4-6 unique selling points
 - keywords: social monitoring keywords in English + Arabic
 - category: product category
 - A clean short description if the original is too long
 
 ${knowledgeCtx ? 'Brand context:\n' + knowledgeCtx + '\n' : ''}
-Products fetched from store:
-${JSON.stringify(products, null, 2)}
+Products:
+${JSON.stringify(batch, null, 2)}
 
-Return ONLY valid JSON. Do NOT wrap in markdown code blocks. Output must start with [INTEL_DATA_START] and end with [INTEL_DATA_END] on their own lines:
-[INTEL_DATA_START]
-{
-  "section": "products",
-  "data": [
-    {
-      "name": "Product Name",
-      "price": "299",
-      "currency": "AED",
-      "url": "https://...",
-      "category": "Category",
-      "description": "Short description",
-      "pain_points": ["english pain point", "(Gulf: arabic pain point)", "..."],
-      "usps": ["Benefit 1", "Benefit 2"],
-      "keywords": ["keyword 1", "كلمة مفتاحية"],
-      "images": [{"url": "https://cdn.../img.jpg", "social_ready": true, "type": "product"}]
+CRITICAL: Return ONLY a JSON array — no markdown, no code blocks, no explanation.
+The response must be ONLY this (nothing before or after):
+[
+  {
+    "name": "Product Name",
+    "price": "299",
+    "currency": "AED",
+    "url": "https://...",
+    "category": "Category",
+    "description": "Short description",
+    "pain_points": ["english point", "(Gulf: arabic point)"],
+    "usps": ["Benefit 1", "Benefit 2"],
+    "keywords": ["keyword1", "كلمة"],
+    "images": [{"url": "https://cdn.../img.jpg", "social_ready": true, "type": "product"}]
+  }
+]
+
+Rules:
+- Use ACTUAL image URLs from the data — never invent
+- Each product has its OWN images
+- Gulf Arabic = everyday UAE dialect
+- Default currency: AED`;
+
+      let batchOutput = '';
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.openaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 16000,
+            messages: [
+              { role: 'system', content: 'You are a JSON-only API. Return raw JSON arrays only. Never use markdown formatting or code blocks.' },
+              { role: 'user', content: batchPrompt },
+            ],
+            stream: true,
+            stream_options: { include_usage: true },
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`OpenAI API error ${response.status}: ${errText}`);
+        }
+
+        let streamBuf = '';
+        for await (const chunk of response.body) {
+          streamBuf += chunk.toString();
+          const lines = streamBuf.split('\n');
+          streamBuf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') break;
+            try {
+              const ev = JSON.parse(payload);
+              const content = ev.choices?.[0]?.delta?.content;
+              if (content) batchOutput += content;
+              if (ev.usage) {
+                usageTokens = usageTokens || { input: 0, output: 0 };
+                usageTokens.input += ev.usage.prompt_tokens || 0;
+                usageTokens.output += ev.usage.completion_tokens || 0;
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        emit('output', `  ⚠ Batch ${b+1} error: ${err.message}\n`);
+        continue;
+      }
+
+      // Parse batch result — try JSON array directly
+      let batchData = null;
+      const cleaned = batchOutput.trim().replace(/^```(?:json)?\s*\n?/,'').replace(/\n?```\s*$/,'').trim();
+      try {
+        batchData = JSON.parse(cleaned);
+      } catch (e) {
+        // Try to find array in output
+        const arrMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (arrMatch) try { batchData = JSON.parse(arrMatch[0]); } catch {}
+      }
+
+      if (Array.isArray(batchData) && batchData.length > 0) {
+        allEnriched.push(...batchData);
+        emit('output', `  ✅ Got ${batchData.length} enriched product(s)\n`);
+      } else {
+        emit('output', `  ⚠ Could not parse batch ${b+1} response (${batchOutput.length} chars)\n`);
+        console.error(`[intel] Batch ${b+1} parse fail — first 500 chars:`, batchOutput.slice(0, 500));
+        console.error(`[intel] Batch ${b+1} parse fail — last 500 chars:`, batchOutput.slice(-500));
+      }
     }
-  ]
-}
-[INTEL_DATA_END]
 
-IMPORTANT:
-- Use the ACTUAL image URLs from the fetched data — never invent URLs
-- Each product must have its OWN images — never share across products
-- Gulf Arabic pain points should use everyday UAE dialect, not formal Arabic
-- Price currency: use the currency from the data, default to AED if unknown`;
+    // Build final result
+    if (allEnriched.length > 0) {
+      // Inject into accOutput so parseIntelData can find it
+      const finalJson = JSON.stringify({ section: 'products', data: allEnriched });
+      emit('output', `\n[INTEL_DATA_START]\n${finalJson}\n[INTEL_DATA_END]\n`);
+      emit('output', `\n✅ Total: ${allEnriched.length} products enriched\n`);
+    } else {
+      emit('output', `\n❌ No products could be enriched\n`);
+    }
   } else {
     // For other intel commands, build the standard prompt and send to OpenAI
     prompt = buildIntelPrompt(command, params, clientConfig, clientId);
-  }
 
-  // Call OpenAI API
-  let usageTokens = null;
-  let status = 'completed';
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        stream: true,
-        stream_options: { include_usage: true },
-      }),
-      signal: controller.signal,
-    });
+    // Single-call path for non-product commands
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 16000,
+          messages: [{ role: 'user', content: prompt }],
+          stream: true,
+          stream_options: { include_usage: true },
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI API error ${response.status}: ${errText}`);
-    }
-
-    let buffer = '';
-    for await (const chunk of response.body) {
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
-        try {
-          const parsed = JSON.parse(payload);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) emit('output', content);
-          if (parsed.usage) {
-            usageTokens = { input: parsed.usage.prompt_tokens || 0, output: parsed.usage.completion_tokens || 0 };
-          }
-        } catch {}
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`OpenAI API error ${response.status}: ${errText}`);
       }
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      status = 'stopped';
-      emit('output', '\n[Stopped by user]\n');
-    } else {
-      status = 'failed';
-      emit('output', `\n❌ OpenAI error: ${err.message}\n`);
+
+      let streamBuf = '';
+      for await (const chunk of response.body) {
+        streamBuf += chunk.toString();
+        const lines = streamBuf.split('\n');
+        streamBuf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') break;
+          try {
+            const ev = JSON.parse(payload);
+            const content = ev.choices?.[0]?.delta?.content;
+            if (content) emit('output', content);
+            if (ev.usage) {
+              usageTokens = { input: ev.usage.prompt_tokens || 0, output: ev.usage.completion_tokens || 0 };
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        status = 'stopped';
+        emit('output', '\n[Stopped by user]\n');
+      } else {
+        status = 'failed';
+        emit('output', `\n❌ OpenAI error: ${err.message}\n`);
+      }
     }
   }
 
@@ -1996,7 +2086,7 @@ IMPORTANT:
   }
 
   // Log cost
-  const inputTokens = usageTokens?.input ?? charsToTokens(prompt.length);
+  const inputTokens = usageTokens?.input ?? charsToTokens(accOutput.length);
   const outputTokens = usageTokens?.output ?? charsToTokens(accOutput.length);
   const cost_usd = estimateCost(model, inputTokens, outputTokens);
 
