@@ -1680,6 +1680,319 @@ async function runOpenAI(clientId, command, onData, onClose) {
   return { runId, startedAt, clientConfig };
 }
 
+// ─── OpenAI Intel — server-side fetch + OpenAI enrichment (no Claude CLI needed) ───
+// For products-scrape: fetch Shopify JSON API directly, then ask OpenAI to generate pain points/USPs/keywords
+// For other intel: send prompt directly to OpenAI (text-only, no browser)
+const OPENAI_INTEL_COMMANDS = new Set(['products-scrape', 'competitor-research', 'sources-discover', 'keywords-research']);
+
+async function fetchProductData(url) {
+  // Try Shopify JSON API first, then fall back to HTML meta tags
+  const tryFetch = (u) => new Promise((resolve, reject) => {
+    const proto = u.startsWith('https') ? https : http;
+    proto.get(u, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AISocialPilot/1.0)' }, timeout: 15000 }, res => {
+      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
+        return tryFetch(res.headers.location).then(resolve).catch(reject);
+      }
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, data }));
+    }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
+  });
+
+  // Extract product handle from URL path
+  const urlObj = new URL(url);
+  const pathParts = urlObj.pathname.split('/').filter(Boolean);
+  const productsIdx = pathParts.indexOf('products');
+  const handle = productsIdx >= 0 ? pathParts[productsIdx + 1] : pathParts[pathParts.length - 1];
+
+  // Try Shopify JSON API
+  const jsonUrl = `${urlObj.origin}/products/${handle}.json`;
+  try {
+    const resp = await tryFetch(jsonUrl);
+    if (resp.status === 200) {
+      const json = JSON.parse(resp.data);
+      if (json.product) {
+        const p = json.product;
+        return {
+          name: p.title,
+          handle,
+          price: p.variants?.[0]?.price || '',
+          currency: '', // will be enriched from store or set to AED
+          url,
+          description: (p.body_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+          images: (p.images || []).slice(0, 4).map(img => img.src),
+          vendor: p.vendor || '',
+          tags: p.tags ? (typeof p.tags === 'string' ? p.tags.split(',').map(t=>t.trim()) : p.tags) : [],
+          variants: (p.variants || []).map(v => ({ title: v.title, price: v.price, available: v.available })),
+        };
+      }
+    }
+  } catch {}
+
+  // Fallback: fetch HTML and extract meta tags
+  try {
+    const resp = await tryFetch(url);
+    if (resp.status === 200) {
+      const html = resp.data;
+      const meta = (name) => { const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]+content=["']([^"']+)["']`, 'i')); return m?.[1] || ''; };
+      const jsonLd = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
+      let ldProduct = null;
+      if (jsonLd) try { const ld = JSON.parse(jsonLd[1]); if (ld['@type'] === 'Product') ldProduct = ld; } catch {}
+
+      return {
+        name: meta('og:title') || meta('twitter:title') || (ldProduct?.name) || handle,
+        handle,
+        price: meta('og:price:amount') || (ldProduct?.offers?.price) || '',
+        currency: meta('og:price:currency') || (ldProduct?.offers?.priceCurrency) || '',
+        url,
+        description: meta('og:description') || meta('description') || (ldProduct?.description) || '',
+        images: [meta('og:image')].filter(Boolean).slice(0, 4),
+        vendor: '',
+        tags: [],
+        variants: [],
+      };
+    }
+  } catch {}
+
+  return { name: handle, handle, price: '', currency: '', url, description: '', images: [], vendor: '', tags: [], variants: [] };
+}
+
+async function runOpenAIIntel(clientId, command, params, onData, onClose) {
+  const clientDir = path.join(CLIENTS_DIR, clientId);
+  const config = loadConfig();
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+
+  if (!config.openaiApiKey) throw new Error('OpenAI API key not configured');
+
+  const runId = crypto.randomBytes(4).toString('hex');
+  const startedAt = new Date().toISOString();
+  const model = config.openaiModel || 'gpt-4o-mini';
+
+  const controller = new AbortController();
+  runningProcesses.set(runId, { clientId, command, startedAt, abort: controller });
+
+  let accOutput = '';
+  const emit = (type, text) => { if (type === 'output') accOutput += text; onData(type, text); };
+
+  emit('output', `> Provider: OpenAI (${model}) — no browser needed\n\n`);
+
+  let prompt;
+
+  if (command === 'products-scrape') {
+    const storeUrl = params.storeUrl || '';
+    const keyword = params.keyword || '';
+    const maxCount = parseInt(params.maxCount) || 20;
+    const extraUrls = (params.extraUrls || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+    // Step 1: Fetch product data server-side
+    const urlsToFetch = [...extraUrls];
+    if (storeUrl && !extraUrls.length) {
+      // Try to discover product URLs from store
+      emit('output', `🔍 Discovering products from ${storeUrl}...\n`);
+      try {
+        const tryPaths = ['/products.json', '/collections/all/products.json'];
+        for (const p of tryPaths) {
+          try {
+            const origin = new URL(storeUrl).origin;
+            const resp = await new Promise((resolve, reject) => {
+              const proto = origin.startsWith('https') ? https : http;
+              proto.get(origin + p, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 15000 }, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => resolve({ status: res.statusCode, data }));
+              }).on('error', reject);
+            });
+            if (resp.status === 200) {
+              const json = JSON.parse(resp.data);
+              const products = json.products || [];
+              for (const prod of products.slice(0, maxCount)) {
+                const prodUrl = `${origin}/products/${prod.handle}`;
+                if (!keyword || prod.title.toLowerCase().includes(keyword.toLowerCase()) || (prod.tags||'').toLowerCase().includes(keyword.toLowerCase())) {
+                  urlsToFetch.push(prodUrl);
+                }
+              }
+              if (urlsToFetch.length) {
+                emit('output', `✅ Found ${urlsToFetch.length} products from store API\n`);
+                break;
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+      if (!urlsToFetch.length) {
+        emit('output', `⚠ Could not discover products automatically. Please provide specific URLs.\n`);
+      }
+    }
+
+    if (!urlsToFetch.length) {
+      emit('output', `❌ No product URLs to scrape.\n`);
+      runningProcesses.delete(runId);
+      if (onClose) onClose(runId, 1, null, startedAt, 'failed');
+      return { runId, startedAt };
+    }
+
+    emit('output', `\n📦 Fetching ${urlsToFetch.length} product(s)...\n`);
+    const products = [];
+    for (let i = 0; i < Math.min(urlsToFetch.length, maxCount); i++) {
+      const url = urlsToFetch[i];
+      emit('output', `⬇ [${i+1}/${Math.min(urlsToFetch.length, maxCount)}] ${url}\n`);
+      try {
+        const data = await fetchProductData(url);
+        products.push(data);
+        emit('output', `  ✅ ${data.name} — ${data.price || 'no price'} — ${data.images.length} images\n`);
+      } catch (e) {
+        emit('output', `  ⚠ Failed: ${e.message}\n`);
+      }
+    }
+
+    if (!products.length) {
+      emit('output', `\n❌ Could not fetch any products.\n`);
+      runningProcesses.delete(runId);
+      if (onClose) onClose(runId, 1, null, startedAt, 'failed');
+      return { runId, startedAt };
+    }
+
+    // Step 2: Send to OpenAI for enrichment
+    emit('output', `\n🤖 Sending ${products.length} product(s) to ${model} for enrichment...\n`);
+
+    const knowledgeCtx = buildKnowledgeContext(clientId);
+    prompt = `You are a product intelligence agent for a social media marketing tool. Enrich these products with marketing data.
+
+For each product, generate:
+- pain_points: 4-6 in English + 3-4 in Gulf Arabic dialect (UAE casual, use Gulf expressions)
+- usps: 4-6 unique selling points
+- keywords: social monitoring keywords in English + Arabic
+- category: product category
+- A clean short description if the original is too long
+
+${knowledgeCtx ? 'Brand context:\n' + knowledgeCtx + '\n' : ''}
+Products fetched from store:
+${JSON.stringify(products, null, 2)}
+
+Return ONLY valid JSON in this exact format (no markdown, no explanation before or after):
+[INTEL_DATA_START]
+{
+  "section": "products",
+  "data": [
+    {
+      "name": "Product Name",
+      "price": "299",
+      "currency": "AED",
+      "url": "https://...",
+      "category": "Category",
+      "description": "Short description",
+      "pain_points": ["english pain point", "(Gulf: arabic pain point)", "..."],
+      "usps": ["Benefit 1", "Benefit 2"],
+      "keywords": ["keyword 1", "كلمة مفتاحية"],
+      "images": [{"url": "https://cdn.../img.jpg", "social_ready": true, "type": "product"}]
+    }
+  ]
+}
+[INTEL_DATA_END]
+
+IMPORTANT:
+- Use the ACTUAL image URLs from the fetched data — never invent URLs
+- Each product must have its OWN images — never share across products
+- Gulf Arabic pain points should use everyday UAE dialect, not formal Arabic
+- Price currency: use the currency from the data, default to AED if unknown`;
+  } else {
+    // For other intel commands, build the standard prompt and send to OpenAI
+    prompt = buildIntelPrompt(command, params, clientConfig, clientId);
+  }
+
+  // Call OpenAI API
+  let usageTokens = null;
+  let status = 'completed';
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`OpenAI API error ${response.status}: ${errText}`);
+    }
+
+    let buffer = '';
+    for await (const chunk of response.body) {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break;
+        try {
+          const parsed = JSON.parse(payload);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) emit('output', content);
+          if (parsed.usage) {
+            usageTokens = { input: parsed.usage.prompt_tokens || 0, output: parsed.usage.completion_tokens || 0 };
+          }
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      status = 'stopped';
+      emit('output', '\n[Stopped by user]\n');
+    } else {
+      status = 'failed';
+      emit('output', `\n❌ OpenAI error: ${err.message}\n`);
+    }
+  }
+
+  runningProcesses.delete(runId);
+  const completedAt = new Date().toISOString();
+
+  // Extract structured data from output
+  let extracted = false, extractedSection = null, extractedCount = 0;
+  if (status === 'completed') {
+    const parsed = parseIntelData(accOutput);
+    if (parsed) {
+      try {
+        applyIntelData(clientId, parsed);
+        extracted = true;
+        extractedSection = parsed.section;
+        extractedCount = Array.isArray(parsed.data) ? parsed.data.length : 1;
+        emit('output', `\n\n✅ Saved ${extractedCount} items to ${extractedSection}\n`);
+      } catch (e) {
+        emit('output', `\n⚠ Failed to save data: ${e.message}\n`);
+      }
+    } else {
+      emit('output', '\n⚠ No data markers found in AI response\n');
+    }
+  }
+
+  // Log cost
+  const inputTokens = usageTokens?.input ?? charsToTokens(prompt.length);
+  const outputTokens = usageTokens?.output ?? charsToTokens(accOutput.length);
+  const cost_usd = estimateCost(model, inputTokens, outputTokens);
+
+  const logFile = path.join(clientDir, 'logs', 'runs.json');
+  let runs = [];
+  try { runs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch {}
+  runs.push({ runId, command, startedAt, completedAt, status, provider: 'openai', model,
+    cost_usd, input_tokens: inputTokens, output_tokens: outputTokens });
+  fs.writeFileSync(logFile, JSON.stringify(runs.slice(-100), null, 2));
+
+  checkAndSendBudgetAlert(config, clientConfig).catch(() => {});
+
+  if (onClose) onClose(runId, status === 'completed' ? 0 : 1, null, startedAt, status === 'completed' ? 'completed' : status);
+  return { runId, startedAt };
+}
+
 // ─── Run automation (SSE streaming) ───
 app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const { command } = req.body;
@@ -2691,6 +3004,8 @@ const INTEL_LABELS = {
 
 // POST /api/clients/:id/intel/run  — start a background research job, returns JSON {runId}
 // Client polls /tail and /intel/jobs every 5s — no SSE (Railway drops SSE connections instantly)
+// Uses OpenAI direct API for supported commands (cheaper, faster, no browser needed)
+// Falls back to Claude CLI for commands that need browser automation (competitor-hunt)
 app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   const { command, params = {} } = req.body;
   if (!INTEL_COMMANDS.has(command)) return res.status(400).json({ error: `Unknown intel command: ${command}` });
@@ -2699,8 +3014,83 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
   if (!fs.existsSync(clientDirPath)) return res.status(404).json({ error: 'Client not found' });
 
   const config = loadConfig();
-  if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key required for AI research' });
 
+  // Route to OpenAI for supported commands when key is available
+  const useOpenAI = config.openaiApiKey && OPENAI_INTEL_COMMANDS.has(command);
+
+  if (!useOpenAI && !config.anthropicApiKey) {
+    return res.status(400).json({ error: 'API key required for AI research (configure OpenAI or Anthropic key)' });
+  }
+
+  if (useOpenAI) {
+    // OpenAI direct path — no browser, server-side fetch + API call
+    const job = {
+      runId: null, clientId: req.params.id, command,
+      label: INTEL_LABELS[command] || command,
+      meta: { competitorName: params.name || null },
+      status: 'running',
+      startedAt: new Date().toISOString(), finishedAt: null,
+      lines: [], accOutput: '',
+      extracted: false, extractedSection: null, extractedCount: 0,
+      code: null, signal: null,
+      listeners: new Set(),
+    };
+    const runId = crypto.randomBytes(4).toString('hex');
+    job.runId = runId;
+    intelJobs.set(runId, job);
+
+    // Persist job start
+    try {
+      fs.mkdirSync(path.join(clientDirPath, 'logs'), { recursive: true });
+      fs.writeFileSync(path.join(clientDirPath, 'logs', 'last-intel-run.json'), JSON.stringify({
+        runId, command, label: job.label,
+        status: 'running', startedAt: job.startedAt, finishedAt: null,
+        extracted: false, extractedSection: null, extractedCount: 0,
+      }));
+    } catch {}
+
+    // Run async — don't block the response
+    runOpenAIIntel(
+      req.params.id, command, params,
+      (type, text) => {
+        if (type === 'output') job.accOutput += text;
+        intelJobBroadcast(job, type, { text });
+      },
+      (closedRunId, code, signal, startedAt, status) => {
+        const parsed = parseIntelData(job.accOutput);
+        let extracted = false, extractedSection = null, extractedCount = 0;
+        if (parsed) {
+          extracted = true;
+          extractedSection = parsed.section;
+          extractedCount = Array.isArray(parsed.data) ? parsed.data.length : 1;
+        }
+        job.status = extracted ? 'done' : (status === 'completed' ? 'done' : 'failed');
+        job.code = code;
+        job.extracted = extracted; job.extractedSection = extractedSection; job.extractedCount = extractedCount;
+        job.finishedAt = new Date().toISOString();
+        intelJobBroadcast(job, 'done', { code, runId, status: job.status, extracted, extractedSection, extractedCount });
+        try {
+          fs.writeFileSync(path.join(clientDirPath, 'logs', 'last-intel-run.json'), JSON.stringify({
+            runId, command, label: job.label,
+            status: job.status === 'done' ? 'completed' : 'failed',
+            startedAt: job.startedAt, finishedAt: job.finishedAt,
+            extracted, extractedSection, extractedCount,
+          }));
+        } catch {}
+        intelJobFinish(job);
+      }
+    ).catch(err => {
+      job.status = 'failed';
+      job.finishedAt = new Date().toISOString();
+      intelJobBroadcast(job, 'output', { text: `\n❌ Error: ${err.message}\n` });
+      intelJobBroadcast(job, 'done', { code: 1, runId, status: 'failed', extracted: false });
+      intelJobFinish(job);
+    });
+
+    return res.json({ runId, startedAt: job.startedAt, provider: 'openai' });
+  }
+
+  // Claude CLI path (for competitor-hunt and fallback)
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDirPath, 'config.json'), 'utf8'));
   const intelPrompt = buildIntelPrompt(command, params, clientConfig, req.params.id);
 
