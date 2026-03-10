@@ -1517,7 +1517,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   let _lastOutputAt = Date.now();
   // Heartbeat: every 30s with no output, send elapsed time so terminal shows activity
   const _heartbeatTimer = setInterval(() => {
-    const elapsed = Math.round((Date.now() - runResult.startedAtMs) / 1000);
+    const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
     const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
     const t = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     onData('progress', `⏳ Still running… (${t} elapsed)\n`);
@@ -2755,6 +2755,16 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
         job.extracted = extracted; job.extractedSection = extractedSection; job.extractedCount = extractedCount;
         if (signal) intelJobBroadcast(job, 'output', { text: `\n[Process ${signal}]\n` });
         intelJobBroadcast(job, 'done', { code, runId, status, extracted, extractedSection, extractedCount });
+        // Update persisted state file
+        try {
+          const sf = path.join(CLIENTS_DIR, req.params.id, 'logs', 'last-intel-run.json');
+          fs.writeFileSync(sf, JSON.stringify({
+            runId, command, label: job.label,
+            status: extracted ? 'completed' : (signal ? 'failed' : (code === 0 ? 'completed' : 'failed')),
+            startedAt: job.startedAt, finishedAt: new Date().toISOString(),
+            extracted, extractedSection, extractedCount,
+          }));
+        } catch {}
         intelJobFinish(job);
       },
       intelPrompt
@@ -2780,6 +2790,17 @@ app.post('/api/clients/:id/intel/run', requireLicense, (req, res) => {
     listeners: new Set([res]),
   };
   intelJobs.set(runResult.runId, job);
+
+  // Persist job start to disk — survives server restarts so UI can show "last run"
+  const _intelStateFile = path.join(clientDirPath, 'logs', 'last-intel-run.json');
+  try {
+    fs.mkdirSync(path.join(clientDirPath, 'logs'), { recursive: true });
+    fs.writeFileSync(_intelStateFile, JSON.stringify({
+      runId: job.runId, command, label: job.label,
+      status: 'running', startedAt: job.startedAt, finishedAt: null,
+      extracted: false, extractedSection: null, extractedCount: 0,
+    }));
+  } catch {}
 
   // Hard timeout — research=10min, hunt=30min (browser automation needs more time)
   const INTEL_TIMEOUT_MS = command === 'competitor-hunt' ? 30 * 60 * 1000 : 10 * 60 * 1000;
@@ -2833,6 +2854,13 @@ app.get('/api/clients/:id/intel/jobs', requireLicense, (req, res) => {
       code: j.code,
     }));
   res.json(jobs);
+});
+
+// GET /api/clients/:id/intel/last-run — persisted last-run state (survives restarts)
+app.get('/api/clients/:id/intel/last-run', requireLicense, (req, res) => {
+  const sf = path.join(CLIENTS_DIR, req.params.id, 'logs', 'last-intel-run.json');
+  try { res.json(JSON.parse(fs.readFileSync(sf, 'utf8'))); }
+  catch { res.json(null); }
 });
 
 // GET /api/clients/:id/intel/jobs/:runId/stream — reconnect SSE: drains buffer then streams live

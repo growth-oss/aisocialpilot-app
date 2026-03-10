@@ -2274,6 +2274,20 @@ async function loadIntelTab(clientId) {
 
 async function restoreRunningIntelJobs(clientId) {
   const jobs = await api('GET', `/clients/${clientId}/intel/jobs`);
+  // If no running jobs in memory, check the persisted last-run file
+  // (handles server restart mid-job — intelJobs Map was cleared)
+  const hasRunning = jobs.some(j => j.status === 'running');
+  if (!hasRunning) {
+    try {
+      const last = await api('GET', `/clients/${clientId}/intel/last-run`);
+      if (last && last.status === 'running') {
+        // Server restarted mid-job — show banner and reload data
+        showToast('⚠ Previous scrape was interrupted by a server restart — please re-run', 'error');
+      } else if (last && last.status === 'completed' && last.extracted) {
+        await handleIntelResult(clientId, last.extractedSection);
+      }
+    } catch {}
+  }
   for (const job of jobs) {
     if (job.status !== 'running') continue;
     // Show a reconnecting card and poll until done
