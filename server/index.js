@@ -987,40 +987,54 @@ Show your research progress before the markers. Narrate each step you take.
     const maxCount   = parseInt(params.maxCount) || 20;
     const extraUrls  = (params.extraUrls || '').split('\n').map(s => s.trim()).filter(Boolean);
 
-    return `You are a product intelligence agent. Your task: extract products from an ecommerce store and turn them into engagement-ready intelligence.
+    return `You are a product intelligence agent. Your task: extract products from an ecommerce store.
+
+CRITICAL RULE: Print a plain-text status line BEFORE every action. Do not write code silently.
+The user is watching a live terminal — keep them informed at every step.
 
 ${storeUrl ? `Store URL: ${storeUrl}` : ''}
-${extraUrls.length ? `Specific product URLs to scrape:\n${extraUrls.map(u => '  ' + u).join('\n')}` : ''}
-${keyword ? `Keyword filter: only include products related to "${keyword}"` : 'No keyword filter — scrape all products found.'}
+${extraUrls.length ? `Specific product URLs:\n${extraUrls.map(u => '  ' + u).join('\n')}` : ''}
+${keyword ? `Keyword filter: "${keyword}"` : 'No keyword filter.'}
 Max products: ${maxCount}
 
+NARRATION RULES (follow exactly):
+- Before writing any code: print "⏳ Writing browser script to open [URL]..."
+- After launching browser: the script must console.log "🌐 Browser opened, loading [URL]..."
+- After page loads: console.log "✅ Page loaded — scanning for product links..."
+- When trying a new URL path: console.log "🔍 Trying [URL]..."
+- When a product link is found: console.log "📦 Found product: [name]"
+- Before scraping each product: console.log "⬇ Scraping [N]/${maxCount}: [name]"
+- On any error: console.log "⚠ Error: [message]"
+- When done: print "✅ Scrape complete — found [N] products"
+
 STEPS:
-1. Open the store URL using Playwright (headed mode, headless:false).
-   - Print "Opening [URL]..." immediately so progress is visible
-   - Wait for networkidle (up to 15s) — many stores are JS-heavy
-   - If the URL has a language path (e.g. /ar, /en): also try the root domain to find the collection/shop page
-   - After load: scroll down the full page slowly (window.scrollBy 0→bottom in 500px steps, 300ms apart) to trigger lazy-loaded products
-   - Print "Page loaded, found [N] product links" after scanning
+1. Print "⏳ Writing browser script to open ${storeUrl || 'store'}..." then write a Playwright script to:
+   - Launch headed browser (headless:false, --no-sandbox, --disable-setuid-sandbox)
+   - Navigate to the store URL
+   - Wait for networkidle or 15s timeout
+   - Scroll the page slowly to trigger lazy-loaded content (500px steps, 300ms between)
+   - Log the number of <a> tags found
+   - Save the script to /tmp/scrape-init.js and run it with node
 
-2. Find product listing pages — try these in order until you find products:
-   - Current URL
-   - /collections/all, /shop, /products, /ar/collections/all, /en/collections/all
-   - Any navigation link containing "shop", "products", "متجر", "منتجات", "تسوق"
-   - Print which URL you're trying each time
+2. Print "🔍 Looking for product listing pages..." then try these paths in order:
+   - The current URL
+   - /collections/all, /shop, /products
+   - /ar/collections/all, /en/collections/all
+   - Any nav link containing: shop, products, متجر, منتجات, تسوق
+   - Print each URL being tried before navigating to it
 
-3. For each product page (up to ${maxCount}):
-   - Print "Scraping product [N]: [name]"
-   - Wait for page load + scroll to trigger images
-   - Extract: name, price, product URL, description
-   - Find product images — flag lifestyle/in-use images as social_ready:true
-   - If the page is in Arabic: extract the Arabic name and description as-is
-   - Generate pain_points (problems this product solves) — 4-6 bullet points in English
-   - Generate Arabic pain points in Gulf dialect (UAE) — casual, real language
-   - Generate usps (key benefits) — 4-6 bullet points
-   - Generate social monitoring keywords — EN + AR Gulf dialect variants
+3. For each product found (up to ${maxCount}):
+   - Print "⬇ Scraping product [N]/${maxCount}: [name]" before opening each page
+   - Wait for page load + scroll to load images
+   - Extract: name, price, URL, description (strip HTML tags)
+   - Collect all product image URLs
+   - Generate 4-6 pain_points in English
+   - Generate 3-4 pain_points in Gulf Arabic dialect (UAE casual)
+   - Generate 4-6 usps (unique selling points)
+   - Generate keywords for social monitoring (EN + AR)
    - Screenshot to logs/screenshots/intel-product-{n}.png
 
-4. If after trying all URLs you find 0 products: print "Could not find product listings — check if the store requires login or has a different URL structure" and output empty data array.
+4. If 0 products found after all attempts: print "❌ Could not find product listings. Possible reasons: login required, JS-only site, or different URL structure." and output empty data array.
 
 ${knowledgeCtx ? 'Current brand context:\n' + knowledgeCtx : ''}
 ${wrapperNote}
