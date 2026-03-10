@@ -1513,6 +1513,14 @@ function renderClientForm(client) {
       <div id="lg-config" class="card hidden">
         <div class="card-title" style="margin-bottom:12px">Lead Gen Config</div>
         <div class="card-desc" style="margin-bottom:14px">Edit JSON directly. Save when done. Changes take effect on next automation run.</div>
+        <div class="field" style="margin-bottom:16px;padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <label style="font-weight:600;margin-bottom:6px;display:block">Account Approach</label>
+          <div class="card-desc" style="margin-bottom:8px;font-size:12px">Controls how the AI engages leads. Set once per client.</div>
+          <select id="lg-approach" onchange="lgApproachChanged('${c.clientId}')" style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 12px;width:100%;max-width:360px;font-size:13px">
+            <option value="ambassador">Ambassador / Influencer (indirect — never mentions brand in public)</option>
+            <option value="direct">Brand Account (direct — can promote products openly)</option>
+          </select>
+        </div>
         <div class="field" style="margin-bottom:12px">
           <label>Main Config (leadgen-config.json)</label>
           <textarea id="lg-cfg-main" rows="14" style="font-family:'JetBrains Mono',monospace;font-size:12px;width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:12px;resize:vertical"></textarea>
@@ -4392,6 +4400,20 @@ async function loadLeadGenConfigFields(clientId) {
     set('lg-cfg-personas', d.personas);
     set('lg-cfg-coupons', d.coupons);
     set('lg-cfg-sources', d.sources);
+    // Sync approach dropdown
+    const approachEl = document.getElementById('lg-approach');
+    if (approachEl && d.config?.approach) approachEl.value = d.config.approach;
+  } catch {}
+}
+
+function lgApproachChanged(clientId) {
+  const sel = document.getElementById('lg-approach');
+  const ta = document.getElementById('lg-cfg-main');
+  if (!sel || !ta) return;
+  try {
+    const cfg = JSON.parse(ta.value);
+    cfg.approach = sel.value;
+    ta.value = JSON.stringify(cfg, null, 2);
   } catch {}
 }
 

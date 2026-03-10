@@ -1,13 +1,22 @@
 {
-  "_comment": "Lead generation config for one client. Edit per brand then save.",
+  "_comment": "Lead generation config — edit per client. Set approach to 'ambassador' for indirect promotion or 'direct' for brand accounts.",
 
   "enabled": true,
 
+  "approach": "ambassador",
+  "approach_options": ["ambassador", "direct"],
+  "approach_notes": {
+    "ambassador": "You are an influencer/expert persona — NOT the brand. You share knowledge, personal experience, and recommendations. You mention the brand casually only when asked. Coupons are shared as 'I have a code from the brand I work with'. Comments are 100% value, never promotional.",
+    "direct": "You are the brand account. You can mention products, share links, and promote directly — but still be conversational and genuine, not corporate. Comments can reference your products when relevant."
+  },
+
   "brand": {
-    "whatsapp_number": "+971XXXXXXXXX",
-    "whatsapp_label": "chat with us on WhatsApp",
-    "dm_cta": "Send us a DM for details",
-    "website_url": "https://example.com",
+    "whatsapp_number": "",
+    "whatsapp_link": "",
+    "whatsapp_label": "",
+    "dm_cta": "",
+    "website_url": "",
+    "product_store_url": "",
     "promo_active": false,
     "promo_ends_at": null
   },
@@ -39,7 +48,5 @@
     "warmup_multiplier":                 0.5
   },
 
-  "niche_keywords": [
-    "skincare", "beauty", "wellness", "natural", "organic"
-  ]
+  "niche_keywords": []
 }

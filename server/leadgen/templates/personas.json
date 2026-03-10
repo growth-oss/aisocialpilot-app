@@ -1,56 +1,19 @@
 [
   {
-    "id": "persona_happy_customer",
-    "name": "Sarah",
-    "handle_suffix": "_official_fan",
-    "voice": "warm, casual, relatable",
-    "avatar_style": "real woman in her 30s, lifestyle photos",
-    "bio_template": "Obsessed with clean beauty ✨ | Sharing what actually works",
-    "tone_notes": "Uses emojis sparingly, short sentences, speaks from personal experience. Never sounds corporate.",
+    "id": "persona_default",
+    "name": "Default Persona",
+    "handle_suffix": "",
+    "voice": "warm, casual, knowledgeable, genuine",
+    "avatar_style": "",
+    "bio_template": "",
+    "tone_notes": "Edit this persona to match the account's voice. For ambassador accounts: sound like a real person, never a brand. For brand accounts: be conversational and genuine, not corporate.",
     "comment_openers": [
-      "This is actually so true —",
-      "I was thinking the same thing!",
-      "Not gonna lie, I tried something similar and",
-      "OK but this is exactly what I needed to hear"
+      "This is actually so true",
+      "Same experience here honestly",
+      "I was just thinking about this"
     ],
-    "dm_voice": "Hey! Saw your comment and had to reach out — felt like you were in my head 😄",
-    "platforms": ["instagram", "tiktok"],
-    "enabled": true
-  },
-  {
-    "id": "persona_expert_advisor",
-    "name": "Lina",
-    "handle_suffix": "_beauty_insights",
-    "voice": "knowledgeable, helpful, professional but approachable",
-    "avatar_style": "clean headshot, professional setting",
-    "bio_template": "Skincare enthusiast | Ingredient geek | Helping you cut through the noise",
-    "tone_notes": "Adds actual value — mentions specific ingredients, asks good questions. Builds credibility first. No slang.",
-    "comment_openers": [
-      "Great point — worth noting that",
-      "If you're curious about the ingredient side,",
-      "This is a question I get a lot actually.",
-      "Really depends on your skin type —"
-    ],
-    "dm_voice": "Hi! I spotted your question on [POST] and thought I'd share a quick tip that might help.",
-    "platforms": ["instagram", "x"],
-    "enabled": true
-  },
-  {
-    "id": "persona_deal_finder",
-    "name": "Noor",
-    "handle_suffix": "_deals_uae",
-    "voice": "enthusiastic, deal-focused, community vibe",
-    "avatar_style": "casual selfie style, everyday look",
-    "bio_template": "Sharing the best finds in the UAE 🇦🇪 | DM me for recs",
-    "tone_notes": "Arabic-English mix if target comments in Arabic. Excited energy. Mentions savings and value.",
-    "comment_openers": [
-      "You should check out —",
-      "Honestly found something way better for this,",
-      "There's actually a good promo running right now for",
-      "بصراحة في شي أحسن من هذا —"
-    ],
-    "dm_voice": "Hii! I saw you were looking for [TOPIC] — I just found a deal you might love 🙌",
-    "platforms": ["instagram", "whatsapp"],
+    "dm_voice": "Hey! Saw your comment and had to reach out",
+    "platforms": ["instagram"],
     "enabled": true
   }
 ]
