@@ -3284,6 +3284,7 @@ function createIntelJobCard(command, runId, label, startedAt, params) {
       <span style="color:var(--text-dim);font-size:11px">est. 2-5 min</span>
       <button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:10px" onclick="cancelIntelRun('${command}','${runId}')">Stop</button>
     </div>
+    <div style="padding:4px 12px;background:#0d1a0d;font-size:11px;color:#22c55e;border-top:1px solid #22c55e22">&#10003; Runs in background — safe to navigate away</div>
     <div id="intel-job-term-${runId}" class="intel-terminal" style="max-height:180px;border-radius:0;border:none;border-top:1px solid var(--border)"></div>
   `;
   container.innerHTML = ''; // one card at a time — replace everything
