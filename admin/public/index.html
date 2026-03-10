@@ -2312,7 +2312,10 @@ function renderIntelProducts() {
       : '';
     return `
     <div data-prod-idx="${i}" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;display:flex;gap:12px">
-      ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" onerror="this.style.opacity='.3'">` : '<div style="width:56px;height:56px;background:var(--bg-input);border-radius:4px;flex-shrink:0;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px">&#128722;</div>'}
+      <div style="flex-shrink:0;text-align:center">
+        ${imgSrc ? `<img src="${imgSrc}" alt="" title="${imgSrc}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--border);display:block" onerror="this.style.opacity='.3'">` : '<div style="width:56px;height:56px;background:var(--bg-input);border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px">&#128722;</div>'}
+        ${prod.images?.length > 1 ? `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">${prod.images.length} imgs</div>` : ''}
+      </div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div>
@@ -4696,14 +4699,18 @@ function showImportPreview(products) {
   const count = document.getElementById('pimport-preview-count');
   preview.classList.remove('hidden');
   count.textContent = `${products.length} product${products.length !== 1 ? 's' : ''} ready to import`;
-  list.innerHTML = products.map(p => `
+  list.innerHTML = products.map(p => {
+    const imgUrl = p.images?.[0]?.url || '';
+    const imgFilename = imgUrl ? imgUrl.split('/').pop().split('?')[0].slice(0, 30) : '';
+    return `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border-subtle)">
-      ${p.images?.[0]?.url ? `<img src="${p.images[0].url}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">` : '<div style="width:36px;height:36px;background:var(--bg-input);border-radius:4px;flex-shrink:0"></div>'}
+      ${imgUrl ? `<img src="${imgUrl}" title="${imgUrl}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.opacity='.3'">` : '<div style="width:36px;height:36px;background:var(--bg-input);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">&#128722;</div>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.name}</div>
-        <div style="font-size:11px;color:var(--text-muted)">${p.price || 'No price'} ${p.category ? '· ' + p.category : ''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${p.price || 'No price'}${p.category ? ' · ' + p.category : ''}${imgFilename ? ' · <span style="color:var(--text-dim)">' + imgFilename + (p.images?.length > 1 ? ' +' + (p.images.length-1) : '') + '</span>' : ' · <span style="color:var(--red);font-size:10px">no image</span>'}</div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function clearImportPreview() {
