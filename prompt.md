@@ -84,15 +84,17 @@ The 6-step engagement ladder: Story View → Like → Follow → Comment → Rep
 ## Key API Routes
 
 ```
-GET  /api/status                         — health + license
-GET  /api/clients                        — list all clients
-POST /api/clients/:id/run               — start automation (SSE)
-GET  /api/clients/:id/knowledge/:section — products, competitors, keywords
-PUT  /api/clients/:id/leadgen/config    — update leadgen config/personas/coupons/sources
-GET  /api/clients/:id/leadgen/stats     — pipeline stats
-GET  /api/clients/:id/leadgen/leads     — lead list with filters
-PUT  /api/clients/:id/intercept/config  — update intercept settings
-POST /api/clients/:id/intel/run         — start AI research job
+GET    /api/status                         — health + license
+GET    /api/clients                        — list all clients
+POST   /api/clients/:id/run               — start automation (SSE)
+GET    /api/clients/:id/knowledge/:section — products, competitors, keywords
+PUT    /api/clients/:id/leadgen/config    — update leadgen config/personas/coupons/sources
+GET    /api/clients/:id/leadgen/stats     — pipeline stats
+GET    /api/clients/:id/leadgen/leads     — lead list with filters
+DELETE /api/clients/:id/leadgen/leads     — wipe leads + outreach log (clear test/fake data)
+PUT    /api/clients/:id/intercept/config  — update intercept settings
+POST   /api/clients/:id/intel/run         — start AI research job
+GET    /api/clients/:id/proxy-test        — test proxy via curl + Playwright from Railway
 ```
 
 ## Important Notes
@@ -103,6 +105,7 @@ POST /api/clients/:id/intel/run         — start AI research job
 - The `.claude/CLAUDE.md` is for autonomous Claude runs ON Railway, not for your coding sessions.
 - Memory file at `.claude/projects/.../memory/MEMORY.md` has the full project history.
 - Always read memory file first: it's the source of truth for what's built and what's current.
+- **NODE_PATH**: Claude automation scripts write to `/tmp/` and need `NODE_PATH=/app/node_modules` to find Playwright. This is set in `spawnRun()` — never remove it or scripts will fail to `require('playwright')`.
 
 ## MANDATORY: Keep Docs In Sync With Every Commit
 
