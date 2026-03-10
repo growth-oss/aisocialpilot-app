@@ -2311,12 +2311,12 @@ function renderIntelProducts() {
           : `<span style="display:inline-block;background:var(--bg-input);border:1px solid var(--border);border-radius:20px;padding:1px 7px;font-size:10px;color:var(--text-dim);margin-left:6px">CDN</span>`)
       : '';
     return `
-    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;display:flex;gap:12px">
-      ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)">` : ''}
+    <div data-prod-idx="${i}" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:10px;display:flex;gap:12px">
+      ${imgSrc ? `<img src="${imgSrc}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:4px;flex-shrink:0;border:1px solid var(--border)" onerror="this.style.opacity='.3'">` : '<div style="width:56px;height:56px;background:var(--bg-input);border-radius:4px;flex-shrink:0;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:22px">&#128722;</div>'}
       <div style="flex:1;min-width:0">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div>
-            <span style="font-weight:600">${prod.name || 'Unnamed'}</span>${imgBadge}
+            <span style="font-weight:600">${prod.name || 'Unnamed'}</span><span class="img-badge">${imgBadge}</span>
             ${prod.price ? `<span style="color:var(--accent);font-size:12px;margin-left:8px;font-weight:500">${prod.price}</span>` : ''}
             ${prod.url ? `<a href="${prod.url}" target="_blank" style="color:var(--text-muted);font-size:11px;margin-left:8px">${prod.url.replace(/^https?:\/\//,'').slice(0,40)}</a>` : ''}
           </div>
@@ -2353,6 +2353,23 @@ async function checkAndShowPullStatus(clientId) {
         <span>&#10003; ${s.done} images saved locally${s.failed ? ` \u00b7 ${s.failed} failed` : ''}</span>
         <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:2px 8px" onclick="triggerPullImages()">&#8659; Re-pull</button>
       </div>`;
+      // If pull just finished, update product images in-place (no full re-render needed)
+      if (s.finishedAt && !el.dataset.reloadedAt) {
+        el.dataset.reloadedAt = s.finishedAt;
+        try {
+          const data = await api('GET', `/clients/${clientId}/knowledge/products`);
+          window._intel.products = data;
+          // Swap CDN src → local_url for each product card img without re-rendering the whole list
+          data.forEach((prod, i) => {
+            const localUrl = prod.images?.[0]?.local_url;
+            if (!localUrl) return;
+            const card = document.querySelector(`#intel-products-list [data-prod-idx="${i}"] img`);
+            if (card && card.src !== localUrl) card.src = localUrl;
+            const badge = document.querySelector(`#intel-products-list [data-prod-idx="${i}"] .img-badge`);
+            if (badge) badge.innerHTML = `<span style="display:inline-block;background:#14532d;border:1px solid #22c55e55;border-radius:20px;padding:1px 7px;font-size:10px;color:#22c55e;margin-left:6px">saved</span>`;
+          });
+        } catch { /* non-fatal */ }
+      }
     } else {
       el.innerHTML = '';
     }
