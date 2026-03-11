@@ -203,6 +203,25 @@ Thresholds:
 - Min score to share coupon:   ${cfg.thresholds?.min_score_for_coupon || 70}
 - Influencer threshold:        ${cfg.thresholds?.influencer_min_followers || 5000} followers
 
+━━━ GEO TARGETING (UAE PRIORITY) ━━━
+UAE-based leads are the PRIMARY target — they can actually buy from drsleeep.ae.
+When visiting a profile, check bio and location for UAE signals:
+Bio keywords (case insensitive): ${(cfg.geo_signals?.bio_keywords || []).join(', ')}
+Location keywords: ${(cfg.geo_signals?.location_keywords || []).join(', ')}
+
+Scoring:
+- Bio contains UAE city/country/flag/Arabic location → +${cfg.scoring?.geo_uae_in_bio || 25} pts (geo_uae_in_bio)
+- Location field shows UAE city → +${cfg.scoring?.geo_uae_in_location || 25} pts (geo_uae_in_location)
+- Bio or captions in Arabic → +${cfg.scoring?.arabic_bio_or_content || 15} pts (arabic_bio_or_content)
+- Gulf dialect markers detected → +${cfg.scoring?.gulf_dialect_detected || 10} pts (gulf_dialect_detected)
+
+A UAE-based person commenting on a competitor post scores: 30 (comment) + 25 (geo bio) + 15 (Arabic) = 70 minimum → already qualifies for coupon tier.
+
+━━━ DO NOT ENGAGE LIST ━━━
+NEVER add these accounts to leads.json. Skip them during scraping:
+${(cfg.do_not_engage || []).map(u => `- @${u}`).join('\n') || '(none configured)'}
+These are competitor brand accounts, our own accounts, or other protected handles.
+
 ━━━ INFLUENCER FAST-TRACK ━━━
 If follower_count ≥ ${cfg.thresholds?.influencer_min_followers || 5000} → mark is_influencer = 1.
 ${influencerBlock}
@@ -390,23 +409,30 @@ For each enabled source (process in the order listed above):
 1. Open the platform session. If not logged in → STOP and log (do not attempt login).
 2. Navigate to competitor profile or hashtag page.
 3. Competitor sources:
-   a. Open their last 5 posts. For each, collect all comment authors → source_type = competitor_commenter
-   b. Open their last 3 posts likers list → source_type = competitor_liker
-   c. Check if the target follows this competitor → +${cfg.scoring?.follows_competitor || 20} pts
+   a. Open their FOLLOWERS list — scroll to collect usernames → source_type = competitor_follower
+      IMPORTANT: Competitor followers are the highest-value targets. Prioritise this over post commenters.
+      Scroll the followers list for 30-60 seconds to collect as many as possible.
+   b. Open their last 5 posts. For each, collect all comment authors → source_type = competitor_commenter
+   c. Open their last 3 posts likers list → source_type = competitor_liker
+   d. Check if the target follows this competitor → +${cfg.scoring?.follows_competitor || 20} pts
 4. Hashtag sources:
    a. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
 5. For each discovered username:
-   a. Check leads.json — if username+platform already exists: skip
-   b. Visit their profile. Read: follower_count, following_count, bio (first 100 chars), recent posts
-   c. Score them using the scoring table above
-   d. If follower_count ≥ ${cfg.thresholds?.influencer_min_followers || 5000} → is_influencer = 1
-   e. Note any purchase intent signals in their bio or recent post captions
-   f. If score < ${cfg.thresholds?.min_score_to_engage || 20}: skip (do not add to leads.json)
-   g. Add to leads.json with engagement_stage = 0, all timestamps = now
+   a. Check do_not_engage list — if username matches: skip entirely
+   b. Check leads.json — if username+platform already exists: skip
+   c. Visit their profile. Read: follower_count, following_count, bio (first 100 chars), location, recent posts
+   d. Check for UAE geo signals in bio and location (see GEO TARGETING section)
+   e. Score them using the scoring table above — INCLUDE geo bonuses for UAE matches
+   f. If follower_count ≥ ${cfg.thresholds?.influencer_min_followers || 5000} → is_influencer = 1
+   g. Note any purchase intent signals in their bio or recent post captions
+   h. Add geo tags to notes: "UAE:yes" or "UAE:no" based on bio/location signals
+   i. If score < ${cfg.thresholds?.min_score_to_engage || 20}: skip (do not add to leads.json)
+   j. Add to leads.json with engagement_stage = 0, all timestamps = now
 6. Write the full updated leads.json back to disk after each batch of 10 new leads.
 
 **PHASE B — WORK THE PIPELINE**
 Load all leads from leads.json. Process in this priority order:
+Priority 0: UAE-based leads (notes contain "UAE:yes") at ANY stage → advance as far as possible. ALWAYS process UAE leads first.
 Priority 1: Influencers at stage 0-3 → skip to stage 4 (comment) immediately
 Priority 2: Hot leads (score ≥ ${cfg.thresholds?.min_score_for_dm || 60}) at stage < 6 → advance as far as possible
 Priority 3: Mid leads (score ${cfg.thresholds?.min_score_for_comment || 40}-${(cfg.thresholds?.min_score_for_dm || 60) - 1}) at stage 2-3 → advance one step
