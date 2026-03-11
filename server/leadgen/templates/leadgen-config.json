@@ -23,6 +23,8 @@
 
   "scoring": {
     "comment_on_competitor": 30,
+    "comment_on_competitor_ad": 40,
+    "tagged_competitor_in_post": 30,
     "like_on_competitor":    10,
     "follows_competitor":    20,
     "has_question_in_post":  25,

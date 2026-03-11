@@ -69,6 +69,19 @@ Two approach modes per client (set in `leadgen-config.json`):
 
 The 6-step engagement ladder: Story View → Like → Follow → Comment → Reply to Q → DM
 
+### Multi-Source Lead Scraping (Tiered)
+
+**Tier 1 — Geo-confirmed + buying mode** (highest value):
+- `meta_ads` — Meta Ads Library → competitor ad posts → scrape commenters. Ads are geo-targeted to UAE by the advertiser, so commenters are confirmed UAE + buying mode. Score: +40 pts.
+- `competitor_tagged` — Competitor's "Tagged" tab → real customers who posted about the brand. Score: +30 pts.
+- `location` — Instagram location pages (UAE stores, malls). Users are physically in UAE. Score: +25 geo bonus.
+
+**Tier 2 — High relevance**:
+- `account` — Competitor profile → followers list, post commenters, likers. Score: +20-30 pts.
+- `hashtag` — Hashtag feed authors. Score: +10-15 pts.
+
+Multi-competitor stacking: leads found across multiple competitors get +20 pts per additional source.
+
 ## Active Clients
 
 ### Bamboo Sleep Professor (`bamboo-sleep-professor`)

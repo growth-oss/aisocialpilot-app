@@ -52,6 +52,11 @@ function buildLeadGenPrompt(clientConfig, dataDir) {
 
   const enabledSources  = sources.filter(s => s.enabled);
   const enabledPersonas = personas.filter(p => p.enabled);
+
+  // Target geo for Meta Ads Library filtering — use client's proxy geo setting
+  const targetGeoCode = clientConfig.proxy?.geo || '';
+  const GEO_NAMES = { AE:'United Arab Emirates',SA:'Saudi Arabia',US:'United States',GB:'United Kingdom',QA:'Qatar',KW:'Kuwait',BH:'Bahrain',OM:'Oman',EG:'Egypt',JO:'Jordan',LB:'Lebanon' };
+  const targetGeoName = GEO_NAMES[targetGeoCode.toUpperCase()] || targetGeoCode || 'the client target country';
   const activeCoupons   = (coupons.active_coupons || []).filter(c => c.enabled);
 
   // Paths
@@ -215,7 +220,11 @@ Scoring:
 - Bio or captions in Arabic → +${cfg.scoring?.arabic_bio_or_content || 15} pts (arabic_bio_or_content)
 - Gulf dialect markers detected → +${cfg.scoring?.gulf_dialect_detected || 10} pts (gulf_dialect_detected)
 
-A UAE-based person commenting on a competitor post scores: 30 (comment) + 25 (geo bio) + 15 (Arabic) = 70 minimum → already qualifies for coupon tier.
+Score examples:
+- UAE person commenting on competitor AD: 40 (ad comment) + 25 (geo) + 15 (Arabic) = 80 → VIP coupon tier
+- UAE person commenting on competitor post: 30 (comment) + 25 (geo bio) + 15 (Arabic) = 70 → coupon tier
+- Person who tagged competitor in their post: 30 (tagged) + potential geo bonuses
+- UAE person found via location page: 25 (geo) + 15 (Arabic) + source bonus
 
 ━━━ DO NOT ENGAGE LIST ━━━
 NEVER add these accounts to leads.json. Skip them during scraping:
@@ -248,7 +257,7 @@ Converted: ${pipelineSnap.converted}
 Next lead ID to use: ${maxId + 1}
 
 ━━━ HOT SOURCES TO SCRAPE (${enabledSources.length} enabled) ━━━
-${enabledSources.map(s => `- [${s.platform}] ${s.source_type}: ${s.handle_or_tag}  (last scraped: ${s.last_scraped_at || 'never'}, posts: ${s.posts_scraped || 0})`).join('\n') || 'No sources configured — add competitor handles and hashtags in the Lead Gen → Sources tab.'}
+${enabledSources.map(s => `- [${s.platform}] ${s.type || s.source_type}: ${s.handle_or_url || s.handle_or_tag}  ${s.why ? '(' + s.why + ')' : ''}  (last scraped: ${s.last_scraped_at || 'never'})`).join('\n') || 'No sources configured — add competitor handles and hashtags in the Lead Gen → Sources tab.'}
 
 ━━━ PERSONAS (${enabledPersonas.length} available) ━━━
 ${enabledPersonas.map(p => `ID: ${p.id}
@@ -350,7 +359,7 @@ Each lead object:
   "is_converted":       <0|1>,
   "converted_at":       "<ISO 8601 or null>",
   "is_do_not_engage":   <0|1>,
-  "source_type":        "<competitor_commenter|competitor_liker|hashtag|manual>",
+  "source_type":        "<competitor_ad_commenter|tagged_competitor_in_post|location|competitor_commenter|competitor_liker|competitor_follower|hashtag|manual>",
   "source_handle":      "<@handle or #hashtag where discovered>",
   "notes":              "<any observations — purchase signals, influencer collab potential, etc.>",
   "created_at":         "<ISO 8601>",
@@ -404,20 +413,85 @@ ${clientConfig.proxy?.url ? `BEFORE opening any social platform:
 
 ━━━ WORKFLOW ━━━
 
-**PHASE A — SCRAPE NEW TARGETS**
-For each enabled source (process in the order listed above):
-1. Open the platform session. If not logged in → STOP and log (do not attempt login).
-2. Navigate to competitor profile or hashtag page.
-3. Competitor sources:
-   a. Open their FOLLOWERS list — scroll to collect usernames → source_type = competitor_follower
-      IMPORTANT: Competitor followers are the highest-value targets. Prioritise this over post commenters.
-      Scroll the followers list for 30-60 seconds to collect as many as possible.
-   b. Open their last 5 posts. For each, collect all comment authors → source_type = competitor_commenter
-   c. Open their last 3 posts likers list → source_type = competitor_liker
-   d. Check if the target follows this competitor → +${cfg.scoring?.follows_competitor || 20} pts
-4. Hashtag sources:
-   a. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
-5. For each discovered username:
+**PHASE A — SCRAPE NEW TARGETS (MULTI-SOURCE)**
+Process sources in TIER ORDER — highest value first:
+
+TIER 1 — GEO-CONFIRMED + BUYING MODE (process these first):
+  • meta_ads sources → competitor ad commenters (geo-confirmed ${targetGeoCode || 'target market'} by ad targeting)
+  • competitor_tagged sources → competitor tagged posts (real customers)
+  • location sources → posts from ${targetGeoName} store locations
+
+TIER 2 — HIGH RELEVANCE:
+  • account sources (competitor profiles) → followers + commenters + likers
+  • hashtag sources → hashtag feed authors
+
+For each enabled source, follow the matching source-type workflow below:
+
+——— SOURCE TYPE: meta_ads (Meta Ads Library → competitor ad posts → commenters) ———
+This is the HIGHEST VALUE source. Competitor ads are geo-targeted to ${targetGeoName} by the advertiser,
+so anyone commenting on them is confirmed to be in the target market AND in active buying mode.
+
+1. Open a NEW browser tab (no Instagram session needed for this step).
+2. Navigate to: https://www.facebook.com/ads/library/
+3. Set search filters:
+   - Country: "${targetGeoName}" ← MUST match client geo setting (${targetGeoCode || 'not set'})
+   - Platform: "Instagram" (or "All" if Instagram not available)
+   - Media type: "All"
+   - Status: "Active ads"
+   NOTE: International competitors run separate ad campaigns per country. Filtering by "${targetGeoName}"
+   ensures you only see ads targeting the client's market — not their global campaigns.
+4. Search for the competitor brand name from the source handle_or_url (e.g. "Togas", "Linen Obsession").
+5. Scroll results. For each active ad:
+   - Look for an Instagram post URL or permalink — ads often link to IG posts
+   - If the ad shows an Instagram post preview, note the post URL
+   - Collect up to 5 ad post URLs per competitor
+6. Switch to the Instagram session browser.
+7. For each collected ad post URL:
+   - Navigate to the post on Instagram
+   - Collect ALL comment authors → source_type = "competitor_ad_commenter"
+   - Check commenters' profiles for purchase intent signals ("where to buy", "price", "كم السعر")
+   - Score: +${cfg.scoring?.comment_on_competitor_ad || 40} pts (comment_on_competitor_ad) — the highest base score
+   - These leads are ALREADY geo-confirmed ${targetGeoCode || 'target market'} — add "UAE:yes (ad-geo-confirmed)" to notes
+   - Skip the usual geo bio check — ad targeting already confirms their location
+8. If Meta Ads Library is blocked, rate-limited, or returns no results:
+   - Log the issue and move to next source — do NOT stop the session
+   - Try alternative: visit competitor's Instagram profile, look for posts marked "Sponsored" or "Paid partnership"
+
+——— SOURCE TYPE: competitor_tagged (Tagged Posts tab) ———
+These are REAL CUSTOMERS who tagged the competitor brand in their own posts.
+
+1. Navigate to the competitor's Instagram profile.
+2. Click the "Tagged" tab (the person-icon tab).
+3. Open the last 10-15 tagged posts.
+4. For each tagged post:
+   - Collect the post author → source_type = "tagged_competitor_in_post"
+   - Score: +${cfg.scoring?.tagged_competitor_in_post || 30} pts
+   - Read their caption — check for product review language, satisfaction, or complaints
+   - If they're reviewing/complaining about the competitor product, note it — these are high-intent switchers
+5. Also collect commenters on those tagged posts who ask questions or show interest.
+
+——— SOURCE TYPE: location (${targetGeoName} Store Location Pages) ———
+Posts geotagged at competitor stores or relevant ${targetGeoCode || 'target market'} locations.
+
+1. Navigate to the Instagram location page URL from handle_or_url.
+   Example URLs: instagram.com/explore/locations/XXXXX/ (store locations, malls, etc.)
+2. Collect the last 15-20 post authors from the location feed → source_type = "location"
+3. These users are physically in ${targetGeoCode || 'the target market'} → add "UAE:yes (location-confirmed)" to notes.
+4. Score with standard rules + automatic geo bonus.
+
+——— SOURCE TYPE: account (Competitor Profile — followers + commenters + likers) ———
+1. Open their FOLLOWERS list — scroll to collect usernames → source_type = competitor_follower
+   Scroll the followers list for 30-60 seconds to collect as many as possible.
+2. Open their last 5 posts. For each, collect all comment authors → source_type = competitor_commenter
+3. Open their last 3 posts likers list → source_type = competitor_liker
+4. Check if the target follows this competitor → +${cfg.scoring?.follows_competitor || 20} pts
+
+——— SOURCE TYPE: hashtag ———
+1. Navigate to the hashtag page.
+2. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
+
+——— FOR ALL SOURCE TYPES — Lead Processing ———
+For each discovered username (regardless of source type):
    a. Check do_not_engage list — if username matches: skip entirely
    b. Check leads.json — if username+platform already exists:
       → If found from a DIFFERENT source (e.g. already from @togasofficial.mideast, now seen on @linenobsession):
@@ -428,6 +502,7 @@ For each enabled source (process in the order listed above):
         • This person is actively shopping premium bedding — prioritise them
       → If same source: skip entirely (true duplicate)
    c. Visit their profile. Read: follower_count, following_count, bio (first 100 chars), location, recent posts
+      EXCEPTION: For meta_ads leads, skip UAE bio check — ad geo already confirms location
    d. Check for UAE geo signals in bio and location (see GEO TARGETING section)
    e. Score them using the scoring table above — INCLUDE geo bonuses for UAE matches
    f. If follower_count ≥ ${cfg.thresholds?.influencer_min_followers || 5000} → is_influencer = 1
@@ -435,11 +510,12 @@ For each enabled source (process in the order listed above):
    h. Add geo tags to notes: "UAE:yes" or "UAE:no" based on bio/location signals
    i. If score < ${cfg.thresholds?.min_score_to_engage || 20}: skip (do not add to leads.json)
    j. Add to leads.json with engagement_stage = 0, all timestamps = now
-6. Write the full updated leads.json back to disk after each batch of 10 new leads.
+Write the full updated leads.json back to disk after each batch of 10 new leads.
 
 **PHASE B — WORK THE PIPELINE**
 Load all leads from leads.json. Process in this priority order:
-Priority 0: UAE-based leads (notes contain "UAE:yes") at ANY stage → advance as far as possible. ALWAYS process UAE leads first.
+Priority 0: Ad-sourced UAE leads (source_type = "competitor_ad_commenter") → advance as far as possible. These are geo-confirmed buyers.
+Priority 0b: Other UAE-based leads (notes contain "UAE:yes") at ANY stage → advance as far as possible.
 Priority 1: Influencers at stage 0-3 → skip to stage 4 (comment) immediately
 Priority 2: Hot leads (score ≥ ${cfg.thresholds?.min_score_for_dm || 60}) at stage < 6 → advance as far as possible
 Priority 3: Mid leads (score ${cfg.thresholds?.min_score_for_comment || 40}-${(cfg.thresholds?.min_score_for_dm || 60) - 1}) at stage 2-3 → advance one step
