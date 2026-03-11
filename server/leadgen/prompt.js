@@ -446,47 +446,61 @@ TIER 2 — HIGH RELEVANCE:
 
 For each enabled source, follow the matching source-type workflow below:
 
-——— SOURCE TYPE: meta_ads (Meta Ads Library → competitor ad posts → commenters) ———
-This is the HIGHEST VALUE source. Competitor ads are geo-targeted to ${targetGeoName} by the advertiser,
-so anyone commenting on them is confirmed to be in the target market AND in active buying mode.
+——— SOURCE TYPE: meta_ads (Meta Ads Library → discover competitor brands → scrape their Instagram) ———
+Strategy: Use Meta Ads Library as a COMPETITOR DISCOVERY TOOL only.
+Search by KEYWORD (not brand name) to find all brands advertising bedding/sleep products in ${targetGeoName}.
+These brands are confirmed paying to reach ${targetGeoCode || 'AE'} buyers → their Instagram followers/commenters are our highest-value targets.
 
-IMPORTANT: Meta Ads Library is a React SPA — content is rendered client-side AFTER page load.
-You MUST use Playwright's waitForSelector / waitForTimeout to let JS render before extracting URLs.
-Do NOT read page.content() or innerHTML immediately after navigation — it will be empty.
+Do NOT try to extract post URLs from the ads themselves (Ads Library blocks this).
+Instead: discover brand names → find their Instagram handles → scrape their posts directly.
 
-Use the Instagram session context for this (same launchPersistentContext, just open a new page for ads.facebook.com):
+Use the Instagram session context, open a separate page for the ads library:
   const adsPage = await context.newPage();
 
-Step-by-step:
-1. Use the Meta Ads Library API directly (more reliable than UI scraping):
-   URL: https://www.facebook.com/ads/library/api/?ad_type=all&count=10&active_status=active&media_type=all&search_type=page_name&q=COMPETITOR_NAME&countries[0]=${targetGeoCode || 'AE'}
+STEP 1 — Search Meta Ads Library by keyword:
+  Search URLs to try (open each, wait 4 seconds, extract brand names):
+  https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=mattress&search_type=keyword_unordered
+  https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=bedding&search_type=keyword_unordered
+  https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=bamboo+sheets&search_type=keyword_unordered
+  https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=luxury+bedding&search_type=keyword_unordered
+  https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=مرتبة&search_type=keyword_unordered
 
-   Replace COMPETITOR_NAME with the brand name from handle_or_url (e.g. "Togas" or "Linen+Obsession").
-   Navigate to this URL and wait for JSON response — it returns structured ad data including external_urls.
+STEP 2 — Extract advertiser names:
+  After each page loads (waitForTimeout(4000)), extract page/advertiser names:
+    const names = await adsPage.$$eval('[class*="advertiser"] a, [class*="AdLibrary"] a, a[href*="facebook.com/"]',
+      els => [...new Set(els.map(e => e.textContent.trim()).filter(t => t.length > 2 && t.length < 60))]
+    );
+  Also try: const pageSource = await adsPage.content(); — search for "page_name" patterns in the raw HTML
+  Collect all unique advertiser/page names. Target: 5-15 brand names per search term.
+  Skip any name that matches the client's own brand or known competitors already in hot-sources.
 
-2. If the API returns results, look in each ad for:
-   - "snapshot.link_url" — often an Instagram post URL
-   - "snapshot.cards[].link_url" — carousel ad post URLs
-   - Any URL containing "instagram.com/p/" or "instagram.com/reel/"
+STEP 3 — Find their Instagram handles:
+  For each discovered brand name:
+  a. Search Instagram: navigate to https://www.instagram.com/explore/search/keyword/?q=BRAND_NAME using the Instagram session
+  b. Or search directly: https://www.instagram.com/web/search/topsearch/?query=BRAND_NAME
+  c. Take the first business/brand account result that matches the brand name
+  d. Note the Instagram handle
 
-3. If API approach fails (redirects or requires login), use the UI:
-   a. Navigate to: https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=COMPETITOR_NAME&search_type=page
-   b. Wait for ads to load: await adsPage.waitForSelector('[data-testid="ad-archive-renderer"]', { timeout: 15000 }).catch(() => null)
-   c. Alternatively wait: await adsPage.waitForTimeout(5000)
-   d. Extract all hrefs: const links = await adsPage.$$eval('a[href*="instagram.com"]', els => els.map(e => e.href))
-   e. Filter for post URLs: links.filter(u => u.includes('/p/') || u.includes('/reel/'))
-   f. Also try: await adsPage.$$eval('a', els => els.map(e=>e.href).filter(h=>h.includes('instagram.com/p/')||h.includes('instagram.com/reel/')))
+STEP 4 — Scrape their Instagram posts:
+  For each discovered competitor Instagram account (treat exactly like an "account" source):
+  - Open their profile → last 20 posts → collect ALL commenters
+  - source_type = "competitor_ad_commenter" (they're advertising to ${targetGeoCode || 'AE'} buyers)
+  - Score: +${cfg.scoring?.comment_on_competitor_ad || 40} pts base
+  - Add "UAE:yes (ad-geo-confirmed)" to notes — these brands are geo-targeting ${targetGeoName}
+  - Also collect likers and followers using the standard account workflow
 
-4. Collect up to 5 ad post URLs per competitor. If 0 found after both approaches:
-   - Screenshot the ads page for debugging
-   - Log "meta_ads: 0 post URLs found for COMPETITOR" and continue to next source — do NOT stop
+  Aim for 3-5 new competitor accounts discovered per session. Each account can yield 50-100+ leads.
 
-5. For each collected Instagram post URL:
-   - Navigate to the post using the Instagram session
-   - Collect ALL comment authors → source_type = "competitor_ad_commenter"
-   - Check for purchase intent signals ("where to buy", "price", "كم السعر", "link", "website")
-   - Score: +${cfg.scoring?.comment_on_competitor_ad || 40} pts — highest base score
-   - These leads are geo-confirmed ${targetGeoCode || 'target market'} — add "UAE:yes (ad-geo-confirmed)" to notes
+STEP 5 — Save newly discovered competitors to hot-sources for future runs:
+  After scraping, use the Write tool to append new accounts to the hot-sources file:
+  File: ${path.join(dataDir, 'clients', clientId, 'leadgen', 'hot-sources.json')}
+  Add each discovered Instagram handle as a new entry:
+  { "type": "account", "platform": "instagram", "handle_or_url": "@handle", "why": "Discovered via Meta Ads Library UAE keyword search", "enabled": true, "discovered_via": "meta_ads_keyword" }
+  Only add if not already present. This builds the competitor list automatically over time.
+
+STEP 6 — If Meta Ads Library is blocked or returns no results:
+  - Screenshot and log the issue, continue to next source — do NOT stop the session
+  - Fall back to scraping the known account sources instead
 
 ——— SOURCE TYPE: competitor_tagged (Tagged Posts tab) ———
 These are REAL CUSTOMERS who tagged the competitor brand in their own posts.
