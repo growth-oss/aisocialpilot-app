@@ -416,10 +416,16 @@ ${Object.entries(clientConfig.platforms || {}).filter(([,v]) => v.enabled).map((
 ).join('\n') || 'No platforms enabled — configure platforms in the client settings.'}
 
 ━━━ GEO VERIFICATION ━━━
-${clientConfig.proxy?.url ? `BEFORE opening any social platform:
-1. Navigate to https://whatismyip.com and read the displayed country/city.
-2. Verify it matches expected geo: "${clientConfig.proxy.geo || 'any'}".
-3. If mismatch: STOP immediately. Log the error. Do not proceed.` : 'No proxy configured — skip geo check.'}
+${clientConfig.proxy?.url ? `BEFORE opening any social platform, verify proxy geo using a CURL command (faster and more reliable than browser):
+
+Run this command in Bash:
+  curl -s --proxy "${clientConfig.proxy.url}" --max-time 10 https://ipinfo.io/json
+
+Parse the JSON response. Check the "country" field.
+Expected: "${clientConfig.proxy.geo || 'any'}"
+If country matches → proceed. If mismatch or timeout → STOP and log error.
+
+Do NOT use whatismyip.com or any browser-based geo check — they are slow and unreliable in headless mode.` : 'No proxy configured — skip geo check.'}
 
 ━━━ WORKFLOW ━━━
 

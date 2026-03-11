@@ -17,7 +17,7 @@ Read these files BEFORE every session to ensure you're using current settings.
 
 ### Proxy & Session (MANDATORY)
 - If $SOCIALPILOT_PROXY is set, ALL browser launches MUST use it
-- BEFORE any social media action: navigate to whatismyip.com, verify geo matches EXPECTED_GEO
+- BEFORE any social media action: verify geo via `curl -s --proxy "$SOCIALPILOT_PROXY" --max-time 10 https://ipinfo.io/json` — check "country" matches EXPECTED_GEO (do NOT use whatismyip.com — too slow in headless)
 - If geo check fails: STOP and log the error (do not proceed)
 - NEVER interact with social media without proxy verification (if proxy is configured)
 - Each platform has its own --user-data-dir (see platforms.json)
