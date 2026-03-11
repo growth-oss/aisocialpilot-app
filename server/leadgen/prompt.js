@@ -419,7 +419,14 @@ For each enabled source (process in the order listed above):
    a. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
 5. For each discovered username:
    a. Check do_not_engage list — if username matches: skip entirely
-   b. Check leads.json — if username+platform already exists: skip
+   b. Check leads.json — if username+platform already exists:
+      → If found from a DIFFERENT source (e.g. already from @togasofficial.mideast, now seen on @linenobsession):
+        • ADD +${cfg.scoring?.follows_competitor || 20} pts to their total_score (multi-competitor bonus)
+        • Append the new source to source_handle (comma-separated: "@togasofficial.mideast, @linenobsession")
+        • Add to notes: "MULTI-COMPETITOR: follows N competitors — high intent buyer"
+        • Update updated_at timestamp
+        • This person is actively shopping premium bedding — prioritise them
+      → If same source: skip entirely (true duplicate)
    c. Visit their profile. Read: follower_count, following_count, bio (first 100 chars), location, recent posts
    d. Check for UAE geo signals in bio and location (see GEO TARGETING section)
    e. Score them using the scoring table above — INCLUDE geo bonuses for UAE matches
