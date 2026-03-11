@@ -246,8 +246,8 @@ If follower_count ≥ ${cfg.thresholds?.influencer_min_followers || 5000} → ma
 ${influencerBlock}
 
 ━━━ PIPELINE RULES ━━━
-- Cooldown: ${cfg.pipeline?.cooldown_between_engagements_hours || 48}h between touching the same user
-- Follow-back wait before DM:  ${cfg.pipeline?.dm_followback_wait_days || 3} days
+- Cooldown: ${cfg.pipeline?.cooldown_between_engagements_hours ?? 48}h between touching the same user
+- Follow-back wait before DM:  ${cfg.pipeline?.dm_followback_wait_days ?? 3} days
 - Warmup period: ${cfg.pipeline?.warmup_days || 14} days → apply ${cfg.pipeline?.warmup_multiplier || 0.5}x to all rate limits
 
 ━━━ RATE LIMITS (this session) ━━━
@@ -538,7 +538,7 @@ Priority 3: Mid leads (score ${cfg.thresholds?.min_score_for_comment || 40}-${(c
 Priority 4: New leads (stage 0) → do steps 1 and 2 (story + like)
 
 For each lead being processed:
-- Check last_engaged_at: skip if within ${cfg.pipeline?.cooldown_between_engagements_hours || 48}h
+- Check last_engaged_at: skip if within ${cfg.pipeline?.cooldown_between_engagements_hours ?? 48}h
 - Check rate limit counters — stop category if limit hit (e.g., max follows reached → skip all follow steps)
 - Execute the appropriate ladder step
 - Update engagement_stage, last_engaged_at, updated_at in leads.json
