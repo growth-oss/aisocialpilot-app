@@ -450,31 +450,43 @@ For each enabled source, follow the matching source-type workflow below:
 This is the HIGHEST VALUE source. Competitor ads are geo-targeted to ${targetGeoName} by the advertiser,
 so anyone commenting on them is confirmed to be in the target market AND in active buying mode.
 
-1. Open a NEW browser tab (no Instagram session needed for this step).
-2. Navigate to: https://www.facebook.com/ads/library/
-3. Set search filters:
-   - Country: "${targetGeoName}" ← MUST match client geo setting (${targetGeoCode || 'not set'})
-   - Platform: "Instagram" (or "All" if Instagram not available)
-   - Media type: "All"
-   - Status: "Active ads"
-   NOTE: International competitors run separate ad campaigns per country. Filtering by "${targetGeoName}"
-   ensures you only see ads targeting the client's market — not their global campaigns.
-4. Search for the competitor brand name from the source handle_or_url (e.g. "Togas", "Linen Obsession").
-5. Scroll results. For each active ad:
-   - Look for an Instagram post URL or permalink — ads often link to IG posts
-   - If the ad shows an Instagram post preview, note the post URL
-   - Collect up to 5 ad post URLs per competitor
-6. Switch to the Instagram session browser.
-7. For each collected ad post URL:
-   - Navigate to the post on Instagram
+IMPORTANT: Meta Ads Library is a React SPA — content is rendered client-side AFTER page load.
+You MUST use Playwright's waitForSelector / waitForTimeout to let JS render before extracting URLs.
+Do NOT read page.content() or innerHTML immediately after navigation — it will be empty.
+
+Use the Instagram session context for this (same launchPersistentContext, just open a new page for ads.facebook.com):
+  const adsPage = await context.newPage();
+
+Step-by-step:
+1. Use the Meta Ads Library API directly (more reliable than UI scraping):
+   URL: https://www.facebook.com/ads/library/api/?ad_type=all&count=10&active_status=active&media_type=all&search_type=page_name&q=COMPETITOR_NAME&countries[0]=${targetGeoCode || 'AE'}
+
+   Replace COMPETITOR_NAME with the brand name from handle_or_url (e.g. "Togas" or "Linen+Obsession").
+   Navigate to this URL and wait for JSON response — it returns structured ad data including external_urls.
+
+2. If the API returns results, look in each ad for:
+   - "snapshot.link_url" — often an Instagram post URL
+   - "snapshot.cards[].link_url" — carousel ad post URLs
+   - Any URL containing "instagram.com/p/" or "instagram.com/reel/"
+
+3. If API approach fails (redirects or requires login), use the UI:
+   a. Navigate to: https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${targetGeoCode || 'AE'}&q=COMPETITOR_NAME&search_type=page
+   b. Wait for ads to load: await adsPage.waitForSelector('[data-testid="ad-archive-renderer"]', { timeout: 15000 }).catch(() => null)
+   c. Alternatively wait: await adsPage.waitForTimeout(5000)
+   d. Extract all hrefs: const links = await adsPage.$$eval('a[href*="instagram.com"]', els => els.map(e => e.href))
+   e. Filter for post URLs: links.filter(u => u.includes('/p/') || u.includes('/reel/'))
+   f. Also try: await adsPage.$$eval('a', els => els.map(e=>e.href).filter(h=>h.includes('instagram.com/p/')||h.includes('instagram.com/reel/')))
+
+4. Collect up to 5 ad post URLs per competitor. If 0 found after both approaches:
+   - Screenshot the ads page for debugging
+   - Log "meta_ads: 0 post URLs found for COMPETITOR" and continue to next source — do NOT stop
+
+5. For each collected Instagram post URL:
+   - Navigate to the post using the Instagram session
    - Collect ALL comment authors → source_type = "competitor_ad_commenter"
-   - Check commenters' profiles for purchase intent signals ("where to buy", "price", "كم السعر")
-   - Score: +${cfg.scoring?.comment_on_competitor_ad || 40} pts (comment_on_competitor_ad) — the highest base score
-   - These leads are ALREADY geo-confirmed ${targetGeoCode || 'target market'} — add "UAE:yes (ad-geo-confirmed)" to notes
-   - Skip the usual geo bio check — ad targeting already confirms their location
-8. If Meta Ads Library is blocked, rate-limited, or returns no results:
-   - Log the issue and move to next source — do NOT stop the session
-   - Try alternative: visit competitor's Instagram profile, look for posts marked "Sponsored" or "Paid partnership"
+   - Check for purchase intent signals ("where to buy", "price", "كم السعر", "link", "website")
+   - Score: +${cfg.scoring?.comment_on_competitor_ad || 40} pts — highest base score
+   - These leads are geo-confirmed ${targetGeoCode || 'target market'} — add "UAE:yes (ad-geo-confirmed)" to notes
 
 ——— SOURCE TYPE: competitor_tagged (Tagged Posts tab) ———
 These are REAL CUSTOMERS who tagged the competitor brand in their own posts.
