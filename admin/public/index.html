@@ -4128,7 +4128,7 @@ async function showRunLog(clientId, runId, command, status, started) {
   document.getElementById('run-log-body').textContent = 'Loading…';
 
   try {
-    const res = await fetch(`/api/clients/${clientId}/runs/${runId}`, { headers: getAuthHeaders() });
+    const res = await fetch(`/api/clients/${clientId}/runs/${runId}`);
     if (!res.ok) {
       document.getElementById('run-log-body').textContent = res.status === 404
         ? 'No log found for this run.\n\nLogs are saved starting from runs after this update was deployed.'
