@@ -320,6 +320,18 @@ function getVersion() {
   }
 }
 
+function getGitCommit() {
+  try {
+    const headPath = path.join(__dirname, '../.git/HEAD');
+    const head = fs.readFileSync(headPath, 'utf8').trim();
+    if (head.startsWith('ref: ')) {
+      const refPath = path.join(__dirname, '../.git', head.slice(5));
+      return fs.readFileSync(refPath, 'utf8').trim().slice(0, 7);
+    }
+    return head.slice(0, 7);
+  } catch { return null; }
+}
+
 // Periodic license check
 setInterval(async () => {
   const config = loadConfig();
@@ -366,6 +378,7 @@ app.get('/api/status', (req, res) => {
     maxClients: config.maxClients || 3,
     clientCount: clients.length,
     version: getVersion(),
+    commit: getGitCommit(),
   });
 });
 
