@@ -1549,6 +1549,12 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   const model = env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
   const inputTokens = charsToTokens(prompt.length);
   let outputChars = 0;
+  // Accumulate full run output for later review
+  const runLogsDir = path.join(clientDir, 'logs', 'runs');
+  try { fs.mkdirSync(runLogsDir, { recursive: true }); } catch {}
+  const runLogFile = path.join(runLogsDir, `${runId}.log`);
+  const runLogStream = fs.createWriteStream(runLogFile, { flags: 'a' });
+  runLogStream.write(`=== Run ${runId} | ${command} | ${startedAt} ===\n\n`);
 
   // stream-json outputs JSONL: one JSON object per line as events happen
   // We parse each line and forward the text content; fall back to raw if not valid JSON
@@ -1569,6 +1575,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
               outputChars += block.text.length;
               _lastOutputAt = Date.now();
               onData('output', block.text);
+              runLogStream.write(block.text);
               // Buffer for live status
               if (runEntry) {
                 runEntry.recentLines.push(block.text.trim());
@@ -1581,6 +1588,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
               const desc = block.input?.description || block.input?.command?.split('\n')[0] || '';
               const label = desc ? `[${block.name}: ${desc.substring(0, 80)}]` : `[${block.name}]`;
               onData('progress', label + '\n');
+              runLogStream.write(label + '\n');
               // Buffer for live status
               if (runEntry) {
                 runEntry.lastActivity = label;
@@ -1594,6 +1602,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
           // Final result text
           outputChars += ev.result.length;
           onData('output', ev.result);
+          runLogStream.write('\n\n=== FINAL RESULT ===\n' + ev.result + '\n');
           if (runEntry) {
             runEntry.lastActivity = 'Completed — writing summary';
             runEntry.lastActivityAt = Date.now();
@@ -1603,6 +1612,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
         // Not JSON (e.g. error output) — forward as-is
         outputChars += line.length;
         onData('output', line + '\n');
+        runLogStream.write(line + '\n');
       }
     }
   });
@@ -1625,6 +1635,9 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
 
     const outputTokens = charsToTokens(outputChars);
     const cost_usd = estimateCost(model, inputTokens, outputTokens);
+
+    runLogStream.write(`\n=== END | status:${status} exitCode:${code} cost:$${cost_usd?.toFixed(4)} completedAt:${completedAt} ===\n`);
+    runLogStream.end();
 
     const logFile = path.join(clientDir, 'logs', 'runs.json');
     let runs = [];
@@ -2567,6 +2580,16 @@ app.get('/api/clients/:id/runs', requireLicense, (req, res) => {
   if (!fs.existsSync(logFile)) return res.json([]);
   try { res.json(JSON.parse(fs.readFileSync(logFile, 'utf8')).reverse().slice(0, 20)); }
   catch { res.json([]); }
+});
+
+app.get('/api/clients/:id/runs/:runId', requireLicense, (req, res) => {
+  const { id, runId } = req.params;
+  // Validate runId is safe (hex chars only)
+  if (!/^[0-9a-f]{8}$/.test(runId)) return res.status(400).json({ error: 'Invalid runId' });
+  const logFile = path.join(CLIENTS_DIR, id, 'logs', 'runs', `${runId}.log`);
+  if (!fs.existsSync(logFile)) return res.status(404).json({ error: 'Log not found' });
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(fs.readFileSync(logFile, 'utf8'));
 });
 
 // ─── Live run status — returns active run(s) for a client with recent output ───

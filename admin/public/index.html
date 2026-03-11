@@ -4074,6 +4074,8 @@ async function loadClientLogs(clientId) {
           <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Status</th>
           <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Duration</th>
           <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Started</th>
+          <th style="text-align:left;padding:8px 10px;font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.05em">Cost</th>
+          <th style="padding:8px 10px"></th>
         </tr>
       </thead>
       <tbody>
@@ -4083,15 +4085,64 @@ async function loadClientLogs(clientId) {
             : '—';
           const started = r.startedAt ? new Date(r.startedAt).toLocaleString() : '—';
           const color = statusColor[r.status] || 'var(--text-dim)';
-          return `<tr style="border-bottom:1px solid var(--border)">
+          const cost = r.cost_usd ? `$${r.cost_usd.toFixed(4)}` : '';
+          return `<tr data-runid="${r.runId}" style="border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background=''" onclick="showRunLog('${clientId}','${r.runId}','${cmdLabels[r.command]||r.command}','${r.status}','${started}')">
             <td style="padding:10px;color:var(--text)">${cmdLabels[r.command] || r.command}</td>
             <td style="padding:10px;color:${color};font-weight:500">${r.status}</td>
             <td style="padding:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:12px">${dur}</td>
             <td style="padding:10px;color:var(--text-muted);font-size:12px">${started}</td>
+            <td style="padding:10px;color:var(--text-muted);font-size:12px;font-family:'JetBrains Mono',monospace">${cost}</td>
+            <td style="padding:10px;color:var(--accent);font-size:11px">View →</td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>`;
+}
+
+// ─── Run log modal ───
+async function showRunLog(clientId, runId, command, status, started) {
+  // Create or reuse modal
+  let modal = document.getElementById('run-log-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'run-log-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.innerHTML = `
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;width:100%;max-width:860px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+          <div style="flex:1">
+            <div id="run-log-title" style="font-weight:600;color:var(--text);font-size:15px"></div>
+            <div id="run-log-meta" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+          </div>
+          <button onclick="document.getElementById('run-log-modal').remove()" style="background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px">Close</button>
+        </div>
+        <pre id="run-log-body" style="flex:1;overflow-y:auto;padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-word;margin:0">Loading…</pre>
+      </div>`;
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.body.appendChild(modal);
+  } else {
+    modal.style.display = 'flex';
+  }
+  document.getElementById('run-log-title').textContent = command;
+  document.getElementById('run-log-meta').textContent = `${started} · ${status} · ID: ${runId}`;
+  document.getElementById('run-log-body').textContent = 'Loading…';
+
+  try {
+    const res = await fetch(`/api/clients/${clientId}/runs/${runId}`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+      document.getElementById('run-log-body').textContent = res.status === 404
+        ? 'No log found for this run.\n\nLogs are saved starting from runs after this update was deployed.'
+        : `Error ${res.status}: ${await res.text()}`;
+      return;
+    }
+    const text = await res.text();
+    document.getElementById('run-log-body').textContent = text || '(empty log)';
+    // Scroll to bottom
+    const body = document.getElementById('run-log-body');
+    body.scrollTop = body.scrollHeight;
+  } catch (e) {
+    document.getElementById('run-log-body').textContent = `Failed to load: ${e.message}`;
+  }
 }
 
 // ─── Live run status polling ───
