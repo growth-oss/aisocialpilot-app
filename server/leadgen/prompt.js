@@ -18,7 +18,17 @@ function buildLeadGenPrompt(clientConfig, dataDir) {
 
   // Read all leadgen config
   const cfg      = readJson(path.join(lgDir, 'leadgen-config.json'), {});
-  const sources  = readJson(path.join(lgDir, 'hot-sources.json'), []);
+  // Merge sources from both leadgen and knowledge dirs (intel tab writes to knowledge/)
+  const lgSources = readJson(path.join(lgDir, 'hot-sources.json'), []);
+  const kDir      = path.join(clientDir, 'knowledge');
+  const kSources  = readJson(path.join(kDir, 'hot-sources.json'), []);
+  // Dedupe by type+platform+handle_or_url — knowledge sources take priority (fresher from intel)
+  const seenKeys  = new Set();
+  const sources   = [];
+  for (const s of [...kSources, ...lgSources]) {
+    const key = `${s.type||s.source_type}|${s.platform}|${s.handle_or_url||s.handle_or_tag}`;
+    if (!seenKeys.has(key)) { seenKeys.add(key); sources.push(s); }
+  }
   const personas = readJson(path.join(lgDir, 'personas.json'), []);
   const coupons  = readJson(path.join(lgDir, 'coupon-config.json'), {});
 
