@@ -441,6 +441,7 @@
     animation: fadeIn 0.15s ease;
   }
   @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
   .run-panel {
     width: 100%; max-height: 70vh; background: #0d0d14;
@@ -805,6 +806,7 @@ function updateLicenseBadge() {
 
 // ─── Render router ───
 function render() {
+  stopLiveRunPolling(); // clean up polling when navigating away
   switch (state.currentView) {
     case 'loading': app.innerHTML = renderLoading(); break;
     case 'license': app.innerHTML = renderLicense(); break;
@@ -812,7 +814,7 @@ function render() {
     case 'settings': app.innerHTML = renderSettings(); populateSettings(); break;
     case 'dashboard': app.innerHTML = renderDashboard(); loadAllSessionDots(); loadDashboardCosts(); break;
     case 'client-new': app.innerHTML = renderClientForm(); break;
-    case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); loadClientLogs(state.editingClient.clientId); break;
+    case 'client-edit': app.innerHTML = renderClientForm(state.editingClient); loadClientLogs(state.editingClient.clientId); startLiveRunPolling(state.editingClient.clientId); break;
   }
 }
 
@@ -1443,6 +1445,7 @@ function renderClientForm(client) {
     ${isEdit ? `
     <!-- Logs -->
     <div id="tab-logs" class="card hidden">
+      <div id="live-run-status"></div>
       <div class="card-desc">Last 20 automation runs for this client.</div>
       <div id="runs-table" style="font-size:13px;">
         <div style="color:var(--text-muted);text-align:center;padding:20px 0">Loading...</div>
@@ -4090,6 +4093,51 @@ async function loadClientLogs(clientId) {
       </tbody>
     </table>`;
 }
+
+// ─── Live run status polling ───
+let _liveRunPollTimer = null;
+function startLiveRunPolling(clientId) {
+  stopLiveRunPolling();
+  pollActiveRun(clientId);
+  _liveRunPollTimer = setInterval(() => pollActiveRun(clientId), 3000);
+}
+function stopLiveRunPolling() {
+  if (_liveRunPollTimer) { clearInterval(_liveRunPollTimer); _liveRunPollTimer = null; }
+}
+async function pollActiveRun(clientId) {
+  const el = document.getElementById('live-run-status');
+  if (!el) return;
+  try {
+    const active = await api('GET', `/clients/${clientId}/run/active`);
+    if (!active || !active.length) {
+      el.innerHTML = '';
+      return;
+    }
+    el.innerHTML = active.map(r => {
+      const mins = Math.floor(r.elapsedSeconds / 60);
+      const secs = r.elapsedSeconds % 60;
+      const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+      const cmdLabel = { leadgen:'Lead Gen', outreach:'Outreach', 'reply-instagram':'Reply IG', 'reply-tiktok':'Reply TT', 'check-all':'Check All', ambassador:'Ambassador' }[r.command] || r.command;
+      const lines = (r.recentLines || []).slice(-8);
+      return `<div style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(34,197,94,0.06));border:1px solid rgba(99,102,241,0.3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 1.5s infinite"></span>
+            <span style="font-weight:600;color:var(--text)">${cmdLabel}</span>
+            <span style="color:var(--text-dim);font-size:12px">run ${r.runId}</span>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--indigo)">${elapsed}</span>
+        </div>
+        <div style="color:var(--text);font-size:13px;margin-bottom:8px"><strong>Now:</strong> ${escHtml(r.lastActivity || 'Working…')}</div>
+        <details style="margin-top:4px">
+          <summary style="color:var(--text-dim);font-size:11px;cursor:pointer;user-select:none">Recent activity (${lines.length} lines)</summary>
+          <pre style="margin:6px 0 0;padding:8px;background:var(--bg-input);border-radius:4px;font-size:11px;color:var(--text-dim);max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${lines.map(l => escHtml(l)).join('\n')}</pre>
+        </details>
+      </div>`;
+    }).join('');
+  } catch { /* ignore fetch errors */ }
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ─── Command definitions ───
 const COMMANDS = [

@@ -1544,7 +1544,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  runningProcesses.set(runId, { proc, clientId, command, startedAt });
+  runningProcesses.set(runId, { proc, clientId, command, startedAt, recentLines: [], lastActivity: '' });
 
   const model = env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
   const inputTokens = charsToTokens(prompt.length);
@@ -1552,6 +1552,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
 
   // stream-json outputs JSONL: one JSON object per line as events happen
   // We parse each line and forward the text content; fall back to raw if not valid JSON
+  const runEntry = runningProcesses.get(runId);
   let _streamBuf = '';
   proc.stdout.on('data', chunk => {
     _streamBuf += chunk.toString();
@@ -1568,17 +1569,35 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
               outputChars += block.text.length;
               _lastOutputAt = Date.now();
               onData('output', block.text);
+              // Buffer for live status
+              if (runEntry) {
+                runEntry.recentLines.push(block.text.trim());
+                if (runEntry.recentLines.length > 30) runEntry.recentLines.shift();
+                runEntry.lastActivity = block.text.trim().substring(0, 200);
+                runEntry.lastActivityAt = Date.now();
+              }
             } else if (block.type === 'tool_use') {
               // Show which tool and a summary of what it's doing
               const desc = block.input?.description || block.input?.command?.split('\n')[0] || '';
               const label = desc ? `[${block.name}: ${desc.substring(0, 80)}]` : `[${block.name}]`;
               onData('progress', label + '\n');
+              // Buffer for live status
+              if (runEntry) {
+                runEntry.lastActivity = label;
+                runEntry.lastActivityAt = Date.now();
+                runEntry.recentLines.push(label);
+                if (runEntry.recentLines.length > 30) runEntry.recentLines.shift();
+              }
             }
           }
         } else if (ev.type === 'result' && ev.result) {
           // Final result text
           outputChars += ev.result.length;
           onData('output', ev.result);
+          if (runEntry) {
+            runEntry.lastActivity = 'Completed — writing summary';
+            runEntry.lastActivityAt = Date.now();
+          }
         }
       } catch {
         // Not JSON (e.g. error output) — forward as-is
@@ -2548,6 +2567,27 @@ app.get('/api/clients/:id/runs', requireLicense, (req, res) => {
   if (!fs.existsSync(logFile)) return res.json([]);
   try { res.json(JSON.parse(fs.readFileSync(logFile, 'utf8')).reverse().slice(0, 20)); }
   catch { res.json([]); }
+});
+
+// ─── Live run status — returns active run(s) for a client with recent output ───
+app.get('/api/clients/:id/run/active', requireLicense, (req, res) => {
+  const clientId = req.params.id;
+  const active = [];
+  for (const [runId, entry] of runningProcesses) {
+    if (entry.clientId === clientId) {
+      const elapsed = Math.round((Date.now() - new Date(entry.startedAt).getTime()) / 1000);
+      active.push({
+        runId,
+        command: entry.command,
+        startedAt: entry.startedAt,
+        elapsedSeconds: elapsed,
+        lastActivity: entry.lastActivity || 'Starting…',
+        lastActivityAt: entry.lastActivityAt || null,
+        recentLines: (entry.recentLines || []).slice(-15),
+      });
+    }
+  }
+  res.json(active);
 });
 
 // ─── Cost analytics for a client ───
