@@ -4098,72 +4098,54 @@ Each brief object uses ONLY these fields:
   }
 });
 
-// POST /api/clients/:id/precision/generate-image/:briefId — call Gemini image generation
+// POST /api/clients/:id/precision/generate-image/:briefId — Gemini image via @google/genai SDK
 app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, async (req, res) => {
   const cDir = clientDir(req.params.id);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
 
   const config = loadConfig();
-  if (!config.geminiApiKey) return res.status(400).json({ error: 'Gemini API key not configured. Add it in Settings.' });
+  if (!config.geminiApiKey) return res.status(400).json({ error: 'Gemini API key not configured — add it in Settings' });
 
   const briefs = loadPrecisionBriefs(cDir);
   const brief = briefs.find(b => b.brief_id === req.params.briefId);
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
   if (!brief.image_prompt) return res.status(400).json({ error: 'Brief has no image_prompt' });
 
-  // Optional: base64 reference image from client product assets
-  const { referenceImageBase64, referenceImageMime } = req.body;
-
-  const geminiModel = 'gemini-3-pro-image-preview';
-  const parts = [];
-  if (referenceImageBase64) {
-    parts.push({ inline_data: { mime_type: referenceImageMime || 'image/jpeg', data: referenceImageBase64 } });
-  }
-  parts.push({ text: brief.image_prompt });
-
-  const geminiBody = JSON.stringify({
-    contents: [{ parts }],
-    generationConfig: {
-      responseModalities: ['IMAGE'],
-      temperature: 0.4,
-    },
-  });
-
   try {
-    const geminiRes = await new Promise((resolve, reject) => {
-      const opts = {
-        hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/${geminiModel}:generateContent?key=${config.geminiApiKey}`,
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(geminiBody) },
-      };
-      let data = '';
-      const req2 = https.request(opts, r => {
-        r.on('data', c => { data += c; });
-        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Bad JSON from Gemini')); } });
-      });
-      req2.on('error', reject);
-      req2.write(geminiBody);
-      req2.end();
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+
+    const contents = [];
+    const { referenceImageBase64, referenceImageMime } = req.body;
+    if (referenceImageBase64) {
+      contents.push({ inlineData: { mimeType: referenceImageMime || 'image/jpeg', data: referenceImageBase64 } });
+    }
+    contents.push({ text: brief.image_prompt });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-image-preview',
+      contents,
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        temperature: 0.4,
+      },
     });
 
-    if (geminiRes.error) return res.status(500).json({ error: geminiRes.error.message || 'Gemini error', detail: geminiRes.error });
+    const imagePart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!imagePart) {
+      const textPart = response.candidates?.[0]?.content?.parts?.find(p => p.text);
+      return res.status(500).json({ error: 'No image in Gemini response', detail: textPart?.text || JSON.stringify(response).slice(0, 300) });
+    }
 
-    const imagePart = geminiRes.candidates?.[0]?.content?.parts?.find(p => p.inline_data);
-    if (!imagePart) return res.status(500).json({ error: 'No image in Gemini response', raw: JSON.stringify(geminiRes).slice(0, 400) });
-
-    // Save image to client assets
     const imgDir = path.join(cDir, 'assets', 'precision');
     fs.mkdirSync(imgDir, { recursive: true });
     const filename = `${brief.brief_id}_${Date.now()}.png`;
-    const filepath = path.join(imgDir, filename);
-    const imgBuffer = Buffer.from(imagePart.inline_data.data, 'base64');
-    fs.writeFileSync(filepath, imgBuffer);
+    fs.writeFileSync(path.join(imgDir, filename), Buffer.from(imagePart.inlineData.data, 'base64'));
 
     const localUrl = `/api/clients/${req.params.id}/assets/precision/${filename}`;
 
-    // Update brief with generated image
     const briefIdx = briefs.findIndex(b => b.brief_id === req.params.briefId);
+    briefs[briefIdx].image_url = localUrl;
     briefs[briefIdx].generated_images = briefs[briefIdx].generated_images || [];
     briefs[briefIdx].generated_images.push({ filename, local_url: localUrl, created_at: new Date().toISOString() });
     savePrecisionBriefs(cDir, briefs);
