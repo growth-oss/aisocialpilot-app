@@ -2008,13 +2008,14 @@ async function loadRuns() {
     el.innerHTML = `<table class="runs-table">
       <thead><tr><th>Command</th><th>Status</th><th>Started</th><th>Duration</th><th>Cost</th></tr></thead>
       <tbody>${runs.map(r => {
-        const label = cmdLabels[r.command] || r.command;
+        const label = r.command ? (cmdLabels[r.command] || r.command) : 'unknown';
         const started = r.startedAt ? new Date(r.startedAt).toLocaleString() : '—';
         const dur = r.startedAt && r.completedAt ? formatDuration(new Date(r.startedAt), new Date(r.completedAt)) : r.startedAt ? 'Running…' : '—';
         const cost = r.cost_usd ? `$${r.cost_usd.toFixed(4)}` : '—';
-        return `<tr onclick="showRunLog('${r.runId}','${label.replace(/'/g,'')}','${r.status}','${started}')">
+        const st = r.status || 'unknown';
+        return `<tr onclick="showRunLog('${r.runId}','${label.replace(/'/g,'')}','${st}','${started}')">
           <td style="font-weight:500">${label}</td>
-          <td><span class="run-status ${r.status}">${r.status}</span></td>
+          <td><span class="run-status ${st}">${st}</span></td>
           <td style="color:var(--muted)">${started}</td>
           <td style="color:var(--muted)">${dur}</td>
           <td style="color:var(--muted)">${cost}</td>
