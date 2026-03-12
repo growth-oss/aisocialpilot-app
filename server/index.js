@@ -4038,10 +4038,10 @@ Return a JSON array ONLY, no other text. Each brief object:
 }`;
 
   try {
-    const model = config.anthropicModel || 'claude-haiku-4-5-20251001';
+    const model = 'claude-sonnet-4-6'; // use Sonnet for complex clustering with many leads
     const body = JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -4068,9 +4068,10 @@ Return a JSON array ONLY, no other text. Each brief object:
       req2.end();
     });
 
+    if (apiRes.error) return res.status(500).json({ error: `Anthropic: ${apiRes.error.message || JSON.stringify(apiRes.error)}` });
     const text = apiRes.content?.[0]?.text || '';
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return res.status(500).json({ error: 'No JSON array in response', raw: text.slice(0, 500) });
+    if (!jsonMatch) return res.status(500).json({ error: `Claude returned no JSON. Stop reason: ${apiRes.stop_reason}. Preview: ${text.slice(0, 300)}` });
 
     const newBriefs = JSON.parse(jsonMatch[0]).map(b => ({
       ...b,

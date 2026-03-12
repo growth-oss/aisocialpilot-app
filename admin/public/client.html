@@ -1496,6 +1496,7 @@ function triggerRun(command) {
   const liveBox = document.getElementById('run-live-output');
   liveBox.style.display = 'block';
   liveBox.textContent = `Starting ${command}…\n`;
+  chatNotify(`Run started: ${command}`, 'info');
 
   const es = new EventSource(`/api/clients/${clientId}/run`);
   // POST + SSE pattern
@@ -1538,6 +1539,8 @@ function triggerRun(command) {
               setStatusIndicator('idle', 'Idle');
               activeRunId = null;
               updateChatPills();
+              chatNotify('Run complete. Check the Pipeline tab for new leads.', 'ok');
+              loadStats();
             }
           } catch {}
         }
@@ -1545,7 +1548,10 @@ function triggerRun(command) {
       });
     }
     pump();
-  }).catch(e => { liveBox.textContent += '\nError: ' + e.message; });
+  }).catch(e => {
+    liveBox.textContent += '\nError: ' + e.message;
+    chatNotify('Run error: ' + e.message, 'error');
+  });
 }
 
 // ── CHAT ──
@@ -1641,6 +1647,20 @@ function appendChatMsg(role, text, typing = false) {
   return el;
 }
 
+// System notification in chat — for action results, errors, status updates
+function chatNotify(text, type = 'info') {
+  const colors = { info: '#6b7280', ok: 'var(--green)', error: 'var(--red)', warn: 'var(--amber)' };
+  const icons  = { info: 'ℹ', ok: '✓', error: '✕', warn: '⚠' };
+  const el = document.createElement('div');
+  el.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin:6px 0;padding:0 4px';
+  el.innerHTML = `
+    <span style="font-size:12px;color:${colors[type]};margin-top:1px;flex-shrink:0">${icons[type]}</span>
+    <span style="font-size:12px;color:${colors[type]};line-height:1.5">${escapeHtml(text)}</span>`;
+  const container = document.getElementById('chat-messages');
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+
 // ── CONTENT / PRECISION BRIEFS ──
 const FORMAT_ICONS = { carousel:'🖼', reel:'🎬', post:'📸', story:'📲', dm_only:'💌' };
 const FORMAT_LABELS = { carousel:'Carousel', reel:'Reel', post:'Single Post', story:'Story', dm_only:'DM Only' };
@@ -1699,13 +1719,17 @@ let currentBriefs = [];
 async function generateBriefs() {
   const btn = document.getElementById('gen-brief-btn');
   btn.disabled = true; btn.textContent = '⏳ Generating…';
+  chatNotify('Generating content briefs from pipeline leads…', 'info');
   try {
     const result = await api('POST', `/clients/${clientId}/precision/generate-brief`, {});
     if (result.error) throw new Error(result.error);
-    toast(`Generated ${result.count || result.briefs?.length || 0} brief(s)`);
+    const n = result.count || result.briefs?.length || 0;
+    toast(`Generated ${n} brief(s)`);
+    chatNotify(`Generated ${n} content brief${n===1?'':'s'} — check the Content tab to review and approve.`, 'ok');
     await loadBriefs();
   } catch(e) {
     toast('Error: ' + e.message, 'error');
+    chatNotify(`Brief generation failed: ${e.message}`, 'error');
   } finally {
     btn.disabled = false; btn.textContent = '✨ Generate Briefs';
   }
@@ -1714,42 +1738,51 @@ async function generateBriefs() {
 async function generateImage(briefId, btn) {
   const origText = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ Generating…';
+  chatNotify('Calling Gemini to generate image…', 'info');
   try {
     const result = await api('POST', `/clients/${clientId}/precision/generate-image/${briefId}`, {});
     if (result.error) throw new Error(result.error);
     toast('Image generated');
+    chatNotify('Image generated successfully. Preview it in the Content tab.', 'ok');
     await loadBriefs();
   } catch(e) {
     toast('Error: ' + e.message, 'error');
+    chatNotify(`Image generation failed: ${e.message}`, 'error');
     btn.disabled = false; btn.textContent = origText;
   }
 }
 
 async function approveBrief(briefId) {
   await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'approved' });
+  chatNotify('Brief approved — ready to post.', 'ok');
   await loadBriefs();
 }
 
 async function rejectBrief(briefId) {
   await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'rejected' });
+  chatNotify('Brief rejected.', 'info');
   await loadBriefs();
 }
 
 async function deleteBrief(briefId) {
   if (!confirm('Delete this brief?')) return;
   await api('DELETE', `/clients/${clientId}/precision/briefs/${briefId}`);
+  chatNotify('Brief deleted.', 'info');
   await loadBriefs();
 }
 
 async function postBrief(briefId, btn) {
   btn.disabled = true; btn.textContent = '⏳ Posting…';
+  chatNotify('Starting post run — ambassador will post and DM targeted leads…', 'info');
   try {
     const result = await api('POST', `/clients/${clientId}/precision/post/${briefId}`, {});
     if (result.error) throw new Error(result.error);
     toast('Post run started — check Runs tab for progress');
+    chatNotify('Post run started! Switch to the Runs tab to follow the live output.', 'ok');
     await loadBriefs();
   } catch(e) {
     toast('Error: ' + e.message, 'error');
+    chatNotify(`Post run failed: ${e.message}`, 'error');
     btn.disabled = false; btn.textContent = '🚀 Post Now';
   }
 }
