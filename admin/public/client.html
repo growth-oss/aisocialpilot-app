@@ -1999,18 +1999,32 @@ async function loadRuns() {
   const el = document.getElementById('runs-list');
   el.innerHTML = '<div class="empty-state"><div class="empty-icon">⟳</div><div class="empty-title">Loading…</div></div>';
   try {
-    const runs = await api('GET', `/clients/${clientId}/runs`);
-    if (!runs.length) {
+    const [runs, activeList] = await Promise.all([
+      api('GET', `/clients/${clientId}/runs`),
+      api('GET', `/clients/${clientId}/run/active`).catch(() => []),
+    ]);
+    const active = Array.isArray(activeList) ? activeList[0] : null;
+    const cmdLabels = { leadgen: '🎯 Lead Gen', reply: '💬 Reply', intercept: '🕵 Intercept', 'pipeline-health-report': '📊 Pipeline Report', 'sources-discover': '🔍 Sources Discover' };
+
+    const activeRow = active ? `
+      <tr style="background:rgba(34,197,94,.06);cursor:pointer" onclick="showRunLog('${active.runId}','Live Run','running','${new Date(active.startedAt).toLocaleString()}')">
+        <td style="font-weight:500">🎯 Lead Gen <span style="font-size:10px;color:var(--green);animation:pulse 1.5s infinite">● LIVE</span></td>
+        <td><span class="run-status running" style="background:rgba(34,197,94,.15);color:var(--green)">running</span></td>
+        <td style="color:var(--muted)">${new Date(active.startedAt).toLocaleString()}</td>
+        <td style="color:var(--green)">${Math.floor(active.elapsedSeconds/60)}m ${active.elapsedSeconds%60}s</td>
+        <td style="color:var(--muted)">—</td>
+      </tr>` : '';
+
+    if (!runs.length && !active) {
       el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div><div class="empty-title">No runs yet</div><div class="empty-sub">Click "Run Now" to start a session</div></div>';
       return;
     }
-    const cmdLabels = { leadgen: '🎯 Lead Gen', reply: '💬 Reply', intercept: '🕵 Intercept', 'pipeline-health-report': '📊 Pipeline Report', 'sources-discover': '🔍 Sources Discover' };
     el.innerHTML = `<table class="runs-table">
       <thead><tr><th>Command</th><th>Status</th><th>Started</th><th>Duration</th><th>Cost</th></tr></thead>
-      <tbody>${runs.map(r => {
+      <tbody>${activeRow}${runs.map(r => {
         const label = r.command ? (cmdLabels[r.command] || r.command) : 'unknown';
         const started = r.startedAt ? new Date(r.startedAt).toLocaleString() : '—';
-        const dur = r.startedAt && r.completedAt ? formatDuration(new Date(r.startedAt), new Date(r.completedAt)) : r.startedAt ? 'Running…' : '—';
+        const dur = r.startedAt && r.completedAt ? formatDuration(new Date(r.startedAt), new Date(r.completedAt)) : '—';
         const cost = r.cost_usd ? `$${r.cost_usd.toFixed(4)}` : '—';
         const st = r.status || 'unknown';
         return `<tr onclick="showRunLog('${r.runId}','${label.replace(/'/g,'')}','${st}','${started}')">
@@ -2022,6 +2036,9 @@ async function loadRuns() {
         </tr>`;
       }).join('')}</tbody>
     </table>`;
+
+    // Auto-refresh the live row every 15s while a run is active
+    if (active) setTimeout(() => { if (document.getElementById('nav-runs')?.classList.contains('active')) loadRuns(); }, 15000);
   } catch (e) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`;
   }
