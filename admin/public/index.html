@@ -5041,9 +5041,11 @@ async function confirmProductImport() {
 
 // ─── Boot ───
 init().then(() => {
-  // Auto-navigate to a section if ?section= is in the URL
   const section = new URLSearchParams(location.search).get('section');
-  if (section) navigate(section);
+  if (section && ['settings', 'setup', 'dashboard'].includes(section)) {
+    state.currentView = section;
+    render();
+  }
 });
 </script>
 
