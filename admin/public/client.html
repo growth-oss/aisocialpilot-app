@@ -2268,7 +2268,7 @@ function renderBriefCard(b) {
       <button class="btn btn-ghost btn-sm" style="font-size:11px;width:100%" onclick="changeProductRef('${bid}')">📎 Attach product photo for Gemini</button>
     </div>`;
 
-  const canApprove = b.status === 'pending' || b.status === 'draft';
+  const canApprove = b.status === 'pending' || b.status === 'draft' || b.status === 'approved';
   return `
   <div class="card" style="margin-bottom:14px">
     ${imgTag}
@@ -2463,7 +2463,7 @@ async function openBriefModal(briefId) {
     const b = briefs.find(x => (x.brief_id || x.id) === briefId);
     if (!b) throw new Error('Brief not found');
     const bid = b.brief_id || b.id;
-    const canApprove = b.status === 'pending' || b.status === 'draft';
+    const canApprove = b.status === 'pending' || b.status === 'draft' || b.status === 'approved';
     const imgSection = b.image_url
       ? `<img src="${b.image_url}" style="width:100%;border-radius:10px;margin-bottom:16px">`
       : `<div style="height:120px;background:var(--bg);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:16px">No image generated yet</div>`;

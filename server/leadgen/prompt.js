@@ -65,7 +65,7 @@ function buildLeadGenPrompt(clientConfig, dataDir) {
 
   // Queued precision content briefs — posted as part of this run
   const precisionBriefs = readJson(path.join(lgDir, 'precision-briefs.json'), []);
-  const queuedBriefs = precisionBriefs.filter(b => b.status === 'queued');
+  const queuedBriefs = precisionBriefs.filter(b => b.status === 'queued' || b.status === 'approved');
   const assetsBaseDir = path.join(clientDir, 'assets', 'precision');
 
   // Target geo for Meta Ads Library filtering — use client's proxy geo setting
