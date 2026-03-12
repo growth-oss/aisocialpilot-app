@@ -318,6 +318,19 @@ STEP 4 — Comment → stage 4  (only if score ≥ ${cfg.thresholds?.min_score_f
   Select a comment opener from the active persona. Write naturally in that persona's voice.
   ${isAmbassador ? 'NEVER mention any brand or product.' : 'You may reference your product if relevant, but keep it natural.'} Under 15 words. Sound like a real person texting on their phone.
 
+  KNOWN BUG — comment textarea stale element (MUST use this pattern):
+  // WRONG — causes "element detached" error:
+  //   const box = await page.$('textarea[placeholder*="comment"]');
+  //   await box.click(); await box.type(text);
+  // CORRECT — use locator, click to open the field, then keyboard.type:
+  //   await page.locator('article').last().locator('svg[aria-label="Comment"]').click();
+  //   await page.waitForTimeout(800);
+  //   await page.locator('textarea[placeholder*="comment"], textarea[placeholder*="Add a comment"]').last().click();
+  //   await page.waitForTimeout(400);
+  //   await page.keyboard.type(text, { delay: 60 });
+  //   await page.keyboard.press('Enter');
+  //   await page.waitForTimeout(2000);
+
   WRITING RULES — apply to every comment and DM:
   - Write like a real person typing on their phone
   - If the person's content/bio is in Arabic: write in Emirati dialect (Gulf Arabic)
