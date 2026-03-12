@@ -2011,7 +2011,7 @@ async function loadRuns() {
         <td style="font-weight:500">🎯 Lead Gen <span style="font-size:10px;color:var(--green);animation:pulse 1.5s infinite">● LIVE</span></td>
         <td><span class="run-status running" style="background:rgba(34,197,94,.15);color:var(--green)">running</span></td>
         <td style="color:var(--muted)">${new Date(active.startedAt).toLocaleString()}</td>
-        <td style="color:var(--green)">${Math.floor(active.elapsedSeconds/60)}m ${active.elapsedSeconds%60}s</td>
+        <td id="live-run-elapsed" style="color:var(--green)" data-started="${active.startedAt}">—</td>
         <td style="color:var(--muted)">—</td>
       </tr>` : '';
 
@@ -2037,8 +2037,23 @@ async function loadRuns() {
       }).join('')}</tbody>
     </table>`;
 
-    // Auto-refresh the live row every 15s while a run is active
-    if (active) setTimeout(() => { if (document.getElementById('nav-runs')?.classList.contains('active')) loadRuns(); }, 15000);
+    // Tick the elapsed counter every second
+    if (active) {
+      clearInterval(window._liveRunTicker);
+      const startedMs = new Date(active.startedAt).getTime();
+      const tick = () => {
+        const el2 = document.getElementById('live-run-elapsed');
+        if (!el2) { clearInterval(window._liveRunTicker); return; }
+        const s = Math.floor((Date.now() - startedMs) / 1000);
+        el2.textContent = `${Math.floor(s/60)}m ${s%60}s`;
+      };
+      tick();
+      window._liveRunTicker = setInterval(tick, 1000);
+      // Full row refresh every 15s (updates last activity etc)
+      setTimeout(() => { if (document.getElementById('nav-runs')?.classList.contains('active')) loadRuns(); }, 15000);
+    } else {
+      clearInterval(window._liveRunTicker);
+    }
   } catch (e) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠</div><div class="empty-title">Error</div><div class="empty-sub">${e.message}</div></div>`;
   }
