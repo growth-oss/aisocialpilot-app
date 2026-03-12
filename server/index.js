@@ -3926,6 +3926,17 @@ function savePrecisionBriefs(cDir, briefs) {
   fs.renameSync(tmp, p);
 }
 
+// Atomic patch for a single brief — re-reads file immediately before writing
+// to avoid race conditions when multiple images generate concurrently
+function patchPrecisionBrief(cDir, briefId, fields) {
+  const briefs = loadPrecisionBriefs(cDir);
+  const idx = briefs.findIndex(b => b.brief_id === briefId);
+  if (idx === -1) return null;
+  briefs[idx] = { ...briefs[idx], ...fields };
+  savePrecisionBriefs(cDir, briefs);
+  return briefs[idx];
+}
+
 // GET /api/clients/:id/precision/briefs
 app.get('/api/clients/:id/precision/briefs', requireLicense, (req, res) => {
   const cDir = clientDir(req.params.id);
@@ -4148,13 +4159,16 @@ app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, a
 
     const localUrl = `/api/clients/${req.params.id}/assets/precision/${filename}`;
 
-    const briefIdx = briefs.findIndex(b => b.brief_id === req.params.briefId);
-    briefs[briefIdx].image_url = localUrl;
-    briefs[briefIdx].generated_images = briefs[briefIdx].generated_images || [];
-    briefs[briefIdx].generated_images.push({ filename, local_url: localUrl, created_at: new Date().toISOString() });
-    savePrecisionBriefs(cDir, briefs);
+    // Re-read + patch atomically — prevents concurrent saves clobbering each other
+    const updatedBrief = patchPrecisionBrief(cDir, req.params.briefId, {
+      image_url: localUrl,
+      generated_images: [
+        ...(brief.generated_images || []),
+        { filename, local_url: localUrl, created_at: new Date().toISOString() },
+      ],
+    });
 
-    res.json({ ok: true, local_url: localUrl, filename, brief: briefs[briefIdx] });
+    res.json({ ok: true, local_url: localUrl, filename, brief: updatedBrief });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

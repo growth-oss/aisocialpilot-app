@@ -1647,6 +1647,13 @@ function appendChatMsg(role, text, typing = false) {
   return el;
 }
 
+// Debounced loadBriefs — coalesces rapid concurrent calls into one render
+let _loadBriefsTimer = null;
+function loadBriefsDebounced() {
+  clearTimeout(_loadBriefsTimer);
+  _loadBriefsTimer = setTimeout(() => loadBriefs(), 400);
+}
+
 // System notification in chat — for action results, errors, status updates
 function chatNotify(text, type = 'info') {
   const colors = { info: '#6b7280', ok: 'var(--green)', error: 'var(--red)', warn: 'var(--amber)' };
@@ -1768,7 +1775,7 @@ function generateImage(briefId, btn) {
       if (result.error) throw new Error(result.error);
       toast('Image generated');
       chatNotify('Image generated. Preview it in the Content tab.', 'ok');
-      await loadBriefs();
+      loadBriefsDebounced(); // debounced — safe to call from multiple concurrent generations
     } catch(e) {
       toast('Error: ' + e.message, 'error');
       chatNotify(`Image generation failed: ${e.message}`, 'error');
