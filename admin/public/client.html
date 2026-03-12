@@ -699,6 +699,9 @@
       <button class="nav-item" onclick="switchTab('content')" id="nav-content">
         <span class="nav-icon">✨</span> Content
       </button>
+      <button class="nav-item" onclick="switchTab('products')" id="nav-products">
+        <span class="nav-icon">📦</span> Products
+      </button>
       <button class="nav-item" onclick="switchTab('settings')" id="nav-settings">
         <span class="nav-icon">⚙️</span> Settings
       </button>
@@ -811,6 +814,58 @@
           <div style="background:var(--card);border-radius:14px;width:660px;max-height:88vh;overflow-y:auto;padding:28px;position:relative">
             <button onclick="closeBriefModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
             <div id="brief-modal-body"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PRODUCTS TAB -->
+      <div class="tab-pane" id="tab-products">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+          <div>
+            <div class="page-title">Products</div>
+            <div class="page-subtitle">Scraped catalogue · images · pain points · keywords</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="loadProducts()">↻ Refresh</button>
+            <button class="btn btn-primary" onclick="openScrapeModal()">⚡ Scrape Store</button>
+          </div>
+        </div>
+
+        <!-- Pull status bar -->
+        <div id="pull-status-bar" style="display:none;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:flex;align-items:center;gap:10px">
+          <span id="pull-status-icon">⏳</span>
+          <span id="pull-status-text" style="color:var(--muted)">Downloading images…</span>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="triggerPullImages()">Re-pull Images</button>
+        </div>
+
+        <div id="products-list"></div>
+
+        <!-- Scrape modal -->
+        <div id="scrape-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+          <div style="background:var(--card);border-radius:14px;width:520px;padding:28px;position:relative">
+            <button onclick="closeScrapeModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+            <div style="font-size:16px;font-weight:600;margin-bottom:18px">⚡ Scrape Product Store</div>
+            <div class="field" style="margin-bottom:12px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Store URL</label>
+              <input id="scrape-store-url" type="text" placeholder="https://yourstore.com" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--input);color:var(--text);font-size:13px">
+            </div>
+            <div class="field" style="margin-bottom:12px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Keyword filter <span style="color:var(--muted);font-weight:400">(optional — e.g. "bamboo")</span></label>
+              <input id="scrape-keyword" type="text" placeholder="Leave blank to import all" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--input);color:var(--text);font-size:13px">
+            </div>
+            <div class="field" style="margin-bottom:12px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Max products</label>
+              <input id="scrape-max" type="number" value="20" min="1" max="100" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--input);color:var(--text);font-size:13px">
+            </div>
+            <div class="field" style="margin-bottom:18px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:5px">Extra product URLs <span style="color:var(--muted);font-weight:400">(one per line — overrides store URL)</span></label>
+              <textarea id="scrape-extra-urls" rows="3" placeholder="https://store.com/products/handle-1&#10;https://store.com/products/handle-2" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--input);color:var(--text);font-size:12px;resize:vertical"></textarea>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" style="flex:1" onclick="runScrape()">Run Scrape</button>
+              <button class="btn btn-ghost" onclick="closeScrapeModal()">Cancel</button>
+            </div>
+            <div id="scrape-modal-log" style="display:none;margin-top:14px;background:var(--card2);border-radius:8px;padding:10px;font-family:monospace;font-size:11px;color:var(--muted);max-height:160px;overflow-y:auto;white-space:pre-wrap"></div>
           </div>
         </div>
       </div>
@@ -986,6 +1041,7 @@ function switchTab(tab) {
   else if (tab === 'runs') loadRuns();
   else if (tab === 'settings') loadSettings();
   else if (tab === 'content') loadBriefs();
+  else if (tab === 'products') loadProducts();
 }
 
 // ── Toast ──
@@ -1358,6 +1414,168 @@ async function saveSmartSchedule() {
     loadOverview();
   } catch (err) {
     chatNotify('Failed to save schedule: ' + err.message, 'error');
+  }
+}
+
+// ── Products tab ──────────────────────────────────────────────────────────────
+let _pullStatusTimer = null;
+
+async function loadProducts() {
+  const el = document.getElementById('products-list');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Loading…</div>';
+  try {
+    const [products, pullStatus] = await Promise.all([
+      api('GET', `/clients/${clientId}/knowledge/products`),
+      api('GET', `/clients/${clientId}/assets/pull-status`).catch(() => ({ running: false })),
+    ]);
+    renderProducts(products);
+    renderPullStatus(pullStatus);
+    if (pullStatus.running) startPullStatusPolling();
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠</div><div class="empty-title">Failed to load</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function renderPullStatus(s) {
+  const bar = document.getElementById('pull-status-bar');
+  if (!s || (!s.running && !s.total)) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+  document.getElementById('pull-status-icon').textContent = s.running ? '⏳' : (s.failed > 0 ? '⚠' : '✅');
+  document.getElementById('pull-status-text').textContent = s.running
+    ? `Downloading images… ${s.done}/${s.total} (${pct}%)`
+    : `Images: ${s.done} downloaded${s.failed > 0 ? ', ' + s.failed + ' failed' : ''} · Last run ${s.finishedAt ? timeAgo(s.finishedAt) : ''}`;
+}
+
+function startPullStatusPolling() {
+  if (_pullStatusTimer) return;
+  _pullStatusTimer = setInterval(async () => {
+    const s = await api('GET', `/clients/${clientId}/assets/pull-status`).catch(() => null);
+    if (!s) return;
+    renderPullStatus(s);
+    if (!s.running) {
+      clearInterval(_pullStatusTimer); _pullStatusTimer = null;
+      loadProducts(); // refresh cards with new local images
+    }
+  }, 3000);
+}
+
+async function triggerPullImages() {
+  await api('POST', `/clients/${clientId}/assets/pull-images`).catch(() => {});
+  toast('Image download started');
+  startPullStatusPolling();
+  renderPullStatus({ running: true, total: 0, done: 0 });
+  document.getElementById('pull-status-bar').style.display = 'flex';
+}
+
+function renderProducts(products) {
+  const el = document.getElementById('products-list');
+  if (!products || !products.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📦</div>
+      <div class="empty-title">No products yet</div>
+      <div class="empty-sub">Click <strong>Scrape Store</strong> to import your product catalogue.</div></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px">
+      ${products.map((p, i) => renderProductCard(p, i)).join('')}
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:var(--muted);text-align:right">${products.length} product${products.length !== 1 ? 's' : ''} in catalogue</div>`;
+}
+
+function renderProductCard(p, i) {
+  // Pick best image: first local_url, then first remote image_url
+  const imgUrl = (p.local_urls && p.local_urls[0]) || (p.image_urls && p.image_urls[0]) || '';
+  const imgHtml = imgUrl
+    ? `<img src="${escapeHtml(imgUrl)}" style="width:100%;height:160px;object-fit:cover;border-radius:8px 8px 0 0;display:block" onerror="this.style.display='none'">`
+    : `<div style="width:100%;height:80px;background:var(--card2);border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;font-size:28px">📦</div>`;
+
+  const price = p.price ? `<span style="color:var(--accent);font-size:13px;font-weight:600">${escapeHtml(String(p.price))}</span>` : '';
+  const tags  = (p.tags || []).slice(0, 4).map(t => `<span style="background:var(--card2);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--muted)">${escapeHtml(t)}</span>`).join('');
+
+  const usps = (p.usps || p.pain_points || []).slice(0, 3).map(u =>
+    `<li style="font-size:11px;color:var(--muted);margin-bottom:3px">${escapeHtml(u)}</li>`).join('');
+
+  const kwCount = (p.keywords || []).length;
+
+  return `
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    ${imgHtml}
+    <div style="padding:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.3">${escapeHtml(p.name || 'Unnamed Product')}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        ${price}
+        ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" style="font-size:10px;color:var(--accent);text-decoration:none">↗ View</a>` : ''}
+      </div>
+      ${p.description ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(p.description)}</div>` : ''}
+      ${usps ? `<ul style="margin:0 0 8px;padding-left:14px">${usps}</ul>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${tags}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <span style="font-size:10px;color:var(--muted)">${kwCount} keyword${kwCount !== 1 ? 's' : ''} · ${(p.image_urls || []).length} image${(p.image_urls || []).length !== 1 ? 's' : ''}</span>
+        <button class="btn btn-ghost btn-sm" onclick="deleteProduct(${i})" style="color:var(--red);font-size:10px;padding:3px 8px">Remove</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function deleteProduct(idx) {
+  const products = await api('GET', `/clients/${clientId}/knowledge/products`);
+  products.splice(idx, 1);
+  await api('PUT', `/clients/${clientId}/knowledge/products`, products);
+  chatNotify('Product removed', 'info');
+  loadProducts();
+}
+
+function openScrapeModal() {
+  const m = document.getElementById('scrape-modal');
+  m.style.display = 'flex';
+  document.getElementById('scrape-modal-log').style.display = 'none';
+  document.getElementById('scrape-modal-log').textContent = '';
+}
+
+function closeScrapeModal() {
+  document.getElementById('scrape-modal').style.display = 'none';
+}
+
+async function runScrape() {
+  const storeUrl   = document.getElementById('scrape-store-url').value.trim();
+  const keyword    = document.getElementById('scrape-keyword').value.trim();
+  const maxCount   = parseInt(document.getElementById('scrape-max').value) || 20;
+  const extraUrls  = document.getElementById('scrape-extra-urls').value.trim();
+  if (!storeUrl && !extraUrls) return toast('Enter a store URL or product URLs', 'error');
+
+  const logEl = document.getElementById('scrape-modal-log');
+  logEl.style.display = 'block';
+  logEl.textContent = 'Starting scrape…\n';
+
+  chatNotify('⚡ Product scrape started…', 'info');
+
+  try {
+    const r = await api('POST', `/clients/${clientId}/run`, {
+      command: 'products-scrape',
+      params: { storeUrl, keyword, maxCount, extraUrls },
+    });
+
+    // Poll run status
+    const poll = setInterval(async () => {
+      try {
+        const active = await api('GET', `/clients/${clientId}/run/active`);
+        const run = active.find(x => x.runId === r.runId);
+        if (run) {
+          logEl.textContent = run.lastActivity || 'Running…';
+          logEl.scrollTop = logEl.scrollHeight;
+        } else {
+          clearInterval(poll);
+          logEl.textContent += '\n✅ Done — reloading products…';
+          chatNotify('Product scrape complete', 'ok');
+          setTimeout(() => { closeScrapeModal(); loadProducts(); }, 1200);
+        }
+      } catch { clearInterval(poll); }
+    }, 2000);
+  } catch (err) {
+    logEl.textContent += '\n❌ ' + err.message;
+    chatNotify('Scrape failed: ' + err.message, 'error');
   }
 }
 
