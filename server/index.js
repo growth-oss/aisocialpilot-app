@@ -2670,39 +2670,41 @@ async function sendResendEmail({ apiKey, from, to, subject, html }) {
   });
 }
 
-async function sendDailyReport() {
+async function sendDailyReport(targetClientId) {
   const config = loadConfig();
   const apiKey = process.env.RESEND_API_KEY || config.resendApiKey;
-  const to     = process.env.DAILY_REPORT_EMAIL || config.dailyReportEmail;
-  const from   = process.env.DAILY_REPORT_FROM  || config.dailyReportFrom;
-  if (!apiKey || !to || !from) {
-    const missing = [!apiKey && 'RESEND_API_KEY', !to && 'recipient email', !from && 'from address'].filter(Boolean).join(', ');
-    const msg = `[daily-report] Skipping — missing: ${missing}`;
-    console.log(msg);
-    throw new Error(msg);
+  if (!apiKey) throw new Error('[daily-report] Missing RESEND_API_KEY');
+
+  const now         = new Date();
+  const ystDate     = new Date(now.getTime() - 86400000);
+  const yesterday   = ystDate.toISOString().slice(0, 10);
+  const monthPrefix = now.toISOString().slice(0, 7);
+  const dateLabel   = ystDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
+  const monthLabel  = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
+
+  const allClients = getClients().filter(c => c.status !== 'paused');
+  const targets    = targetClientId ? allClients.filter(c => (c.clientId || c.id) === targetClientId) : allClients;
+
+  if (!targets.length) throw new Error('[daily-report] No matching clients');
+
+  // Group clients by recipient email — one email per recipient containing all their clients
+  const byRecipient = {};
+  for (const c of targets) {
+    const to   = c.dailyReportEmail || '';
+    const from = c.dailyReportFrom  || `AI Social Pilot <reports@adsbackup.com>`;
+    if (!to) { console.log(`[daily-report] Skipping ${c.name} — no recipient email set (configure in client Settings tab)`); continue; }
+    if (!byRecipient[to]) byRecipient[to] = { from, clients: [] };
+    byRecipient[to].clients.push(c);
   }
 
-  // GST yesterday = UTC today-1 day (both point to same calendar date in GST since we're firing at 02:00 UTC = 06:00 GST)
-  const now       = new Date();
-  const ystDate   = new Date(now.getTime() - 86400000);
-  const yesterday = ystDate.toISOString().slice(0, 10);   // YYYY-MM-DD
-  const monthPrefix = now.toISOString().slice(0, 7);      // YYYY-MM (current month)
+  if (!Object.keys(byRecipient).length) throw new Error('No clients have a recipient email configured. Set it in each client\'s Settings tab.');
 
-  const dateLabel  = ystDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
-  const monthLabel = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
-
-  const clients = getClients().filter(c => c.status !== 'paused');
-  if (!clients.length) { console.log('[daily-report] No active clients'); return; }
-
-  const reports = clients.map(c => buildClientReport(c.clientId || c.id, c.name, yesterday, monthPrefix));
-  const html    = buildDailyReportHtml(reports, dateLabel, monthLabel);
-  const subject = `Daily Report — ${dateLabel}`;
-
-  try {
+  for (const [to, { from, clients }] of Object.entries(byRecipient)) {
+    const reports = clients.map(c => buildClientReport(c.clientId || c.id, c.name, yesterday, monthPrefix));
+    const html    = buildDailyReportHtml(reports, dateLabel, monthLabel);
+    const subject = `Daily Report — ${dateLabel}`;
     await sendResendEmail({ apiKey, from, to, subject, html });
-    console.log(`[daily-report] Sent to ${to}`);
-  } catch (err) {
-    console.error('[daily-report] Failed:', err.message);
+    console.log(`[daily-report] Sent to ${to} (${clients.map(c => c.name).join(', ')})`);
   }
 }
 
@@ -2832,6 +2834,16 @@ app.patch('/api/clients/:id/smart-schedule', requireLicense, (req, res) => {
 app.post('/api/daily-report/send-now', requireLicense, async (req, res) => {
   try {
     await sendDailyReport();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-client send-now (from client Settings tab)
+app.post('/api/clients/:id/daily-report/send-now', requireLicense, async (req, res) => {
+  try {
+    await sendDailyReport(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

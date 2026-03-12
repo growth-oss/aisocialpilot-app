@@ -874,18 +874,35 @@
       <!-- SETTINGS TAB -->
       <div class="tab-pane" id="tab-settings">
         <div class="page-title">Settings</div>
-        <div class="page-subtitle">Edit configuration in the admin panel</div>
-        <div class="card">
-          <div style="font-size:13px;color:var(--muted);margin-bottom:14px">
-            Advanced settings (API keys, prompts, schedule) are managed in the full admin panel.
+        <div class="page-subtitle">Client-specific configuration</div>
+
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title"><span class="card-title-text">📬 Daily Report Email</span></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+            Sent every day at 06:00 GST. Resend API key is configured globally in the Admin Panel.<br>
+            Set the recipient and sender address for <strong>this client</strong> here.
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary" onclick="openAdmin()">Open Admin Panel</button>
-            <button class="btn btn-ghost" onclick="openAdminSection('settings')">📬 Daily Report &amp; Email</button>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Recipient email</label>
+              <input id="s-report-email" type="email" placeholder="s7growth@gmail.com"
+                style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">From address</label>
+              <input id="s-report-from" type="text" placeholder="Bamboo Sleep Professor <reports@adsbackup.com>"
+                style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="saveReportEmail()">Save</button>
+              <button class="btn btn-ghost" onclick="sendClientTestReport()">Send Test Report Now</button>
+            </div>
+            <div id="s-report-status" style="font-size:12px;color:var(--green);display:none"></div>
           </div>
         </div>
+
         <div class="card" id="settings-config-card">
-          <div class="card-title"><span class="card-title-text">⚙️ Quick Config</span></div>
+          <div class="card-title"><span class="card-title-text">⚙️ Lead Gen Config</span></div>
           <div id="settings-config-body">Loading…</div>
         </div>
       </div>
@@ -2012,6 +2029,13 @@ async function loadRuns() {
 // ── SETTINGS ──
 async function loadSettings() {
   try {
+    // Populate email fields from client config
+    const clients = await api('GET', '/clients');
+    const cc = clients.find(c => c.clientId === clientId);
+    if (cc?.dailyReportEmail) document.getElementById('s-report-email').value = cc.dailyReportEmail;
+    if (cc?.dailyReportFrom)  document.getElementById('s-report-from').value  = cc.dailyReportFrom;
+  } catch {}
+  try {
     const cfg = await api('GET', `/clients/${clientId}/leadgen/config`);
     document.getElementById('settings-config-body').innerHTML = `
       <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Lead Gen configuration summary:</div>
@@ -2022,6 +2046,29 @@ async function loadSettings() {
   } catch (e) {
     document.getElementById('settings-config-body').innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
   }
+}
+
+async function saveReportEmail() {
+  const email = document.getElementById('s-report-email').value.trim();
+  const from  = document.getElementById('s-report-from').value.trim();
+  if (!email) { toast('Enter a recipient email', 'error'); return; }
+  try {
+    await api('PUT', `/clients/${clientId}`, { dailyReportEmail: email, dailyReportFrom: from });
+    const st = document.getElementById('s-report-status');
+    st.textContent = '✓ Saved';
+    st.style.display = 'block';
+    setTimeout(() => { st.style.display = 'none'; }, 2500);
+    toast('Email settings saved');
+  } catch (e) { toast('Save failed: ' + e.message, 'error'); }
+}
+
+async function sendClientTestReport() {
+  toast('Sending test report…');
+  try {
+    const r = await api('POST', `/clients/${clientId}/daily-report/send-now`);
+    if (r.error) toast(r.error, 'error');
+    else toast('Test report sent! Check your inbox.');
+  } catch (e) { toast('Failed: ' + e.message, 'error'); }
 }
 
 // ── LOG MODAL ──
