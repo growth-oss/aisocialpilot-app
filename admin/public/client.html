@@ -1091,6 +1091,7 @@ async function init() {
     checkActiveRun();
     checkProxy();
     checkSmartScheduleSidebar();
+    startRunPoller();
   } catch (e) { toast('Init error: ' + e.message, 'error'); }
 }
 
@@ -1246,6 +1247,83 @@ async function checkActiveRun() {
       setStatusIndicator('idle', 'Idle');
     }
   } catch {}
+}
+
+// Continuously poll run state — detect scheduled runs starting/finishing
+let _pollPrevRunId = null;
+let _pollStatsSnapshot = null;
+function startRunPoller() {
+  setInterval(async () => {
+    try {
+      const r = await api('GET', `/clients/${clientId}/run/active`);
+      const currentId = r?.runId || null;
+
+      // Run just STARTED
+      if (currentId && !_pollPrevRunId) {
+        activeRunId = currentId;
+        setStatusIndicator('running', 'Run active');
+        updateChatPills();
+        // Snapshot stats before run so we can diff later
+        _pollStatsSnapshot = await api('GET', `/clients/${clientId}/leadgen/stats`).catch(() => null);
+        const el = document.createElement('div');
+        el.className = 'chat-msg';
+        el.innerHTML = `
+          <div class="chat-msg-avatar">🤖</div>
+          <div class="chat-msg-bubble">
+            <div style="font-weight:600;margin-bottom:4px">⚡ Scheduled run started</div>
+            <div style="font-size:12px;opacity:.8">Running autonomously now — I'll report back when done. Check the <strong>Runs</strong> tab for live output.</div>
+          </div>`;
+        const c = document.getElementById('chat-messages');
+        c.appendChild(el);
+        c.scrollTop = c.scrollHeight;
+      }
+
+      // Run just FINISHED
+      if (!currentId && _pollPrevRunId) {
+        activeRunId = null;
+        setStatusIndicator('idle', 'Idle');
+        updateChatPills();
+        loadOverview();
+        // Build completion summary
+        try {
+          const [newStats, runs] = await Promise.all([
+            api('GET', `/clients/${clientId}/leadgen/stats`),
+            api('GET', `/clients/${clientId}/runs`),
+          ]);
+          const prev = _pollStatsSnapshot || {};
+          const addedLeads = (newStats.totalLeads || 0) - (prev.totalLeads || 0);
+          const addedHot   = (newStats.hotLeads  || 0) - (prev.hotLeads  || 0);
+          const latestRun  = (runs || []).find(r2 => r2.runId === _pollPrevRunId) || runs?.[0];
+          const dur = latestRun?.duration ? ` · ${Math.round(latestRun.duration / 60)}m` : '';
+          const status = latestRun?.status || 'completed';
+
+          const lines = [];
+          lines.push(`<strong>✅ Run complete${dur}</strong> — status: ${status}`);
+          if (addedLeads > 0)
+            lines.push(`📥 +${addedLeads} new lead${addedLeads !== 1 ? 's' : ''} added to pipeline`);
+          if (addedHot > 0)
+            lines.push(`🔥 +${addedHot} hot lead${addedHot !== 1 ? 's' : ''}`);
+          if (addedLeads === 0 && addedHot === 0)
+            lines.push(`Pipeline unchanged — engagement actions may have been taken`);
+          lines.push(`<span style="opacity:.7;font-size:11px">Open <strong>Runs</strong> tab for full log</span>`);
+
+          const el2 = document.createElement('div');
+          el2.className = 'chat-msg';
+          el2.innerHTML = `
+            <div class="chat-msg-avatar">🤖</div>
+            <div class="chat-msg-bubble" style="line-height:1.7">
+              ${lines.map(l => `<div>${l}</div>`).join('')}
+            </div>`;
+          const c = document.getElementById('chat-messages');
+          c.appendChild(el2);
+          c.scrollTop = c.scrollHeight;
+        } catch {}
+        _pollStatsSnapshot = null;
+      }
+
+      _pollPrevRunId = currentId;
+    } catch {}
+  }, 20000); // every 20s
 }
 
 function setStatusIndicator(state, label) {
