@@ -1455,6 +1455,7 @@ async function toggleSmartSchedule(e) {
     await api('PATCH', `/clients/${clientId}/smart-schedule`, { enabled: newEnabled });
     chatNotify(`Auto-schedule ${newEnabled ? 'enabled' : 'disabled'}`, newEnabled ? 'ok' : 'info');
     loadOverview();
+    checkSmartScheduleSidebar();
   } catch (err) {
     chatNotify('Failed to toggle auto-schedule: ' + err.message, 'error');
   }
@@ -1469,6 +1470,7 @@ async function saveSmartSchedule() {
     const res = await api('PATCH', `/clients/${clientId}/smart-schedule`, { enabled, windows });
     chatNotify(`Schedule saved. Today's runs: ${(res.todayTimesGst || []).join(', ')} GST`, 'ok');
     loadOverview();
+    checkSmartScheduleSidebar();
   } catch (err) {
     chatNotify('Failed to save schedule: ' + err.message, 'error');
   }
