@@ -1735,21 +1735,51 @@ async function generateBriefs() {
   }
 }
 
-async function generateImage(briefId, btn) {
-  const origText = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳ Generating…';
-  chatNotify('Calling Gemini to generate image…', 'info');
-  try {
-    const result = await api('POST', `/clients/${clientId}/precision/generate-image/${briefId}`, {});
-    if (result.error) throw new Error(result.error);
-    toast('Image generated');
-    chatNotify('Image generated successfully. Preview it in the Content tab.', 'ok');
-    await loadBriefs();
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-    chatNotify(`Image generation failed: ${e.message}`, 'error');
-    btn.disabled = false; btn.textContent = origText;
-  }
+function generateImage(briefId, btn) {
+  // Show refinement prompt overlay anchored near the button
+  const existing = document.getElementById('img-refine-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'img-refine-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--card);border-radius:12px;padding:22px;width:420px;box-shadow:0 8px 32px rgba(0,0,0,.4)">
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px">🎨 Regenerate Image</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Optionally describe what to change. Leave blank to regenerate with the same prompt.</div>
+      <textarea id="img-refine-input" placeholder="e.g. Don't show the lady's legs. Zoom in on face and pillow. Add soft Arabic text overlay top-right."
+        style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:vertical;min-height:80px;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('img-refine-overlay').remove()">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="img-refine-go">Generate ✨</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('img-refine-input').focus();
+
+  document.getElementById('img-refine-go').onclick = async () => {
+    const refinement = document.getElementById('img-refine-input').value.trim();
+    overlay.remove();
+    btn.disabled = true; btn.textContent = '⏳ Generating…';
+    const notifyText = refinement ? `Regenerating image with notes: "${refinement}"` : 'Regenerating image…';
+    chatNotify(notifyText, 'info');
+    try {
+      const result = await api('POST', `/clients/${clientId}/precision/generate-image/${briefId}`, { refinement });
+      if (result.error) throw new Error(result.error);
+      toast('Image generated');
+      chatNotify('Image generated. Preview it in the Content tab.', 'ok');
+      await loadBriefs();
+    } catch(e) {
+      toast('Error: ' + e.message, 'error');
+      chatNotify(`Image generation failed: ${e.message}`, 'error');
+      btn.disabled = false; btn.textContent = '🔄 Re-generate';
+    }
+  };
+
+  // Also allow Enter (Ctrl/Cmd+Enter) to submit
+  document.getElementById('img-refine-input').addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') document.getElementById('img-refine-go').click();
+  });
 }
 
 async function approveBrief(briefId) {

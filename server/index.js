@@ -4116,11 +4116,15 @@ app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, a
     const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
     const contents = [];
-    const { referenceImageBase64, referenceImageMime } = req.body;
+    const { referenceImageBase64, referenceImageMime, refinement } = req.body;
     if (referenceImageBase64) {
       contents.push({ inlineData: { mimeType: referenceImageMime || 'image/jpeg', data: referenceImageBase64 } });
     }
-    contents.push({ text: brief.image_prompt });
+    // Combine base prompt with any user refinement notes
+    const finalPrompt = refinement
+      ? `${brief.image_prompt}\n\nIMPORTANT refinements for this version: ${refinement}`
+      : brief.image_prompt;
+    contents.push({ text: finalPrompt });
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-image-preview',
