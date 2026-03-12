@@ -2673,10 +2673,10 @@ async function sendResendEmail({ apiKey, from, to, subject, html }) {
 async function sendDailyReport() {
   const config = loadConfig();
   const apiKey = process.env.RESEND_API_KEY || config.resendApiKey;
-  const to     = process.env.DAILY_REPORT_EMAIL || config.dailyReportEmail || 's7growth@gmail.com';
-  const from   = process.env.DAILY_REPORT_FROM  || config.dailyReportFrom || 'AI Social Pilot <reports@adsbackup.com>';
-  if (!apiKey) {
-    console.log('[daily-report] Skipping — RESEND_API_KEY not configured');
+  const to     = process.env.DAILY_REPORT_EMAIL || config.dailyReportEmail;
+  const from   = process.env.DAILY_REPORT_FROM  || config.dailyReportFrom;
+  if (!apiKey || !to || !from) {
+    console.log('[daily-report] Skipping — RESEND_API_KEY, recipient, or from address not configured');
     return;
   }
 
