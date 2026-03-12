@@ -139,6 +139,15 @@ function markDoNotEngage(clientDir, leadId) {
   saveLeads(clientDir, leads);
 }
 
+function patchLead(clientDir, leadId, fields) {
+  const leads = loadLeads(clientDir);
+  const idx   = leads.findIndex(l => l.id === leadId);
+  if (idx === -1) return null;
+  leads[idx] = { ...leads[idx], ...fields, updated_at: now() };
+  saveLeads(clientDir, leads);
+  return leads[idx];
+}
+
 function deleteLead(clientDir, leadId) {
   const leads = loadLeads(clientDir).filter(l => l.id !== leadId);
   saveLeads(clientDir, leads);
@@ -336,6 +345,7 @@ module.exports = {
   getLeads,
   getLeadById,
   wasEngagedWithinHours,
+  patchLead,
   // stats
   getStats,
   // log

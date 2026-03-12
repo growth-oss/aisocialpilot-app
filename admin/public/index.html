@@ -1242,7 +1242,7 @@ async function restoreBackup() {
 function renderDashboard() {
   const clientCards = state.clients.length > 0
     ? state.clients.map(c => `
-        <div class="client-card" onclick="editClient('${c.clientId}')">
+        <div class="client-card" onclick="openClientTab('${c.clientId}')">
           <div class="client-info">
             <div class="client-name">${c.name}</div>
             <div class="client-meta">
@@ -1257,7 +1257,7 @@ function renderDashboard() {
           <div class="client-actions">
             <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); openSessionPicker('${c.clientId}', '${c.name}')" title="Set up browser sessions">🔐 Login</button>
             <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); openCmdPicker('${c.clientId}', '${c.name}')">Run ▾</button>
-            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); editClient('${c.clientId}')">Edit</button>
+            <button class="btn btn-sm btn-ghost" onclick="event.stopPropagation(); openClientTab('${c.clientId}')">Open</button>
             <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteClient('${c.clientId}', '${c.name}')">✕</button>
           </div>
         </div>
@@ -3859,6 +3859,10 @@ function newClient() {
   state.currentView = 'client-new';
   state.editingClient = null;
   render();
+}
+
+function openClientTab(id) {
+  window.open(`/client.html?id=${id}`, `client_${id}`);
 }
 
 function editClient(id) {

@@ -2962,12 +2962,27 @@ app.patch('/api/clients/:id/leadgen/leads/:leadId', requireLicense, (req, res) =
   const leadId = parseInt(req.params.leadId);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
 
-  const { action, stage, notes } = req.body;
+  const { action, stage, notes, feedback, purchase_amount, tags } = req.body;
   try {
     if (action === 'convert') {
       lgDb.markConverted(cDir, leadId);
     } else if (action === 'dnd') {
       lgDb.markDoNotEngage(cDir, leadId);
+    } else if (feedback !== undefined) {
+      // feedback: 'good' | 'bad' | 'purchased' | 'clear'
+      const fields = {};
+      if (feedback === 'good')      { fields.feedback_good = 1; fields.feedback_bad = 0; }
+      else if (feedback === 'bad')  { fields.feedback_bad  = 1; fields.feedback_good = 0; }
+      else if (feedback === 'purchased') {
+        fields.feedback_purchased = 1;
+        if (purchase_amount !== undefined) fields.purchase_amount = purchase_amount;
+      } else if (feedback === 'clear_purchased') {
+        fields.feedback_purchased = 0; fields.purchase_amount = null;
+      } else if (feedback === 'clear') {
+        fields.feedback_good = 0; fields.feedback_bad = 0; fields.feedback_purchased = 0; fields.purchase_amount = null;
+      }
+      if (tags !== undefined) fields.feedback_tags = tags; // array of strings
+      lgDb.patchLead(cDir, leadId, fields);
     } else if (stage !== undefined) {
       lgDb.updateLeadStage(cDir, leadId, stage, { notes });
     } else if (notes !== undefined) {
@@ -3828,6 +3843,104 @@ app.post('/api/backup/restore',
     }
   }
 );
+
+// ─── Client Chat (Claude Messages API streaming) ───
+app.post('/api/clients/:id/chat', requireLicense, async (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+  const { messages } = req.body;
+  if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: 'messages required' });
+
+  // Build system context from client data
+  let clientConfig = {};
+  try { clientConfig = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8')); } catch {}
+  const stats = (() => { try { return lgDb.getStats(cDir); } catch { return {}; } })();
+  const sources = (() => { try { return lgDb.getHotSources(cDir); } catch { return []; } })();
+
+  const systemPrompt = `You are an AI assistant managing social media lead generation for "${clientConfig.name || 'a client'}".
+You have direct access to their pipeline and can give actionable advice.
+
+Current pipeline stats:
+- Total leads: ${stats.totalLeads || 0}
+- Hot leads (score ≥70): ${stats.hotLeads || 0}
+- In pipeline: ${stats.inPipeline || 0}
+- Converted: ${stats.conversions || 0}
+- DMs sent: ${stats.dmPivots || 0}
+
+Active sources (${sources.filter(s => s.enabled !== false).length}): ${sources.filter(s => s.enabled !== false).map(s => s.platform + ':' + (s.handle_or_url || s.handle_or_tag || '')).slice(0, 10).join(', ')}
+
+Client niche: ${clientConfig.niche || ''}
+Target geo: ${clientConfig.target_geo || ''}
+Product: ${clientConfig.product_name || ''}
+
+Keep responses concise and actionable. You can suggest running specific commands, adjusting sources, or advancing leads in the pipeline. When the user asks to run something, explain what you'd do and they can trigger it via the Run button.`;
+
+  // SSE setup
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendSSE = (data) => { try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch {} };
+
+  const model = config.anthropicModel || 'claude-haiku-4-5-20251001';
+  const body = JSON.stringify({
+    model,
+    max_tokens: 1024,
+    stream: true,
+    system: systemPrompt,
+    messages: messages.slice(-20), // keep last 20 messages for context
+  });
+
+  const opts = {
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'x-api-key': config.anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    },
+  };
+
+  const apiReq = https.request(opts, apiRes => {
+    let buf = '';
+    apiRes.on('data', chunk => {
+      buf += chunk.toString();
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete line
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]' || !raw) continue;
+        try {
+          const evt = JSON.parse(raw);
+          if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            sendSSE({ type: 'delta', text: evt.delta.text });
+          } else if (evt.type === 'message_stop') {
+            sendSSE({ type: 'done' });
+            res.end();
+          } else if (evt.type === 'error') {
+            sendSSE({ type: 'error', message: evt.error?.message || 'API error' });
+            res.end();
+          }
+        } catch {}
+      }
+    });
+    apiRes.on('end', () => { sendSSE({ type: 'done' }); try { res.end(); } catch {} });
+    apiRes.on('error', err => { sendSSE({ type: 'error', message: err.message }); try { res.end(); } catch {} });
+  });
+
+  apiReq.on('error', err => { sendSSE({ type: 'error', message: err.message }); try { res.end(); } catch {} });
+  req.on('close', () => { try { apiReq.destroy(); } catch {} });
+  apiReq.write(body);
+  apiReq.end();
+});
 
 // ─── Catch-all: serve admin panel ───
 app.get('*', (req, res) => {
