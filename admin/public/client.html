@@ -1691,7 +1691,8 @@ async function loadBriefs() {
 
 function renderBriefCard(b) {
   const bid = b.brief_id || b.id;
-  const statusColor = { pending:'var(--muted)', draft:'var(--muted)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
+  const statusColor = { pending:'var(--muted)', draft:'var(--muted)', queued:'var(--amber)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
+  const statusLabel = { pending:'Pending', draft:'Draft', queued:'⏳ In Queue', approved:'Approved', rejected:'Rejected', posted:'✓ Posted' };
   const sc = statusColor[b.status] || 'var(--muted)';
   const imgTag = b.image_url
     ? `<img src="${b.image_url}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:10px" onclick="openBriefModal('${bid}')" title="Click to open brief">`
@@ -1703,19 +1704,20 @@ function renderBriefCard(b) {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <span style="font-size:16px">${FORMAT_ICONS[b.format] || '📄'}</span>
       <span style="font-weight:600;font-size:14px">${escapeHtml(b.cluster_topic)}</span>
-      <span style="margin-left:auto;font-size:11px;color:${sc};font-weight:600;text-transform:uppercase">${b.status}</span>
+      <span style="margin-left:auto;font-size:11px;color:${sc};font-weight:600;text-transform:uppercase">${statusLabel[b.status] || b.status}</span>
     </div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
       ${FORMAT_LABELS[b.format] || b.format} · ${(b.leads||[]).length} lead${(b.leads||[]).length===1?'':'s'} targeted · ${timeAgo(b.created_at)}
     </div>
+    ${b.status === 'queued' ? `<div style="font-size:11px;color:var(--amber);margin-bottom:10px;padding:6px 10px;background:rgba(245,158,11,.08);border-radius:6px">Will post naturally during next Run — woven into normal browsing to avoid detection</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${bid}')">View Brief</button>
-      ${!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🔄 Re-generate</button>`}
+      ${b.status !== 'posted' ? (!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🔄 Re-generate</button>`) : ''}
       ${canApprove ? `
-        <button class="btn btn-primary btn-sm" onclick="approveBrief('${bid}')">✓ Approve</button>
+        <button class="btn btn-primary btn-sm" onclick="approveBrief('${bid}')">✓ Queue to Post</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${bid}')">✕ Reject</button>
       ` : ''}
-      ${b.status === 'approved' ? `<button class="btn btn-primary btn-sm" onclick="postBrief('${bid}', this)">🚀 Post Now</button>` : ''}
+      ${b.status === 'queued' ? `<button class="btn btn-ghost btn-sm" style="color:var(--muted)" onclick="rejectBrief('${bid}')">Remove from Queue</button>` : ''}
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${bid}')">🗑</button>
     </div>
   </div>`;
@@ -1790,8 +1792,8 @@ function generateImage(briefId, btn) {
 }
 
 async function approveBrief(briefId) {
-  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'approved' });
-  chatNotify('Brief approved — ready to post.', 'ok');
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'queued' });
+  chatNotify('Brief queued — will post naturally during the next Run, woven into normal browsing to avoid detection.', 'ok');
   await loadBriefs();
 }
 
@@ -1861,9 +1863,10 @@ async function openBriefModal(briefId) {
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Targeted Leads</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">${(b.leads||[]).map(l=>`<span style="background:var(--card2);padding:3px 9px;border-radius:20px;font-size:11px">${escapeHtml(l.username||l)}</span>`).join('')||'<span style="font-size:12px;color:var(--muted)">—</span>'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${canApprove?`<button class="btn btn-primary" onclick="approveBrief('${bid}');closeBriefModal()">✓ Approve</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${bid}');closeBriefModal()">✕ Reject</button>`:''}
-        ${b.status==='approved'?`<button class="btn btn-primary" onclick="postBrief('${bid}',this)">🚀 Post Now</button>`:''}
-        ${!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🔄 Re-generate Image</button>`}
+        ${canApprove?`<button class="btn btn-primary" onclick="approveBrief('${bid}');closeBriefModal()">✓ Queue to Post</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${bid}');closeBriefModal()">✕ Reject</button>`:''}
+        ${b.status==='queued'?`<div style="font-size:12px;color:var(--amber);padding:8px 12px;background:rgba(245,158,11,.08);border-radius:6px">⏳ In queue — will post during next Run</div>`:''}
+        ${b.status!=='posted'?(!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🔄 Re-generate Image</button>`):''}
+        ${b.status==='queued'?`<button class="btn btn-ghost" style="color:var(--muted)" onclick="rejectBrief('${bid}');closeBriefModal()">Remove from Queue</button>`:''}
       </div>`;
   } catch(e) {
     body.innerHTML = `<div style="color:var(--red)">${e.message}</div>`;

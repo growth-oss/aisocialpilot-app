@@ -63,6 +63,11 @@ function buildLeadGenPrompt(clientConfig, dataDir) {
   const enabledSources  = sources.filter(s => s.enabled);
   const enabledPersonas = personas.filter(p => p.enabled);
 
+  // Queued precision content briefs — posted as part of this run
+  const precisionBriefs = readJson(path.join(lgDir, 'precision-briefs.json'), []);
+  const queuedBriefs = precisionBriefs.filter(b => b.status === 'queued');
+  const assetsBaseDir = path.join(clientDir, 'assets', 'precision');
+
   // Target geo for Meta Ads Library filtering — use client's proxy geo setting
   const targetGeoCode = clientConfig.proxy?.geo || '';
   const GEO_NAMES = { AE:'United Arab Emirates',SA:'Saudi Arabia',US:'United States',GB:'United Kingdom',QA:'Qatar',KW:'Kuwait',BH:'Bahrain',OM:'Oman',EG:'Egypt',JO:'Jordan',LB:'Lebanon' };
@@ -596,7 +601,43 @@ Purchase intent pivot:
   Set dm_pivot_attempted = 1, dm_channel = "whatsapp", updated_at = now.
   Append dm_pivot to outreach log.
 
-━━━ SAFETY RULES ━━━
+${queuedBriefs.length > 0 ? `━━━ PHASE D — PRECISION CONTENT POSTING (${queuedBriefs.length} brief${queuedBriefs.length > 1 ? 's' : ''} queued) ━━━
+
+These briefs were pre-approved and must be posted during this session as part of the natural engagement flow.
+DO NOT post them all back-to-back. Weave them in naturally — like a real person who browses, gets inspired, posts, then keeps scrolling.
+
+BRIEFS TO POST:
+${queuedBriefs.map((b, i) => `
+[Brief ${i + 1}] ID: ${b.brief_id}
+  Topic: ${b.cluster_topic}
+  Format: ${b.format}
+  Caption: ${b.caption || b.key_message || '(see brief)'}
+  Image: ${b.image_url ? assetsBaseDir + '/' + b.image_url.split('/').pop() : 'none — post caption only'}
+  DM template: ${b.dm_template || '(none)'}
+  Target leads: ${(b.leads || []).map(l => l.username || l).join(', ') || 'none'}
+`).join('')}
+
+HUMAN-LIKE POSTING RULES (critical for avoiding detection):
+- Randomly choose session opening style (vary each run):
+    Option A (60% of runs): Browse feed for 3-8 min first → like 3-5 posts → THEN post
+    Option B (40% of runs): Post first → immediately scroll feed for 2-5 min → like/comment on 2-3 random posts
+- Between multiple briefs (if more than one): space them at least 15-40 min apart. Do other engagement in between.
+- After posting: scroll the home feed for 60-180 seconds. Like 2-4 unrelated posts. Do NOT go straight to DMs.
+- Add realistic typing delays when entering caption text (use page.type() not page.fill() for the caption field)
+- Wait a random 4-12 seconds between opening the post composer and actually uploading
+- If uploading an image: use the local file path above. If no image: post as a text/caption-only post or story
+
+AFTER POSTING each brief:
+1. Wait 8-20 minutes (randomise) before DMing the targeted leads
+2. For each lead in the brief's target list that is at engagement_stage ≥ 3 (followed):
+   - Send the dm_template as a personalised opening DM
+   - Update the lead's engagement_stage to 5 in leads.json
+   - Append to outreach-log.ndjson (action_type: "dm", content_used: the message sent)
+3. Update the brief status to "posted" in the precision-briefs.json file:
+   File: ${path.join(lgDir, 'precision-briefs.json')}
+   Set: status = "posted", posted_at = ISO timestamp
+
+` : ''}━━━ SAFETY RULES ━━━
 ${safetyBrandRule}
 - NEVER include a URL/link in a first DM — ${isAmbassador ? "you're starting a conversation, not selling" : "warm up first, then share"}
 - NEVER send more than one DM to the same person per session
