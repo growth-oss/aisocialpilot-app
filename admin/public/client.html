@@ -2092,6 +2092,22 @@ function renderBriefCard(b) {
   const imgTag = b.image_url
     ? `<img src="${b.image_url}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:10px" onclick="openBriefModal('${bid}')" title="Click to open brief">`
     : `<div style="height:100px;background:var(--bg);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:10px;cursor:pointer" onclick="openBriefModal('${bid}')">No image yet — click to generate</div>`;
+
+  // Product reference pill
+  const productPill = b.product_image_url ? `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding:6px 8px;background:var(--card2);border:1px solid var(--border);border-radius:6px">
+      <img src="${escapeHtml(b.product_image_url)}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:10px;color:var(--accent);font-weight:600">📎 Product reference</div>
+        <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(b.product_name || b.product_image_url)}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="changeProductRef('${bid}')" style="font-size:10px;padding:2px 6px" title="Change product">↔</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearProductRef('${bid}')" style="font-size:10px;padding:2px 6px;color:var(--muted)" title="Remove reference">✕</button>
+    </div>` : `
+    <div style="margin-bottom:10px">
+      <button class="btn btn-ghost btn-sm" style="font-size:11px;width:100%" onclick="changeProductRef('${bid}')">📎 Attach product photo for Gemini</button>
+    </div>`;
+
   const canApprove = b.status === 'pending' || b.status === 'draft';
   return `
   <div class="card" style="margin-bottom:14px">
@@ -2104,6 +2120,7 @@ function renderBriefCard(b) {
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
       ${FORMAT_LABELS[b.format] || b.format} · ${(b.leads||[]).length} lead${(b.leads||[]).length===1?'':'s'} targeted · ${timeAgo(b.created_at)}
     </div>
+    ${productPill}
     ${b.status === 'queued' ? `<div style="font-size:11px;color:var(--amber);margin-bottom:10px;padding:6px 10px;background:rgba(245,158,11,.08);border-radius:6px">Will post naturally during next Run — woven into normal browsing to avoid detection</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${bid}')">View Brief</button>
@@ -2184,6 +2201,61 @@ function generateImage(briefId, btn) {
   document.getElementById('img-refine-input').addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') document.getElementById('img-refine-go').click();
   });
+}
+
+async function clearProductRef(briefId) {
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { product_image_url: null, product_name: null });
+  chatNotify('Product reference removed', 'info');
+  loadBriefsDebounced();
+}
+
+async function changeProductRef(briefId) {
+  // Load product catalogue and show picker
+  let products = [];
+  try { products = await api('GET', `/clients/${clientId}/knowledge/products`); } catch {}
+  const withImages = products.filter(p => (p.images || []).some(img => img.local_url || img.url));
+  if (!withImages.length) {
+    toast('No products with images — go to Products tab and scrape your store first', 'error');
+    return;
+  }
+
+  // Build a simple modal picker
+  const existing = document.getElementById('product-ref-picker');
+  if (existing) existing.remove();
+
+  const picker = document.createElement('div');
+  picker.id = 'product-ref-picker';
+  picker.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2000;display:flex;align-items:center;justify-content:center';
+  picker.innerHTML = `
+    <div style="background:var(--card);border-radius:14px;width:560px;max-height:80vh;overflow-y:auto;padding:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:15px;font-weight:600">Select Product Reference</div>
+        <button onclick="document.getElementById('product-ref-picker').remove()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Gemini will use the selected product photo as a visual anchor when generating the image.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
+        ${withImages.map((p, i) => {
+          const img = (p.images || []).find(img => img.local_url || img.url);
+          const src = img ? (img.local_url || img.url) : '';
+          return `<div onclick="selectProductRef('${briefId}','${escapeHtml(src)}','${escapeHtml(p.name || '')}')"
+            style="cursor:pointer;border:2px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s"
+            onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            <img src="${escapeHtml(src)}" style="width:100%;height:90px;object-fit:cover;display:block" onerror="this.style.display='none'">
+            <div style="padding:6px 8px;font-size:11px;color:var(--text);line-height:1.3">${escapeHtml((p.name || '').slice(0, 40))}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(picker);
+  // Close on backdrop click
+  picker.addEventListener('click', e => { if (e.target === picker) picker.remove(); });
+}
+
+async function selectProductRef(briefId, imageUrl, productName) {
+  document.getElementById('product-ref-picker')?.remove();
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { product_image_url: imageUrl, product_name: productName });
+  chatNotify(`Product reference set: ${productName}`, 'ok');
+  loadBriefsDebounced();
 }
 
 async function approveBrief(briefId) {

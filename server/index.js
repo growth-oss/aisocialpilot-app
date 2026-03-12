@@ -4307,6 +4307,22 @@ app.post('/api/clients/:id/precision/generate-brief', requireLicense, async (req
   const leads = lgDb.getLeads(cDir, { limit: 200 }).filter(l => !l.is_converted && !l.is_do_not_engage);
   if (leads.length < 2) return res.status(400).json({ error: 'Need at least 2 leads to generate briefs' });
 
+  // Load product catalogue for reference image selection
+  let products = [];
+  try { products = JSON.parse(fs.readFileSync(path.join(cDir, 'knowledge', 'products.json'), 'utf8')); } catch {}
+  const productCatalogue = products.map((p, i) => {
+    const firstImg = (p.images || []).find(img => img.local_url || img.url);
+    return {
+      index: i,
+      name: p.name,
+      price: p.price || '',
+      description: (p.description || '').slice(0, 120),
+      image_url: firstImg ? (firstImg.local_url || firstImg.url) : null,
+      tags: (p.tags || []).slice(0, 5),
+      usps: (p.usps || p.pain_points || []).slice(0, 3),
+    };
+  }).filter(p => p.image_url); // only include products that have images
+
   const leadsSummary = leads.map(l => ({
     id: l.id, platform: l.platform, username: l.username,
     bio: (l.bio_snippet || '').slice(0, 120),
@@ -4329,10 +4345,14 @@ ${visualIdentityContext}
 
 You analyse lead pipelines and generate data-driven content briefs where every post has guaranteed pre-qualified viewers ready to engage.`;
 
+  const productCatalogueText = productCatalogue.length
+    ? `\nPRODUCT CATALOGUE (${productCatalogue.length} products with images available as reference):\n${productCatalogue.map(p => `[${p.index}] "${p.name}" — ${p.price} — ${p.description} | USPs: ${p.usps.join(', ')}`).join('\n')}\n`
+    : '';
+
   const userPrompt = `Here are ${leads.length} leads in our pipeline:
 
 ${JSON.stringify(leadsSummary, null, 2)}
-
+${productCatalogueText}
 TASK:
 1. Cluster these leads into groups by shared pain point (e.g. cooling, back support, luxury gifting, hotel procurement, interior design styling, etc.). Minimum 2 leads per cluster.
 
@@ -4343,6 +4363,8 @@ TASK:
    - 10+ leads → format: "reel" AND create a second "carousel" brief for the same cluster
 
 3. For each brief, write a concise image prompt following the brand visual identity (Emirati woman, hair towel, bathrobe, UAE apartment setting).
+
+4. If a product from the catalogue is relevant to the brief's pain point, set "product_image_index" to that product's index number. This will attach the real product photo to the Gemini image generation so the output features the actual product. Only set this when a specific product clearly matches — leave null if no product fits.
 
 IMPORTANT: Return a JSON array ONLY. No markdown, no code fences, no extra text.
 Keep ALL string values SHORT (under 200 chars each). No bilingual text in JSON strings — English only to avoid encoding issues. Keep captions under 150 chars.
@@ -4357,6 +4379,7 @@ Each brief object uses ONLY these fields:
   "key_message": "one sentence",
   "caption": "English caption under 150 chars with 2-3 hashtags",
   "image_prompt": "scene description under 200 chars. Emirati woman in white bathrobe and hair towel, UAE apartment, bamboo bedding, soft morning light.",
+  "product_image_index": null,
   "tagging_notes": "Who to tag and why, plain text",
   "dm_template": "Short warm DM opening, no pitch, under 100 chars"
 }`;
@@ -4413,14 +4436,25 @@ Each brief object uses ONLY these fields:
       }
     }
 
-    const newBriefs = parsedBriefs.map(b => ({
-      ...b,
-      brief_id: b.brief_id || 'brief_' + Math.random().toString(16).slice(2, 8),
-      status: 'pending',
-      created_at: new Date().toISOString(),
-      generated_images: [],
-      posted_url: null, posted_at: null, amplification_done: false,
-    }));
+    const newBriefs = parsedBriefs.map(b => {
+      // Resolve product_image_index → product_image_url + product_name
+      let product_image_url = null, product_name = null;
+      if (b.product_image_index != null && productCatalogue[b.product_image_index]) {
+        const prod = productCatalogue[b.product_image_index];
+        product_image_url = prod.image_url;
+        product_name = prod.name;
+      }
+      return {
+        ...b,
+        brief_id: b.brief_id || 'brief_' + Math.random().toString(16).slice(2, 8),
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        product_image_url,
+        product_name,
+        generated_images: [],
+        posted_url: null, posted_at: null, amplification_done: false,
+      };
+    });
 
     // Merge with existing (keep approved/posted, replace pending)
     const existing = loadPrecisionBriefs(cDir).filter(b => b.status !== 'pending');
@@ -4450,14 +4484,38 @@ app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, a
     const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
     const contents = [];
-    const { referenceImageBase64, referenceImageMime, refinement } = req.body;
+    const { referenceImageBase64, referenceImageMime, refinement, clearProductImage } = req.body;
+
+    // 1. Manual reference image (from refinement modal upload) takes priority
+    // 2. Otherwise auto-attach the brief's product_image_url if present
+    let usedProductImage = null;
     if (referenceImageBase64) {
       contents.push({ inlineData: { mimeType: referenceImageMime || 'image/jpeg', data: referenceImageBase64 } });
+    } else if (!clearProductImage && brief.product_image_url) {
+      // Load product image from local file system
+      try {
+        const productImgPath = brief.product_image_url.startsWith('/api/clients/')
+          ? path.join(CLIENTS_DIR, req.params.id, 'assets', 'products',
+              ...brief.product_image_url.split('/assets/products/')[1].split('/'))
+          : null;
+        if (productImgPath && fs.existsSync(productImgPath)) {
+          const imgData = fs.readFileSync(productImgPath);
+          const ext = path.extname(productImgPath).slice(1).toLowerCase();
+          const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          contents.push({ inlineData: { mimeType: mime, data: imgData.toString('base64') } });
+          usedProductImage = brief.product_image_url;
+        }
+      } catch (e) {
+        console.warn('[generate-image] Could not load product image:', e.message);
+      }
     }
-    // Combine base prompt with any user refinement notes
+
+    const productNote = usedProductImage
+      ? `\n\nIMPORTANT: The attached photo shows the ACTUAL product. Incorporate it naturally into the scene — keep it recognisable and prominent.`
+      : '';
     const finalPrompt = refinement
-      ? `${brief.image_prompt}\n\nIMPORTANT refinements for this version: ${refinement}`
-      : brief.image_prompt;
+      ? `${brief.image_prompt}${productNote}\n\nIMPORTANT refinements for this version: ${refinement}`
+      : `${brief.image_prompt}${productNote}`;
     contents.push({ text: finalPrompt });
 
     const response = await ai.models.generateContent({
