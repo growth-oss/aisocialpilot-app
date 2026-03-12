@@ -710,6 +710,7 @@
     <div class="sidebar-spacer"></div>
 
     <div class="sidebar-bottom">
+      <div id="sb-schedule-status" style="display:none;padding:7px 10px;background:var(--accent-d);border:1px solid rgba(139,92,246,.3);border-radius:7px;font-size:11px;color:var(--accent);cursor:pointer;text-align:center;line-height:1.4" onclick="switchTab('overview')" title="Click to configure"></div>
       <button class="btn-run" onclick="openRunPicker()">▶ Run Now</button>
       <button class="btn-login" id="sb-proxy-status">🌍 Proxy checking…</button>
     </div>
@@ -1077,6 +1078,7 @@ async function init() {
     await Promise.all([loadStats(), loadOverview()]);
     checkActiveRun();
     checkProxy();
+    checkSmartScheduleSidebar();
   } catch (e) { toast('Init error: ' + e.message, 'error'); }
 }
 
@@ -1101,6 +1103,43 @@ function updateChatPills() {
 }
 
 // ── Proxy check ──
+async function checkSmartScheduleSidebar() {
+  const el = document.getElementById('sb-schedule-status');
+  try {
+    const ss = await api('GET', `/clients/${clientId}/smart-schedule`);
+    if (!ss || !ss.enabled) {
+      el.style.display = 'block';
+      el.style.background = 'transparent';
+      el.style.border = '1px solid var(--border)';
+      el.style.color = 'var(--muted)';
+      el.innerHTML = '🤖 AI Schedule: off<br><span style="font-size:10px;opacity:.7">Click Overview to enable</span>';
+      return;
+    }
+    // Find next upcoming run in GST
+    const times = ss.todayTimesGst || [];
+    const nowGstMin = (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 240) % 1440;
+    const upcoming = times
+      .map(t => { const [h, m] = t.split(':').map(Number); return { t, min: h * 60 + m }; })
+      .filter(x => x.min > nowGstMin)
+      .sort((a, b) => a.min - b.min);
+
+    el.style.display = 'block';
+    el.style.background = 'var(--accent-d)';
+    el.style.border = '1px solid rgba(139,92,246,.3)';
+    el.style.color = 'var(--accent)';
+
+    if (upcoming.length) {
+      const diff = upcoming[0].min - nowGstMin;
+      const hh = Math.floor(diff / 60), mm = diff % 60;
+      el.innerHTML = `🤖 AI Run at ${upcoming[0].t} GST<br><span style="font-size:10px;opacity:.8">in ${hh > 0 ? hh + 'h ' : ''}${mm}m · ${times.length} run${times.length !== 1 ? 's' : ''} today</span>`;
+    } else {
+      el.innerHTML = `🤖 AI Schedule active<br><span style="font-size:10px;opacity:.8">All runs done · resets midnight</span>`;
+    }
+  } catch {
+    el.style.display = 'none';
+  }
+}
+
 async function checkProxy() {
   const el = document.getElementById('sb-proxy-status');
   try {
