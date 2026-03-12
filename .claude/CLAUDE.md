@@ -18,7 +18,8 @@ If this is a new chat session, read this first.
 - `server/leadgen/prompt.js` — Claude automation prompt builder
 - `server/leadgen/db.js` — leads JSON data store
 - `admin/public/index.html` — all-clients dashboard SPA
-- `admin/public/client.html` — client detail page (sidebar + Claude chat panel)
+- `admin/public/client.html` — client detail page (sidebar + Claude chat panel + Content tab)
+- `data/clients/{id}/leadgen/precision-briefs.json` — Precision Content briefs storage
 
 **Do NOT edit:** root `index.js`, root `index.html`, `PROJECT_PLAN.md` — all outdated
 
@@ -268,6 +269,69 @@ After each reply/action, append to the platform's log file in logs/:
 - Flag voice notes and images for manual review (can't process audio/visual)
 - Opening a conversation marks it as read (blue ticks) — only open when ready
 - Star important conversations (bulk orders, complaints, VIPs)
+
+---
+
+## Precision Content Engine
+
+Triggered when `command = 'precision-post:{briefId}'` is passed to the automation run.
+
+### What it is
+Reverse marketing: instead of posting and hoping the right people see it, we cluster existing pipeline leads by pain point → generate a targeted brief → create Gemini images → post via the brand ambassador → amplify by tagging and DMing specific leads.
+
+### Data
+- Briefs stored in `{DATA_DIR}/clients/{CLIENT_ID}/leadgen/precision-briefs.json`
+- Generated images stored in `{DATA_DIR}/clients/{CLIENT_ID}/assets/precision/{briefId}.png`
+- Brief schema fields: `id`, `cluster_topic`, `format` (carousel/reel/post/story/dm_only), `content_brief`, `image_prompt`, `tagging_instructions`, `dm_sequence[]`, `leads[]`, `image_url`, `status` (draft/approved/rejected/posted)
+
+### When command = `precision-post:{briefId}`
+
+1. **Read the brief**
+   - Load `precision-briefs.json`, find the brief by `briefId`
+   - Verify `status === 'approved'` — if not, log error and stop
+   - Read `config/brand-voice.md` for tone and visual identity
+
+2. **Check image**
+   - If `image_url` is set: the image file exists at `{DATA_DIR}/clients/{CLIENT_ID}/assets/precision/{briefId}.png`
+   - If no image: proceed anyway (post caption only, or story without image)
+
+3. **Post the content**
+   - Open the ambassador Instagram account (`browser-sessions/instagram/`)
+   - Verify proxy geo (AE) before opening session
+   - Based on `format`:
+     - `carousel`: create multi-image post (use the generated image as first frame, add text overlays for subsequent frames)
+     - `reel`: note in log that reel upload requires manual — post as carousel instead
+     - `post`: single image post
+     - `story`: story upload
+     - `dm_only`: skip posting, go straight to DM step
+   - Caption: use `content_brief` as the full caption (it already includes hashtags and CTA from brief generation)
+   - Apply tagging from `tagging_instructions`:
+     - `reply_tag`: after posting, comment on recent posts by the tagged accounts mentioning them
+     - `caption_ref`: already included in caption
+
+4. **Amplification — DM sequence**
+   - For each lead in `brief.leads[]`:
+     - Check the lead's `engagement_stage` — only DM if stage >= 3 (followed)
+     - Send DM step 1 from `dm_sequence[0]`
+     - Update lead's `engagement_stage` to 5 (DM sent) in `leads.json`
+     - Log to `outreach-log.ndjson`
+   - Respect cooldown: `cooldown_between_engagements_hours` from `leadgen-config.json`
+   - Apply daily DM rate limit from `rate-limits.json`
+
+5. **Update brief status**
+   - Set `status = 'posted'`, `posted_at = ISO timestamp`, `post_url = URL of post`
+   - Save back to `precision-briefs.json`
+
+6. **Log**
+   - Append to `logs/outreach-log.json` for each action taken
+   - Write summary to run log
+
+### Visual Identity Rules (apply to all image prompts)
+- Person in bed/bedroom: Emirati woman, hair wrapped in white towel, plush white bathrobe
+- Setting: UAE apartment/villa — marble surfaces, neutral linen tones, warm natural light
+- Mood: calm luxury, morning routine, aspirational
+- Text overlays: bilingual EN+AR, RTL Arabic, <20% of image area
+- Never generate: Western/non-Emirati women, stock photo look, cluttered rooms
 
 ---
 

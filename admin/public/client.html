@@ -688,6 +688,9 @@
       <button class="nav-item" onclick="switchTab('runs')" id="nav-runs">
         <span class="nav-icon">⚡</span> Runs
       </button>
+      <button class="nav-item" onclick="switchTab('content')" id="nav-content">
+        <span class="nav-icon">✨</span> Content
+      </button>
       <button class="nav-item" onclick="switchTab('settings')" id="nav-settings">
         <span class="nav-icon">⚙️</span> Settings
       </button>
@@ -774,6 +777,32 @@
         <div class="card" style="padding:0;overflow:hidden">
           <div id="runs-list">
             <div class="empty-state"><div class="empty-icon">⟳</div><div class="empty-title">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTENT TAB -->
+      <div class="tab-pane" id="tab-content">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+          <div>
+            <div class="page-title">Precision Content</div>
+            <div class="page-subtitle">AI-clustered briefs → Gemini images → auto-post</div>
+          </div>
+          <button class="btn btn-primary" onclick="generateBriefs()" id="gen-brief-btn">✨ Generate Briefs</button>
+        </div>
+
+        <!-- Cluster / brief cards -->
+        <div id="content-briefs-list">
+          <div style="text-align:center;padding:60px 0;color:var(--muted);font-size:13px">
+            Click <strong>Generate Briefs</strong> to cluster your pipeline leads by pain point and create targeted content.
+          </div>
+        </div>
+
+        <!-- Brief detail modal -->
+        <div id="brief-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+          <div style="background:var(--card);border-radius:14px;width:660px;max-height:88vh;overflow-y:auto;padding:28px;position:relative">
+            <button onclick="closeBriefModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+            <div id="brief-modal-body"></div>
           </div>
         </div>
       </div>
@@ -948,6 +977,7 @@ function switchTab(tab) {
   else if (tab === 'sources') loadSources();
   else if (tab === 'runs') loadRuns();
   else if (tab === 'settings') loadSettings();
+  else if (tab === 'content') loadBriefs();
 }
 
 // ── Toast ──
@@ -1610,6 +1640,154 @@ function appendChatMsg(role, text, typing = false) {
   container.scrollTop = container.scrollHeight;
   return el;
 }
+
+// ── CONTENT / PRECISION BRIEFS ──
+const FORMAT_ICONS = { carousel:'🖼', reel:'🎬', post:'📸', story:'📲', dm_only:'💌' };
+const FORMAT_LABELS = { carousel:'Carousel', reel:'Reel', post:'Single Post', story:'Story', dm_only:'DM Only' };
+
+async function loadBriefs() {
+  const list = document.getElementById('content-briefs-list');
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:20px 0">Loading…</div>';
+  try {
+    const briefs = await api('GET', `/clients/${clientId}/precision/briefs`);
+    if (!briefs.length) {
+      list.innerHTML = `<div style="text-align:center;padding:60px 0;color:var(--muted);font-size:13px">
+        Click <strong>Generate Briefs</strong> to cluster your pipeline leads by pain point and create targeted content.
+      </div>`;
+      return;
+    }
+    list.innerHTML = briefs.map(b => renderBriefCard(b)).join('');
+  } catch(e) {
+    list.innerHTML = `<div style="color:var(--red);font-size:13px;padding:20px 0">Error: ${e.message}</div>`;
+  }
+}
+
+function renderBriefCard(b) {
+  const statusColor = { draft:'var(--muted)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
+  const sc = statusColor[b.status] || 'var(--muted)';
+  const imgTag = b.image_url
+    ? `<img src="${b.image_url}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:10px" onclick="openBriefModal('${b.id}')" title="Click to open brief">`
+    : `<div style="height:100px;background:var(--bg);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:10px;cursor:pointer" onclick="openBriefModal('${b.id}')">No image yet — click to generate</div>`;
+  return `
+  <div class="card" style="margin-bottom:14px">
+    ${imgTag}
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:16px">${FORMAT_ICONS[b.format] || '📄'}</span>
+      <span style="font-weight:600;font-size:14px">${escapeHtml(b.cluster_topic)}</span>
+      <span style="margin-left:auto;font-size:11px;color:${sc};font-weight:600;text-transform:uppercase">${b.status}</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+      ${FORMAT_LABELS[b.format] || b.format} · ${(b.leads||[]).length} lead${(b.leads||[]).length===1?'':'s'} targeted · ${timeAgo(b.created_at)}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${b.id}')">View Brief</button>
+      ${!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${b.id}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${b.id}', this)">🔄 Re-generate</button>`}
+      ${b.status === 'draft' ? `
+        <button class="btn btn-primary btn-sm" onclick="approveBrief('${b.id}')">✓ Approve</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${b.id}')">✕ Reject</button>
+      ` : ''}
+      ${b.status === 'approved' ? `<button class="btn btn-primary btn-sm" onclick="postBrief('${b.id}', this)">🚀 Post Now</button>` : ''}
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${b.id}')">🗑</button>
+    </div>
+  </div>`;
+}
+
+let currentBriefs = [];
+
+async function generateBriefs() {
+  const btn = document.getElementById('gen-brief-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generating…';
+  try {
+    const result = await api('POST', `/clients/${clientId}/precision/generate-brief`, {});
+    if (result.error) throw new Error(result.error);
+    toast(`Generated ${result.briefs?.length || 0} brief(s)`);
+    await loadBriefs();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ Generate Briefs';
+  }
+}
+
+async function generateImage(briefId, btn) {
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Generating…';
+  try {
+    const result = await api('POST', `/clients/${clientId}/precision/generate-image/${briefId}`, {});
+    if (result.error) throw new Error(result.error);
+    toast('Image generated');
+    await loadBriefs();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = origText;
+  }
+}
+
+async function approveBrief(briefId) {
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'approved' });
+  await loadBriefs();
+}
+
+async function rejectBrief(briefId) {
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'rejected' });
+  await loadBriefs();
+}
+
+async function deleteBrief(briefId) {
+  if (!confirm('Delete this brief?')) return;
+  await api('DELETE', `/clients/${clientId}/precision/briefs/${briefId}`);
+  await loadBriefs();
+}
+
+async function postBrief(briefId, btn) {
+  btn.disabled = true; btn.textContent = '⏳ Posting…';
+  try {
+    const result = await api('POST', `/clients/${clientId}/precision/post/${briefId}`, {});
+    if (result.error) throw new Error(result.error);
+    toast('Post run started — check Runs tab for progress');
+    await loadBriefs();
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '🚀 Post Now';
+  }
+}
+
+async function openBriefModal(briefId) {
+  const modal = document.getElementById('brief-modal');
+  const body = document.getElementById('brief-modal-body');
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="color:var(--muted);padding:20px 0">Loading…</div>';
+  try {
+    const briefs = await api('GET', `/clients/${clientId}/precision/briefs`);
+    const b = briefs.find(x => x.id === briefId);
+    if (!b) throw new Error('Brief not found');
+    const imgSection = b.image_url
+      ? `<img src="${b.image_url}" style="width:100%;border-radius:10px;margin-bottom:16px">`
+      : `<div style="height:120px;background:var(--bg);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:16px">No image generated yet</div>`;
+    body.innerHTML = `
+      <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escapeHtml(b.cluster_topic)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${FORMAT_LABELS[b.format]||b.format} · ${(b.leads||[]).length} leads · ${b.status}</div>
+      ${imgSection}
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Content Brief</div>
+      <div style="font-size:13px;line-height:1.6;margin-bottom:16px;color:var(--text)">${escapeHtml(b.content_brief||'—')}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image Prompt</div>
+      <div style="font-size:12px;background:var(--bg);border-radius:7px;padding:10px;margin-bottom:16px;color:#a0a0c8;font-family:monospace">${escapeHtml(b.image_prompt||'—')}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Tagging Instructions</div>
+      <div style="font-size:13px;margin-bottom:16px;color:var(--text)">${escapeHtml(b.tagging_instructions||'—')}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">DM Sequence (${(b.dm_sequence||[]).length} messages)</div>
+      <div style="font-size:13px;margin-bottom:16px;color:var(--text)">${(b.dm_sequence||[]).map((d,i)=>`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px"><strong>Step ${i+1}:</strong> ${escapeHtml(d)}</div>`).join('')||'—'}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Targeted Leads</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">${(b.leads||[]).map(l=>`<span style="background:var(--card2);padding:3px 9px;border-radius:20px;font-size:11px">${escapeHtml(l.username||l)}</span>`).join('')||'<span style="font-size:12px;color:var(--muted)">—</span>'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${b.status==='draft'?`<button class="btn btn-primary" onclick="approveBrief('${b.id}');closeBriefModal()">✓ Approve</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${b.id}');closeBriefModal()">✕ Reject</button>`:''}
+        ${b.status==='approved'?`<button class="btn btn-primary" onclick="postBrief('${b.id}',this)">🚀 Post Now</button>`:''}
+        ${!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${b.id}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${b.id}',this)">🔄 Re-generate Image</button>`}
+      </div>`;
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
+  }
+}
+function closeBriefModal() { document.getElementById('brief-modal').style.display = 'none'; }
 
 // ── Helpers ──
 function escapeHtml(s) {

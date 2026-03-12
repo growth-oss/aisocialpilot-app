@@ -951,6 +951,15 @@ function renderSettings() {
         </div>
       </div>
 
+      <div style="border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:20px;">
+        <p style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px;">Gemini (Image Generation — Precision Content)</p>
+        <div class="field">
+          <label>Gemini API Key <span style="color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input type="password" id="s-gemini-key" placeholder="Leave blank to keep current key" spellcheck="false" autocomplete="off">
+          <div class="field-hint" id="s-gemini-status">Used by the Precision Content Engine to generate carousel and reel images via Gemini.</div>
+        </div>
+      </div>
+
       <div class="field">
         <label>Default Provider for Text Generation</label>
         <select id="s-ai-provider">
@@ -1064,6 +1073,7 @@ async function populateSettings() {
   const s = await api('GET', '/settings');
   if (s.hasAnthropicKey) document.getElementById('s-anthropic-status').textContent = `Current key: ${s.anthropicApiKeyMasked}`;
   if (s.hasOpenaiKey) document.getElementById('s-openai-status').textContent = `Current key: ${s.openaiApiKeyMasked}`;
+  if (s.hasGeminiKey) document.getElementById('s-gemini-status').textContent = `Current key: ${s.geminiApiKeyMasked}`;
   const selAM = document.getElementById('s-anthropic-model');
   [...selAM.options].forEach(o => { if (o.value === s.anthropicModel) o.selected = true; });
   const selOM = document.getElementById('s-openai-model');
@@ -1090,6 +1100,7 @@ async function populateSettings() {
 async function saveSettings() {
   const anthropicKey = document.getElementById('s-anthropic-key').value.trim();
   const openaiKey    = document.getElementById('s-openai-key').value.trim();
+  const geminiKey    = document.getElementById('s-gemini-key').value.trim();
   const anthropicModel = document.getElementById('s-anthropic-model').value;
   const openaiModel    = document.getElementById('s-openai-model').value;
   const aiProvider     = document.getElementById('s-ai-provider').value;
@@ -1112,6 +1123,8 @@ async function saveSettings() {
   if (anthropicKey) body.anthropicApiKey = anthropicKey;
   else body.keepAnthropicKey = true;
   if (openaiKey) body.openaiApiKey = openaiKey;
+  if (geminiKey) body.geminiApiKey = geminiKey;
+  else body.keepGeminiKey = true;
 
   const result = await api('POST', '/setup', body);
   if (result.error) return showToast(result.error, 'error');

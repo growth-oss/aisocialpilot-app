@@ -402,6 +402,7 @@ app.post('/api/license/activate', async (req, res) => {
 // ─── Setup (API keys + model preferences) ───
 app.post('/api/setup', async (req, res) => {
   const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel,
+          geminiApiKey, keepGeminiKey,
           smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom } = req.body;
   const config = loadConfig();
 
@@ -410,7 +411,10 @@ app.post('/api/setup', async (req, res) => {
   if (!resolvedAnthropicKey) return res.status(400).json({ error: 'Anthropic API key required (needed for browser automation)' });
 
   config.anthropicApiKey = resolvedAnthropicKey;
-  if (openaiApiKey) config.openaiApiKey = openaiApiKey;   // only overwrite if a new key was provided
+  if (openaiApiKey) config.openaiApiKey = openaiApiKey;
+  // Gemini key (for Precision Content Engine image generation)
+  const resolvedGeminiKey = geminiApiKey || (keepGeminiKey ? config.geminiApiKey : '');
+  if (resolvedGeminiKey) config.geminiApiKey = resolvedGeminiKey;
   config.aiProvider = aiProvider || config.aiProvider || 'anthropic';
   config.anthropicModel = anthropicModel || config.anthropicModel || 'claude-haiku-4-5-20251001';
   config.openaiModel = openaiModel || config.openaiModel || 'gpt-4o-mini';
@@ -444,6 +448,8 @@ app.get('/api/settings', requireLicense, (req, res) => {
     aiProvider:     config.aiProvider     || 'anthropic',
     hasAnthropicKey: !!config.anthropicApiKey,
     hasOpenaiKey:    !!config.openaiApiKey,
+    geminiApiKeyMasked: mask(config.geminiApiKey),
+    hasGeminiKey:    !!config.geminiApiKey,
     smtpHost:  config.smtpHost  || '',
     smtpPort:  config.smtpPort  || '587',
     smtpUser:  config.smtpUser  || '',
@@ -528,10 +534,7 @@ app.post('/api/clients', requireLicense, (req, res) => {
   };
 
   fs.writeFileSync(path.join(clientDir, 'config.json'), JSON.stringify(clientConfig, null, 2));
-  // Also write brand-voice.md for Claude Code
-  fs.writeFileSync(path.join(clientDir, 'config', 'brand-voice.md'),
-    `# Brand Voice: ${name}\n\n## Personality\n${brandVoice?.personality || 'Warm and helpful'}\n\n## Tone\n${brandVoice?.tone || 'Conversational, not corporate'}\n`
-  );
+  writeBrandVoiceMd(clientDir, name, brandVoice || {});
 
   res.json({ success: true, clientId, client: clientConfig });
 });
@@ -546,12 +549,9 @@ app.put('/api/clients/:id', requireLicense, (req, res) => {
   const updated = { ...existing, ...req.body, clientId: req.params.id };
   fs.writeFileSync(path.join(clientDir, 'config.json'), JSON.stringify(updated, null, 2));
 
-  // Update brand-voice.md if brand voice changed
-  if (req.body.brandVoice) {
-    const bv = req.body.brandVoice;
-    fs.writeFileSync(path.join(clientDir, 'config', 'brand-voice.md'),
-      `# Brand Voice: ${updated.name}\n\n## Personality\n${bv.personality || ''}\n\n## Tone\n${bv.tone || ''}\n\n## Emoji\nMax per reply: ${bv.emojiMax || 2}\n\n## Languages\n${(bv.languages || []).join(', ')}\n\n## Never Say\n${(bv.neverSay || []).map(s => `- ${s}`).join('\n')}\n\n## Always Do\n${(bv.alwaysDo || []).map(s => `- ${s}`).join('\n')}\n`
-    );
+  // Update brand-voice.md if brand voice or visual identity changed
+  if (req.body.brandVoice || req.body.visualIdentity) {
+    writeBrandVoiceMd(clientDir, updated.name, updated.brandVoice || {}, updated.visualIdentity || {});
   }
 
   res.json({ success: true, client: updated });
@@ -3843,6 +3843,379 @@ app.post('/api/backup/restore',
     }
   }
 );
+
+// ─── Brand Voice MD helper ───
+function writeBrandVoiceMd(cDir, name, bv, vi = {}) {
+  fs.mkdirSync(path.join(cDir, 'config'), { recursive: true });
+  const viSection = `
+## Visual Identity
+
+### Lifestyle Imagery Rules
+${vi.lifestyleRules || `- **People in bed / bedroom scenes**: Always show an Emirati woman wearing a hair towel and bathrobe — never western-only imagery
+- **Appearance**: UAE-appropriate — Arab or South Asian, modest, naturally beautiful, no heavy makeup
+- **Setting**: Modern UAE apartment or villa — marble surfaces, neutral linen tones, warm natural light, morning atmosphere
+- **Mood**: Calm luxury, morning routine, aspirational but attainable`}
+
+### Per-Format Specs
+${vi.formatSpecs || `- **Carousel (3–5 slides)**: Slide 1 = lifestyle hook (person/emotion), Slides 2–3 = feature callouts with bilingual text, Slide 4 = social proof / lead quote, Slide 5 = CTA
+- **Single Post**: Product-led with subtle lifestyle element in background
+- **Reel / Story (9:16 vertical)**: Bold full-bleed lifestyle image, animated text overlay, CTA sticker at bottom
+- **Story**: Light airy aesthetic, quick benefit highlight, swipe-up or DM CTA sticker`}
+
+### Text Overlay Rules
+${vi.textOverlay || `- **Bilingual required**: English (top, larger) + Arabic (below, RTL, equal visual weight)
+- Font: Clean modern sans-serif — absolutely no decorative or script fonts
+- Color: High contrast — dark text on light background preferred
+- Size: Large and readable on mobile screens (min 18% of image height per language)
+- Total text area: <20% of image (Meta / Instagram compliance)
+- Arabic text must be proper RTL — do not mirror or reverse English`}
+
+### Brand Colours
+${vi.brandColours || `- Primary: Deep forest green or bamboo-tone warm neutral
+- Accent: Soft gold or warm white
+- Avoid: Heavy blacks, neon colours, overly saturated palettes`}
+
+### What to NEVER Generate
+${vi.neverGenerate || `- Western woman in the main lifestyle role (background OK)
+- Overly sexual or revealing imagery
+- Competitor product logos or packaging
+- Fake reviews or misleading before/after imagery`}
+`;
+
+  const md = `# Brand Voice: ${name}
+
+## Personality
+${bv.personality || 'Warm, knowledgeable, and aspirational — like a trusted lifestyle curator'}
+
+## Tone
+${bv.tone || 'Conversational, never corporate. Friendly but professional. Avoids hollow buzzwords.'}
+
+## Emoji
+Max per post/reply: ${bv.emojiMax || 2}
+
+## Languages
+${(bv.languages || ['English', 'Arabic']).join(', ')}
+
+## Never Say
+${(bv.neverSay || ['cheap', 'just', 'literally', 'amazing deal']).map(s => `- ${s}`).join('\n')}
+
+## Always Do
+${(bv.alwaysDo || ['reply in the same language as the commenter', 'empathise before promoting', 'keep CTAs soft and curiosity-driven']).map(s => `- ${s}`).join('\n')}
+${viSection}`;
+
+  fs.writeFileSync(path.join(cDir, 'config', 'brand-voice.md'), md);
+}
+
+// ─── Precision Content Engine ─────────────────────────────────────────────────
+
+function precisionBriefsPath(cDir) {
+  return path.join(cDir, 'leadgen', 'precision-briefs.json');
+}
+
+function loadPrecisionBriefs(cDir) {
+  const p = precisionBriefsPath(cDir);
+  if (!fs.existsSync(p)) return [];
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return []; }
+}
+
+function savePrecisionBriefs(cDir, briefs) {
+  const p = precisionBriefsPath(cDir);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(briefs, null, 2));
+  fs.renameSync(tmp, p);
+}
+
+// GET /api/clients/:id/precision/briefs
+app.get('/api/clients/:id/precision/briefs', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  res.json(loadPrecisionBriefs(cDir));
+});
+
+// PATCH /api/clients/:id/precision/briefs/:briefId — approve/reject/edit
+app.patch('/api/clients/:id/precision/briefs/:briefId', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const briefs = loadPrecisionBriefs(cDir);
+  const idx = briefs.findIndex(b => b.brief_id === req.params.briefId);
+  if (idx === -1) return res.status(404).json({ error: 'Brief not found' });
+  briefs[idx] = { ...briefs[idx], ...req.body, updated_at: new Date().toISOString() };
+  savePrecisionBriefs(cDir, briefs);
+  res.json({ ok: true, brief: briefs[idx] });
+});
+
+// DELETE /api/clients/:id/precision/briefs/:briefId
+app.delete('/api/clients/:id/precision/briefs/:briefId', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const briefs = loadPrecisionBriefs(cDir).filter(b => b.brief_id !== req.params.briefId);
+  savePrecisionBriefs(cDir, briefs);
+  res.json({ ok: true });
+});
+
+// POST /api/clients/:id/precision/generate-brief — cluster leads + create briefs via Anthropic
+app.post('/api/clients/:id/precision/generate-brief', requireLicense, async (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+  let clientConfig = {};
+  try { clientConfig = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8')); } catch {}
+
+  // Load brand voice for visual identity
+  let brandVoiceMd = '';
+  try { brandVoiceMd = fs.readFileSync(path.join(cDir, 'config', 'brand-voice.md'), 'utf8'); } catch {}
+
+  // Read all leads
+  const leads = lgDb.getLeads(cDir, { limit: 200 }).filter(l => !l.is_converted && !l.is_do_not_engage);
+  if (leads.length < 2) return res.status(400).json({ error: 'Need at least 2 leads to generate briefs' });
+
+  const leadsSummary = leads.map(l => ({
+    id: l.id, platform: l.platform, username: l.username,
+    bio: (l.bio_snippet || '').slice(0, 120),
+    score: l.total_score, stage: l.engagement_stage,
+    source_type: l.source_type, notes: (l.notes || '').slice(0, 120),
+    feedback_good: l.feedback_good || 0, feedback_purchased: l.feedback_purchased || 0,
+  }));
+
+  // Extract visual identity from brand voice md
+  const viMatch = brandVoiceMd.match(/## Visual Identity([\s\S]*?)(?=^##|\Z)/m);
+  const visualIdentityContext = viMatch ? viMatch[0].trim() : 'UAE Emirati lifestyle imagery, bilingual English+Arabic';
+
+  const systemPrompt = `You are a precision content strategist for "${clientConfig.name || 'the brand'}".
+Product: ${clientConfig.product_name || clientConfig.name || 'Bamboo bedding'}
+Niche: ${clientConfig.niche || 'luxury bedding UAE'}
+Target market: ${clientConfig.target_geo || 'UAE'}
+
+Visual identity for all image generation:
+${visualIdentityContext}
+
+You analyse lead pipelines and generate data-driven content briefs where every post has guaranteed pre-qualified viewers ready to engage.`;
+
+  const userPrompt = `Here are ${leads.length} leads in our pipeline:
+
+${JSON.stringify(leadsSummary, null, 2)}
+
+TASK:
+1. Cluster these leads into groups by shared pain point (e.g. cooling, back support, luxury gifting, hotel procurement, interior design styling, etc.). Minimum 2 leads per cluster.
+
+2. For each cluster, generate one content brief following these scale rules:
+   - 1–2 leads → "dm_only" strategy (no post, just DMs)
+   - 3–5 leads → format: "carousel"
+   - 6–10 leads → format: "reel"
+   - 10+ leads → format: "reel" AND create a second "carousel" brief for the same cluster
+
+3. For each brief, include a detailed Gemini image generation prompt that follows the brand visual identity above (Emirati woman in hair towel + bathrobe if showing lifestyle, UAE apartment setting, bilingual text overlay).
+
+Return a JSON array ONLY, no other text. Each brief object:
+{
+  "brief_id": "brief_[6 random hex chars]",
+  "cluster_topic": "Short topic name e.g. Hot Sleepers UAE",
+  "cluster_size": N,
+  "pain_point_label": "kebab-case-label",
+  "pain_point_summary": "1-2 sentences: what these leads have in common and why this content will resonate",
+  "leads": [{"id": N, "username": "...", "platform": "...", "why_relevant": "brief reason"}],
+  "format": "carousel|reel|post|story|dm_only",
+  "platform": "instagram",
+  "key_message": "The single core message this content delivers",
+  "caption": "Full ready-to-post Instagram caption with emojis and soft CTA. Bilingual preferred (English then Arabic).",
+  "hashtags": ["#tag1", "#tag2"],
+  "post_time_gst": "HH:MM",
+  "slide_copy": ["Slide 1 text", "Slide 2 text", "Slide 3 text"],
+  "image_prompt": "Detailed Gemini imagen prompt: describe scene, setting, model appearance (Emirati, hair towel, bathrobe), product placement, lighting, bilingual text overlay content, aspect ratio 4:5. Be specific and vivid.",
+  "image_aspect_ratio": "4:5",
+  "tagging_strategy": "reply_tag|dm_notify|caption_ref",
+  "tagging_instructions": [
+    {"username": "@handle", "platform": "instagram", "action": "comment_tag|story_mention|dm", "suggested_text": "natural-feeling text referencing something specific from the lead's bio/notes"}
+  ],
+  "dm_sequence": [
+    {"username": "@handle", "platform": "instagram", "message": "personalised warm DM referencing their specific pain point. No pitch. Open with curiosity.", "timing": "30min_after_post|after_engage|immediate"}
+  ],
+  "amplification_steps": ["step 1", "step 2"]
+}`;
+
+  try {
+    const model = config.anthropicModel || 'claude-haiku-4-5-20251001';
+    const body = JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    const apiRes = await new Promise((resolve, reject) => {
+      const opts = {
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'x-api-key': config.anthropicApiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+      };
+      let data = '';
+      const req2 = https.request(opts, r => {
+        r.on('data', c => { data += c; });
+        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Bad JSON from Anthropic')); } });
+      });
+      req2.on('error', reject);
+      req2.write(body);
+      req2.end();
+    });
+
+    const text = apiRes.content?.[0]?.text || '';
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return res.status(500).json({ error: 'No JSON array in response', raw: text.slice(0, 500) });
+
+    const newBriefs = JSON.parse(jsonMatch[0]).map(b => ({
+      ...b,
+      brief_id: b.brief_id || 'brief_' + Math.random().toString(16).slice(2, 8),
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      generated_images: [],
+      posted_url: null, posted_at: null, amplification_done: false,
+    }));
+
+    // Merge with existing (keep approved/posted, replace pending)
+    const existing = loadPrecisionBriefs(cDir).filter(b => b.status !== 'pending');
+    savePrecisionBriefs(cDir, [...existing, ...newBriefs]);
+
+    res.json({ ok: true, count: newBriefs.length, briefs: newBriefs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/clients/:id/precision/generate-image/:briefId — call Gemini image generation
+app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, async (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  if (!config.geminiApiKey) return res.status(400).json({ error: 'Gemini API key not configured. Add it in Settings.' });
+
+  const briefs = loadPrecisionBriefs(cDir);
+  const brief = briefs.find(b => b.brief_id === req.params.briefId);
+  if (!brief) return res.status(404).json({ error: 'Brief not found' });
+  if (!brief.image_prompt) return res.status(400).json({ error: 'Brief has no image_prompt' });
+
+  // Optional: base64 reference image from client product assets
+  const { referenceImageBase64, referenceImageMime } = req.body;
+
+  const geminiModel = 'gemini-3-pro-image-preview';
+  const parts = [];
+  if (referenceImageBase64) {
+    parts.push({ inline_data: { mime_type: referenceImageMime || 'image/jpeg', data: referenceImageBase64 } });
+  }
+  parts.push({ text: brief.image_prompt });
+
+  const geminiBody = JSON.stringify({
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+      temperature: 0.4,
+    },
+  });
+
+  try {
+    const geminiRes = await new Promise((resolve, reject) => {
+      const opts = {
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/${geminiModel}:generateContent?key=${config.geminiApiKey}`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(geminiBody) },
+      };
+      let data = '';
+      const req2 = https.request(opts, r => {
+        r.on('data', c => { data += c; });
+        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Bad JSON from Gemini')); } });
+      });
+      req2.on('error', reject);
+      req2.write(geminiBody);
+      req2.end();
+    });
+
+    if (geminiRes.error) return res.status(500).json({ error: geminiRes.error.message || 'Gemini error', detail: geminiRes.error });
+
+    const imagePart = geminiRes.candidates?.[0]?.content?.parts?.find(p => p.inline_data);
+    if (!imagePart) return res.status(500).json({ error: 'No image in Gemini response', raw: JSON.stringify(geminiRes).slice(0, 400) });
+
+    // Save image to client assets
+    const imgDir = path.join(cDir, 'assets', 'precision');
+    fs.mkdirSync(imgDir, { recursive: true });
+    const filename = `${brief.brief_id}_${Date.now()}.png`;
+    const filepath = path.join(imgDir, filename);
+    const imgBuffer = Buffer.from(imagePart.inline_data.data, 'base64');
+    fs.writeFileSync(filepath, imgBuffer);
+
+    const localUrl = `/api/clients/${req.params.id}/assets/precision/${filename}`;
+
+    // Update brief with generated image
+    const briefIdx = briefs.findIndex(b => b.brief_id === req.params.briefId);
+    briefs[briefIdx].generated_images = briefs[briefIdx].generated_images || [];
+    briefs[briefIdx].generated_images.push({ filename, local_url: localUrl, created_at: new Date().toISOString() });
+    savePrecisionBriefs(cDir, briefs);
+
+    res.json({ ok: true, local_url: localUrl, filename, brief: briefs[briefIdx] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Serve precision-generated images
+app.get('/api/clients/:id/assets/precision/:filename', requireLicense, (req, res) => {
+  const filePath = path.join(CLIENTS_DIR, req.params.id, 'assets', 'precision', req.params.filename);
+  if (!filePath.startsWith(CLIENTS_DIR)) return res.status(403).send('Forbidden');
+  if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
+  res.sendFile(filePath);
+});
+
+// POST /api/clients/:id/precision/post/:briefId — SSE run to post + amplify
+app.post('/api/clients/:id/precision/post/:briefId', requireLicense, (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const briefs = loadPrecisionBriefs(cDir);
+  const brief = briefs.find(b => b.brief_id === req.params.briefId);
+  if (!brief) return res.status(404).json({ error: 'Brief not found' });
+  if (brief.status !== 'approved') return res.status(400).json({ error: 'Brief must be approved before posting' });
+
+  // Inject the brief into the run as a special command
+  req.body = { command: 'precision-post', precisionBriefId: req.params.briefId };
+
+  // Delegate to the standard run endpoint logic (re-use SSE infrastructure)
+  // Forward to existing run handler
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8'));
+  const config = loadConfig();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {} };
+
+  runClaude(
+    req.params.id,
+    `precision-post:${req.params.briefId}`,
+    config,
+    clientConfig,
+    (type, text) => send(type, { text }),
+    (runId, code, signal, startedAt, status) => {
+      if (status === 'completed') {
+        const idx = briefs.findIndex(b => b.brief_id === req.params.briefId);
+        if (idx !== -1) { briefs[idx].status = 'posted'; briefs[idx].posted_at = new Date().toISOString(); savePrecisionBriefs(cDir, briefs); }
+      }
+      send('done', { code, runId, status });
+      res.end();
+    }
+  );
+});
 
 // ─── Client Chat (Claude Messages API streaming) ───
 app.post('/api/clients/:id/chat', requireLicense, async (req, res) => {
