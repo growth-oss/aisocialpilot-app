@@ -2233,23 +2233,11 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
   const { runId, startedAt } = runResult;
   send('start', { runId, command, clientName: clientConfig.name, startedAt });
 
-  // Kill process if SSE connection drops — but only after 10s grace period to avoid
-  // killing on Railway proxy reconnects. Railway often drops/re-establishes SSE.
+  // Never kill a running process when the SSE connection drops.
+  // Runs always continue to completion — the client can reconnect and see results in the Runs tab.
   req.on('close', () => {
     const elapsed = Date.now() - t0;
-    console.log(`[run ${runId}] req.close at ${elapsed}ms`);
-    const entry = runningProcesses.get(runId);
-    if (entry) {
-      if (elapsed < 10000) {
-        // Too early — likely a Railway proxy reconnect, not a genuine user disconnect
-        send('output', { text: `\n[DEBUG: req.close at ${elapsed}ms — ignoring (grace period)]\n` });
-        console.log(`[run ${runId}] req.close IGNORED (grace period, ${elapsed}ms < 10s)`);
-      } else {
-        if (entry.proc) entry.proc.kill('SIGTERM');
-        else if (entry.abort) entry.abort.abort();
-        runningProcesses.delete(runId);
-      }
-    }
+    console.log(`[run ${runId}] req.close at ${elapsed}ms — run continues in background`);
   });
 });
 
