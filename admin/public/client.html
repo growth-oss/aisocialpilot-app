@@ -1663,11 +1663,13 @@ async function loadBriefs() {
 }
 
 function renderBriefCard(b) {
-  const statusColor = { draft:'var(--muted)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
+  const bid = b.brief_id || b.id;
+  const statusColor = { pending:'var(--muted)', draft:'var(--muted)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
   const sc = statusColor[b.status] || 'var(--muted)';
   const imgTag = b.image_url
-    ? `<img src="${b.image_url}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:10px" onclick="openBriefModal('${b.id}')" title="Click to open brief">`
-    : `<div style="height:100px;background:var(--bg);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:10px;cursor:pointer" onclick="openBriefModal('${b.id}')">No image yet — click to generate</div>`;
+    ? `<img src="${b.image_url}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;margin-bottom:10px" onclick="openBriefModal('${bid}')" title="Click to open brief">`
+    : `<div style="height:100px;background:var(--bg);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:10px;cursor:pointer" onclick="openBriefModal('${bid}')">No image yet — click to generate</div>`;
+  const canApprove = b.status === 'pending' || b.status === 'draft';
   return `
   <div class="card" style="margin-bottom:14px">
     ${imgTag}
@@ -1680,14 +1682,14 @@ function renderBriefCard(b) {
       ${FORMAT_LABELS[b.format] || b.format} · ${(b.leads||[]).length} lead${(b.leads||[]).length===1?'':'s'} targeted · ${timeAgo(b.created_at)}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${b.id}')">View Brief</button>
-      ${!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${b.id}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${b.id}', this)">🔄 Re-generate</button>`}
-      ${b.status === 'draft' ? `
-        <button class="btn btn-primary btn-sm" onclick="approveBrief('${b.id}')">✓ Approve</button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${b.id}')">✕ Reject</button>
+      <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${bid}')">View Brief</button>
+      ${!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🔄 Re-generate</button>`}
+      ${canApprove ? `
+        <button class="btn btn-primary btn-sm" onclick="approveBrief('${bid}')">✓ Approve</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${bid}')">✕ Reject</button>
       ` : ''}
-      ${b.status === 'approved' ? `<button class="btn btn-primary btn-sm" onclick="postBrief('${b.id}', this)">🚀 Post Now</button>` : ''}
-      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${b.id}')">🗑</button>
+      ${b.status === 'approved' ? `<button class="btn btn-primary btn-sm" onclick="postBrief('${bid}', this)">🚀 Post Now</button>` : ''}
+      <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${bid}')">🗑</button>
     </div>
   </div>`;
 }
@@ -1700,7 +1702,7 @@ async function generateBriefs() {
   try {
     const result = await api('POST', `/clients/${clientId}/precision/generate-brief`, {});
     if (result.error) throw new Error(result.error);
-    toast(`Generated ${result.briefs?.length || 0} brief(s)`);
+    toast(`Generated ${result.count || result.briefs?.length || 0} brief(s)`);
     await loadBriefs();
   } catch(e) {
     toast('Error: ' + e.message, 'error');
@@ -1759,29 +1761,39 @@ async function openBriefModal(briefId) {
   body.innerHTML = '<div style="color:var(--muted);padding:20px 0">Loading…</div>';
   try {
     const briefs = await api('GET', `/clients/${clientId}/precision/briefs`);
-    const b = briefs.find(x => x.id === briefId);
+    const b = briefs.find(x => (x.brief_id || x.id) === briefId);
     if (!b) throw new Error('Brief not found');
+    const bid = b.brief_id || b.id;
+    const canApprove = b.status === 'pending' || b.status === 'draft';
     const imgSection = b.image_url
       ? `<img src="${b.image_url}" style="width:100%;border-radius:10px;margin-bottom:16px">`
       : `<div style="height:120px;background:var(--bg);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:16px">No image generated yet</div>`;
+    const tiStr = Array.isArray(b.tagging_instructions)
+      ? b.tagging_instructions.map(t=>`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px;font-size:12px"><strong>@${t.username||t.handle||'?'}</strong> — ${escapeHtml(t.action||'')} · "${escapeHtml(t.suggested_text||'')}"</div>`).join('')
+      : escapeHtml(b.tagging_instructions||'—');
+    const dmStr = Array.isArray(b.dm_sequence)
+      ? b.dm_sequence.map((d,i)=>`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px"><strong>${d.username||'Step '+(i+1)}:</strong> ${escapeHtml(d.message||d)}</div>`).join('')
+      : '—';
     body.innerHTML = `
       <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escapeHtml(b.cluster_topic)}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${FORMAT_LABELS[b.format]||b.format} · ${(b.leads||[]).length} leads · ${b.status}</div>
       ${imgSection}
-      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Content Brief</div>
-      <div style="font-size:13px;line-height:1.6;margin-bottom:16px;color:var(--text)">${escapeHtml(b.content_brief||'—')}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Key Message</div>
+      <div style="font-size:13px;line-height:1.6;margin-bottom:16px;color:var(--text)">${escapeHtml(b.key_message||b.content_brief||'—')}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Caption</div>
+      <div style="font-size:13px;line-height:1.6;margin-bottom:16px;color:var(--text);white-space:pre-wrap;background:var(--bg);border-radius:7px;padding:10px">${escapeHtml(b.caption||'—')}</div>
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image Prompt</div>
-      <div style="font-size:12px;background:var(--bg);border-radius:7px;padding:10px;margin-bottom:16px;color:#a0a0c8;font-family:monospace">${escapeHtml(b.image_prompt||'—')}</div>
+      <div style="font-size:12px;background:var(--bg);border-radius:7px;padding:10px;margin-bottom:16px;color:#a0a0c8;font-family:monospace;white-space:pre-wrap">${escapeHtml(b.image_prompt||'—')}</div>
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Tagging Instructions</div>
-      <div style="font-size:13px;margin-bottom:16px;color:var(--text)">${escapeHtml(b.tagging_instructions||'—')}</div>
-      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">DM Sequence (${(b.dm_sequence||[]).length} messages)</div>
-      <div style="font-size:13px;margin-bottom:16px;color:var(--text)">${(b.dm_sequence||[]).map((d,i)=>`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px"><strong>Step ${i+1}:</strong> ${escapeHtml(d)}</div>`).join('')||'—'}</div>
+      <div style="margin-bottom:16px">${tiStr}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">DM Sequence (${(b.dm_sequence||[]).length})</div>
+      <div style="font-size:13px;margin-bottom:16px">${dmStr}</div>
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Targeted Leads</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">${(b.leads||[]).map(l=>`<span style="background:var(--card2);padding:3px 9px;border-radius:20px;font-size:11px">${escapeHtml(l.username||l)}</span>`).join('')||'<span style="font-size:12px;color:var(--muted)">—</span>'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${b.status==='draft'?`<button class="btn btn-primary" onclick="approveBrief('${b.id}');closeBriefModal()">✓ Approve</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${b.id}');closeBriefModal()">✕ Reject</button>`:''}
-        ${b.status==='approved'?`<button class="btn btn-primary" onclick="postBrief('${b.id}',this)">🚀 Post Now</button>`:''}
-        ${!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${b.id}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${b.id}',this)">🔄 Re-generate Image</button>`}
+        ${canApprove?`<button class="btn btn-primary" onclick="approveBrief('${bid}');closeBriefModal()">✓ Approve</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${bid}');closeBriefModal()">✕ Reject</button>`:''}
+        ${b.status==='approved'?`<button class="btn btn-primary" onclick="postBrief('${bid}',this)">🚀 Post Now</button>`:''}
+        ${!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🔄 Re-generate Image</button>`}
       </div>`;
   } catch(e) {
     body.innerHTML = `<div style="color:var(--red)">${e.message}</div>`;
