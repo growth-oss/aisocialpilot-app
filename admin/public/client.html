@@ -1164,60 +1164,53 @@ async function showRunPlan(runTimeGst, diffMin) {
     const enabledSources = (sources || []).filter(s => s.enabled !== false);
     const queuedBriefs   = (briefs  || []).filter(b => b.status === 'queued');
     const leads          = leadsData?.leads || leadsData || [];
-    const stageNames     = ['New','Story Viewed','Liked','Followed','Commented','DM Sent','DM Replied','Converted'];
 
-    // Count leads by stage
     const bySt = {};
     leads.forEach(l => { bySt[l.engagement_stage] = (bySt[l.engagement_stage] || 0) + 1; });
 
-    const toEngage    = (bySt[1] || 0) + (bySt[2] || 0);  // story viewed / liked → follow
-    const toComment   = bySt[3] || 0;   // followed → comment
-    const toDM        = bySt[4] || 0;   // commented → DM
+    const toEngage  = (bySt[1] || 0) + (bySt[2] || 0);
+    const toComment = bySt[3] || 0;
+    const toDM      = bySt[4] || 0;
     const hh = Math.floor(diffMin / 60), mm = diffMin % 60;
     const inLabel = hh > 0 ? `in ${hh}h ${mm}m` : `in ${mm}m`;
 
-    // Build source lines
-    const srcLines = enabledSources.slice(0, 6).map(s => {
-      const icon = s.platform === 'instagram' ? '📸' : s.platform === 'facebook' ? '📘' : s.platform === 'google_maps' ? '🗺' : '🔍';
-      const typeTag = s.type === 'hashtag' ? '#' + s.handle_or_url.replace(/^#/, '') : s.type === 'location' ? '📍 ' + s.handle_or_url : '@' + s.handle_or_url;
-      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">${icon} <span style="color:var(--text)">${typeTag}</span> <span style="color:var(--muted);font-size:10px">${s.type}</span></div>`;
-    }).join('');
+    const lines = [];
+    lines.push(`Here's my plan for the <strong>${runTimeGst} GST</strong> run (${inLabel}):`);
+    lines.push('');
 
-    const planRows = [];
-    if (enabledSources.length)
-      planRows.push({ icon: '🔍', label: 'Scrape leads', detail: `${enabledSources.length} source${enabledSources.length !== 1 ? 's' : ''}`, sub: srcLines });
+    if (enabledSources.length) {
+      const srcList = enabledSources.slice(0, 5).map(s => {
+        const tag = s.type === 'hashtag' ? '#' + s.handle_or_url.replace(/^#/, '') : s.type === 'location' ? s.handle_or_url : '@' + s.handle_or_url;
+        return tag;
+      });
+      const extra = enabledSources.length > 5 ? ` +${enabledSources.length - 5} more` : '';
+      lines.push(`🔍 <strong>Scrape new leads</strong> from ${enabledSources.length} source${enabledSources.length !== 1 ? 's' : ''} — ${srcList.join(', ')}${extra}`);
+    }
     if (toEngage)
-      planRows.push({ icon: '👁', label: 'View stories + like + follow', detail: `${toEngage} lead${toEngage !== 1 ? 's' : ''} at stage 1–2` });
+      lines.push(`👁 <strong>Warm-up</strong> ${toEngage} lead${toEngage !== 1 ? 's' : ''} — view stories → like posts → follow`);
     if (toComment)
-      planRows.push({ icon: '💬', label: 'Leave genuine comment', detail: `${toComment} lead${toComment !== 1 ? 's' : ''} at stage 3 (followed)` });
+      lines.push(`💬 <strong>Comment</strong> on recent posts from ${toComment} lead${toComment !== 1 ? 's' : ''} who followed back`);
     if (toDM)
-      planRows.push({ icon: '📨', label: 'Send warm DM', detail: `${toDM} lead${toDM !== 1 ? 's' : ''} at stage 4 (commented)` });
-    if (queuedBriefs.length)
-      planRows.push({ icon: '📸', label: 'Post queued content', detail: `${queuedBriefs.length} brief${queuedBriefs.length !== 1 ? 's' : ''} approved & ready`, sub: queuedBriefs.map(b => `<div style="padding:2px 0;color:var(--muted);font-size:11px">• ${escapeHtml((b.cluster_topic || b.content_brief || '').slice(0, 60))}</div>`).join('') });
-    if (!planRows.length)
-      planRows.push({ icon: '⟳', label: 'Scan pipeline & check for new activity', detail: 'no specific tasks queued' });
+      lines.push(`📨 <strong>Send warm DM</strong> to ${toDM} lead${toDM !== 1 ? 's' : ''} who engaged with our comments`);
+    if (queuedBriefs.length) {
+      lines.push(`📸 <strong>Post ${queuedBriefs.length} queued brief${queuedBriefs.length !== 1 ? 's' : ''}</strong> with natural timing (15–40 min gaps)`);
+      queuedBriefs.forEach(b => {
+        const topic = (b.cluster_topic || '').slice(0, 55) || 'content brief';
+        lines.push(`&nbsp;&nbsp;&nbsp;• ${escapeHtml(topic)}`);
+      });
+    }
+    if (!enabledSources.length && !toEngage && !toComment && !toDM && !queuedBriefs.length)
+      lines.push(`⟳ <strong>Pipeline check</strong> — review activity and update lead stages`);
 
-    const rowsHtml = planRows.map(r => `
-      <div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border2)">
-        <span style="font-size:15px;flex-shrink:0;line-height:1.3">${r.icon}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:12px;color:var(--text);font-weight:500">${r.label}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:1px">${r.detail}</div>
-          ${r.sub ? `<div style="margin-top:4px">${r.sub}</div>` : ''}
-        </div>
-      </div>`).join('');
+    lines.push('');
+    lines.push(`I'll run fully autonomously. Check <strong>Logs</strong> and <strong>Pipeline</strong> after the run.`);
 
     const el = document.createElement('div');
     el.className = 'chat-msg';
     el.innerHTML = `
       <div class="chat-msg-avatar">🤖</div>
-      <div class="chat-msg-bubble" style="padding:0;overflow:hidden;min-width:220px">
-        <div style="padding:10px 12px 8px;border-bottom:1px solid var(--border2)">
-          <div style="font-size:12px;font-weight:600;color:var(--text)">📋 Run Plan — ${runTimeGst} GST</div>
-          <div style="font-size:11px;color:var(--accent);margin-top:2px">${inLabel} · ${leads.length} leads in pipeline</div>
-        </div>
-        <div style="padding:0 12px">${rowsHtml}</div>
-        <div style="padding:8px 12px;font-size:11px;color:var(--muted)">Runs autonomously · results appear in Pipeline & Logs tabs</div>
+      <div class="chat-msg-bubble" style="line-height:1.65;font-size:13px">
+        ${lines.map(l => l === '' ? '<br>' : `<div>${l}</div>`).join('')}
       </div>`;
     const container = document.getElementById('chat-messages');
     container.appendChild(el);
