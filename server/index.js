@@ -403,7 +403,8 @@ app.post('/api/license/activate', async (req, res) => {
 app.post('/api/setup', async (req, res) => {
   const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel,
           geminiApiKey, keepGeminiKey,
-          smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom } = req.body;
+          smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom,
+          resendApiKey, keepResendKey, dailyReportEmail, dailyReportFrom } = req.body;
   const config = loadConfig();
 
   // Allow updating without re-entering existing key (Settings page flow)
@@ -425,6 +426,12 @@ app.post('/api/setup', async (req, res) => {
   if (smtpUser !== undefined) config.smtpUser = smtpUser;
   if (smtpPass !== undefined) config.smtpPass = smtpPass;
   if (smtpFrom !== undefined) config.smtpFrom = smtpFrom;
+
+  // Resend (daily report)
+  const resolvedResendKey = resendApiKey || (keepResendKey ? config.resendApiKey : '');
+  if (resolvedResendKey) config.resendApiKey = resolvedResendKey;
+  if (dailyReportEmail !== undefined) config.dailyReportEmail = dailyReportEmail;
+  if (dailyReportFrom  !== undefined) config.dailyReportFrom  = dailyReportFrom;
 
   config.setupComplete = true;
   saveConfig(config);
@@ -455,6 +462,10 @@ app.get('/api/settings', requireLicense, (req, res) => {
     smtpUser:  config.smtpUser  || '',
     smtpFrom:  config.smtpFrom  || '',
     hasSmtp:   !!(config.smtpHost && config.smtpUser && config.smtpPass),
+    hasResendKey:     !!(process.env.RESEND_API_KEY || config.resendApiKey),
+    resendApiKeyMasked: mask(config.resendApiKey),
+    dailyReportEmail: config.dailyReportEmail || process.env.DAILY_REPORT_EMAIL || '',
+    dailyReportFrom:  config.dailyReportFrom  || process.env.DAILY_REPORT_FROM  || '',
   });
 });
 
@@ -2503,6 +2514,196 @@ setInterval(() => {
   }
 }, 60000);
 
+// ─── Daily report via Resend (06:00 GST = 02:00 UTC) ─────────────────────────
+// Collect yesterday + month-to-date stats for all clients, send HTML email via Resend API.
+
+function buildClientReport(clientId, clientName, yesterday, monthPrefix) {
+  const cDir  = path.join(CLIENTS_DIR, clientId);
+  let leads = [];
+  try { leads = lgDb.getLeads(cDir, { limit: 99999 }); } catch {}
+
+  const active = leads.filter(l => !l.is_do_not_engage);
+
+  // Yesterday — new leads
+  const newYesterday = active.filter(l => (l.created_at || '').startsWith(yesterday));
+  // Yesterday — stage advancements (updated but not created same day, or any updated)
+  const advancedYesterday = active.filter(l =>
+    (l.updated_at || '').startsWith(yesterday) && l.engagement_stage > 0
+  );
+  // Yesterday — DMs attempted
+  const dmsYesterday = active.filter(l =>
+    (l.updated_at || '').startsWith(yesterday) && l.dm_pivot_attempted
+  );
+
+  // Runs yesterday
+  const runs = getClientRuns(clientId);
+  const runsYesterday = runs.filter(r => (r.startedAt || '').startsWith(yesterday));
+  const runsSuccess   = runsYesterday.filter(r => r.status === 'completed').length;
+  const runsFailed    = runsYesterday.filter(r => r.status === 'failed' || r.status === 'error').length;
+
+  // MTD (month to date)
+  const mtdLeads      = active.filter(l => (l.created_at || '').startsWith(monthPrefix));
+  const mtdConverted  = leads.filter(l => l.is_converted && (l.converted_at || l.updated_at || '').startsWith(monthPrefix));
+  const mtdDms        = leads.filter(l => l.dm_pivot_attempted && (l.updated_at || '').startsWith(monthPrefix));
+  const mtdRuns       = runs.filter(r => (r.startedAt || '').startsWith(monthPrefix));
+
+  // Platform breakdown (yesterday new leads)
+  const platMap = {};
+  for (const l of newYesterday) platMap[l.platform] = (platMap[l.platform] || 0) + 1;
+  const platBreakdown = Object.entries(platMap).map(([p, n]) => `${p}: ${n}`).join(', ') || 'none';
+
+  // Stage distribution today (total pipeline)
+  const STAGE_LABELS = ['New','Story Viewed','Liked','Followed','Commented','DM Sent','DM Replied','Converted'];
+  const stageDist = STAGE_LABELS.map((label, i) =>
+    `${label}: ${active.filter(l => l.engagement_stage === i).length}`
+  ).join(' · ');
+
+  return {
+    clientName,
+    newYesterday: newYesterday.length,
+    platBreakdown,
+    advancedYesterday: advancedYesterday.length,
+    dmsYesterday: dmsYesterday.length,
+    runsYesterday: runsYesterday.length,
+    runsSuccess,
+    runsFailed,
+    totalLeads: active.length,
+    hotLeads: active.filter(l => l.total_score >= 70).length,
+    converted: leads.filter(l => l.is_converted).length,
+    mtdLeads: mtdLeads.length,
+    mtdConverted: mtdConverted.length,
+    mtdDms: mtdDms.length,
+    mtdRuns: mtdRuns.length,
+    stageDist,
+  };
+}
+
+function buildDailyReportHtml(reports, dateLabel, monthLabel) {
+  const rows = reports.map(r => `
+    <div style="background:#18181b;border:1px solid #27272a;border-radius:12px;padding:20px 24px;margin-bottom:20px">
+      <h2 style="margin:0 0 16px;font-size:16px;color:#e4e4e7;font-weight:600">${escapeHtmlEmail(r.clientName)}</h2>
+
+      <p style="margin:0 0 10px;font-size:13px;color:#a1a1aa;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Yesterday · ${dateLabel}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px">
+        <tr>
+          ${kpiCell('New Leads', r.newYesterday, r.newYesterday > 0 ? '#22c55e' : '#71717a')}
+          ${kpiCell('Advanced', r.advancedYesterday, '#60a5fa')}
+          ${kpiCell('DMs Sent', r.dmsYesterday, '#c084fc')}
+          ${kpiCell('Runs', `${r.runsSuccess}✓${r.runsFailed > 0 ? ' ' + r.runsFailed + '✗' : ''}`, r.runsFailed > 0 ? '#f87171' : '#4ade80')}
+        </tr>
+      </table>
+      ${r.newYesterday > 0 ? `<p style="margin:0 0 14px;font-size:12px;color:#71717a">Sources: ${escapeHtmlEmail(r.platBreakdown)}</p>` : ''}
+
+      <p style="margin:0 0 10px;font-size:13px;color:#a1a1aa;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Month to Date · ${monthLabel}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px">
+        <tr>
+          ${kpiCell('New Leads', r.mtdLeads, '#60a5fa')}
+          ${kpiCell('DMs Sent', r.mtdDms, '#c084fc')}
+          ${kpiCell('Converted', r.mtdConverted, '#4ade80')}
+          ${kpiCell('Runs', r.mtdRuns, '#f59e0b')}
+        </tr>
+      </table>
+
+      <p style="margin:0 0 6px;font-size:13px;color:#a1a1aa;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Total Pipeline</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px">
+        <tr>
+          ${kpiCell('All Leads', r.totalLeads, '#e4e4e7')}
+          ${kpiCell('Hot (≥70)', r.hotLeads, '#f59e0b')}
+          ${kpiCell('Converted', r.converted, '#4ade80')}
+          ${kpiCell('', '', '')}
+        </tr>
+      </table>
+      <p style="margin:8px 0 0;font-size:11px;color:#52525b;line-height:1.6">${escapeHtmlEmail(r.stageDist)}</p>
+    </div>`).join('');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Social Pilot — Daily Report</title></head>
+<body style="margin:0;padding:0;background:#09090b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:600px;margin:0 auto;padding:32px 16px">
+  <div style="text-align:center;margin-bottom:28px">
+    <p style="margin:0;font-size:11px;color:#52525b;text-transform:uppercase;letter-spacing:.1em">AI Social Pilot</p>
+    <h1 style="margin:8px 0 4px;font-size:22px;color:#f4f4f5;font-weight:700">Daily Report</h1>
+    <p style="margin:0;font-size:13px;color:#71717a">${dateLabel} · Delivered 6:00 AM GST</p>
+  </div>
+  ${rows}
+  <div style="text-align:center;margin-top:24px;padding-top:20px;border-top:1px solid #27272a">
+    <p style="margin:0;font-size:11px;color:#3f3f46">AI Social Pilot · aisocialpilot.com</p>
+  </div>
+</div>
+</body></html>`;
+}
+
+function kpiCell(label, value, color) {
+  if (!label) return `<td width="25%" style="padding:4px"></td>`;
+  return `<td width="25%" style="padding:4px">
+    <div style="background:#09090b;border:1px solid #27272a;border-radius:8px;padding:10px 12px;text-align:center">
+      <div style="font-size:20px;font-weight:700;color:${color || '#e4e4e7'}">${value}</div>
+      <div style="font-size:10px;color:#71717a;margin-top:2px">${label}</div>
+    </div>
+  </td>`;
+}
+
+function escapeHtmlEmail(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function sendResendEmail({ apiKey, from, to, subject, html }) {
+  const body = JSON.stringify({ from, to: Array.isArray(to) ? to : [to], subject, html });
+  return new Promise((resolve, reject) => {
+    const req = require('https').request(
+      { hostname: 'api.resend.com', path: '/emails', method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json',
+                   'Content-Length': Buffer.byteLength(body) } },
+      res => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) resolve(JSON.parse(data));
+          else reject(new Error(`Resend ${res.statusCode}: ${data}`));
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function sendDailyReport() {
+  const config = loadConfig();
+  const apiKey = process.env.RESEND_API_KEY || config.resendApiKey;
+  const to     = process.env.DAILY_REPORT_EMAIL || config.dailyReportEmail;
+  const from   = process.env.DAILY_REPORT_FROM  || config.dailyReportFrom || 'AI Social Pilot <reports@aisocialpilot.com>';
+  if (!apiKey || !to) {
+    console.log('[daily-report] Skipping — RESEND_API_KEY or recipient not configured');
+    return;
+  }
+
+  // GST yesterday = UTC today-1 day (both point to same calendar date in GST since we're firing at 02:00 UTC = 06:00 GST)
+  const now       = new Date();
+  const ystDate   = new Date(now.getTime() - 86400000);
+  const yesterday = ystDate.toISOString().slice(0, 10);   // YYYY-MM-DD
+  const monthPrefix = now.toISOString().slice(0, 7);      // YYYY-MM (current month)
+
+  const dateLabel  = ystDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
+  const monthLabel = now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Asia/Dubai' });
+
+  const clients = getClients().filter(c => c.status !== 'paused');
+  if (!clients.length) { console.log('[daily-report] No active clients'); return; }
+
+  const reports = clients.map(c => buildClientReport(c.clientId || c.id, c.name, yesterday, monthPrefix));
+  const html    = buildDailyReportHtml(reports, dateLabel, monthLabel);
+  const subject = `Daily Report — ${dateLabel}`;
+
+  try {
+    await sendResendEmail({ apiKey, from, to, subject, html });
+    console.log(`[daily-report] Sent to ${to}`);
+  } catch (err) {
+    console.error('[daily-report] Failed:', err.message);
+  }
+}
+
 // ─── Nightly backup at 02:00 UTC ─────────────────────────────────────────────
 setInterval(() => {
   const hhmm = new Date().toISOString().slice(11, 16);
@@ -2510,6 +2711,7 @@ setInterval(() => {
     backup.runBackup(DATA_DIR).catch(err =>
       console.error('[backup] Nightly backup failed:', err.message)
     );
+    sendDailyReport(); // 02:00 UTC = 06:00 GST
   }
 }, 60000);
 
@@ -2622,6 +2824,16 @@ app.patch('/api/clients/:id/smart-schedule', requireLicense, (req, res) => {
   }
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
   res.json({ success: true, ...cfg.smartSchedule, todayTimesGst: times.map(utcHhmmToGstHhmm) });
+});
+
+// ─── Daily report: manual trigger / test ─────────────────────────────────────
+app.post('/api/daily-report/send-now', requireLicense, async (req, res) => {
+  try {
+    await sendDailyReport();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Next scheduled run times per platform ───

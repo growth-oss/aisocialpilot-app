@@ -1010,6 +1010,28 @@ function renderSettings() {
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="card-title">📬 Daily Report (Resend)</div>
+      <div class="card-desc">Sends a daily digest at 6:00 AM GST with yesterday's leads, DMs, runs, and month-to-date totals. Set <code>RESEND_API_KEY</code> as a Railway environment variable, then configure the recipient below.</div>
+      <div class="field">
+        <label>Resend API Key <span style="color:var(--text-muted);font-weight:400">(set as Railway env var <code>RESEND_API_KEY</code> — preferred)</span></label>
+        <input type="password" id="s-resend-key" placeholder="re_•••• (leave blank to keep current)" spellcheck="false" autocomplete="off">
+        <div class="field-hint" id="s-resend-status"></div>
+      </div>
+      <div class="field">
+        <label>Send Report To <span style="color:var(--text-muted);font-weight:400">(email address)</span></label>
+        <input type="email" id="s-report-email" placeholder="you@yourdomain.com" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>From Address <span style="color:var(--text-muted);font-weight:400">(must be a verified domain in Resend)</span></label>
+        <input type="text" id="s-report-from" placeholder="AI Social Pilot <reports@yourdomain.com>" spellcheck="false">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        <button class="btn btn-ghost" onclick="sendTestReport()">Send Test Report Now</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="card-title">🔐 License</div>
       <div id="settings-license-info" style="font-size:13px;color:var(--text-dim);margin-bottom:16px;"></div>
       <div class="field">
@@ -1086,6 +1108,10 @@ async function populateSettings() {
   if (s.smtpUser)  document.getElementById('s-smtp-user').value = s.smtpUser;
   if (s.smtpFrom)  document.getElementById('s-smtp-from').value = s.smtpFrom;
   if (s.hasSmtp)   document.getElementById('s-smtp-status').textContent = 'SMTP configured ✓';
+  // Resend / daily report fields
+  if (s.hasResendKey) document.getElementById('s-resend-status').textContent = `API key active ${s.resendApiKeyMasked ? '(' + s.resendApiKeyMasked + ')' : '✓'}`;
+  if (s.dailyReportEmail) document.getElementById('s-report-email').value = s.dailyReportEmail;
+  if (s.dailyReportFrom)  document.getElementById('s-report-from').value  = s.dailyReportFrom;
 
   const li = document.getElementById('settings-license-info');
   if (state.status?.licenseValid) {
@@ -1115,21 +1141,37 @@ async function saveSettings() {
   const smtpUser = document.getElementById('s-smtp-user').value.trim();
   const smtpPass = document.getElementById('s-smtp-pass').value.trim();
   const smtpFrom = document.getElementById('s-smtp-from').value.trim();
+  const resendKey      = document.getElementById('s-resend-key').value.trim();
+  const dailyReportEmail = document.getElementById('s-report-email').value.trim();
+  const dailyReportFrom  = document.getElementById('s-report-from').value.trim();
 
   // POST to /setup — it requires anthropicApiKey, so send placeholder if keeping existing
   const body = { anthropicModel, openaiModel, aiProvider,
-    smtpHost, smtpPort, smtpUser, smtpFrom };
+    smtpHost, smtpPort, smtpUser, smtpFrom,
+    dailyReportEmail, dailyReportFrom };
   if (smtpPass) body.smtpPass = smtpPass; // only send if changed (field is empty by default)
   if (anthropicKey) body.anthropicApiKey = anthropicKey;
   else body.keepAnthropicKey = true;
   if (openaiKey) body.openaiApiKey = openaiKey;
   if (geminiKey) body.geminiApiKey = geminiKey;
   else body.keepGeminiKey = true;
+  if (resendKey) body.resendApiKey = resendKey;
+  else body.keepResendKey = true;
 
   const result = await api('POST', '/setup', body);
   if (result.error) return showToast(result.error, 'error');
   showToast('Settings saved');
   await goBack();
+}
+
+async function sendTestReport() {
+  try {
+    showToast('Sending test report…');
+    await api('POST', '/daily-report/send-now');
+    showToast('Test report sent — check your inbox');
+  } catch (err) {
+    showToast(err.message || 'Failed to send test report', 'error');
+  }
 }
 
 async function reactivateLicense() {
