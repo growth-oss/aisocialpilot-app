@@ -606,6 +606,14 @@
   .btn-sm { padding: 5px 12px; font-size: 11px; }
   .btn-danger { background: var(--red-d); color: var(--red); border: 1px solid transparent; }
   .btn-danger:hover { background: rgba(239,68,68,.2); }
+  .btn-secondary { background: var(--card2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+  /* Toggle switch */
+  .toggle-wrap { display:inline-flex; align-items:center; cursor:pointer; }
+  .toggle-track { width:32px; height:18px; border-radius:9px; background:var(--border); position:relative; transition:background .2s; }
+  .toggle-track.on { background:var(--accent); }
+  .toggle-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; transition:left .2s; }
+  .toggle-track.on .toggle-thumb { left:16px; }
 
   /* Toast */
   #toast {
@@ -1070,10 +1078,11 @@ function setStatusIndicator(state, label) {
 // ── OVERVIEW ──
 async function loadOverview() {
   try {
-    const [statsData, recentRuns, hotSources] = await Promise.all([
+    const [statsData, recentRuns, hotSources, smartSched] = await Promise.all([
       api('GET', `/clients/${clientId}/leadgen/stats`),
       api('GET', `/clients/${clientId}/runs`).catch(() => []),
       api('GET', `/clients/${clientId}/leadgen/leads?limit=8`).catch(() => []),
+      api('GET', `/clients/${clientId}/smart-schedule`).catch(() => null),
     ]);
     stats = statsData;
 
@@ -1084,7 +1093,7 @@ async function loadOverview() {
       cfgSources = (lgCfg.sources || []).filter(s => s.enabled !== false);
     } catch {}
 
-    renderOverview(statsData, recentRuns, hotSources, cfgSources);
+    renderOverview(statsData, recentRuns, hotSources, cfgSources, smartSched);
     updateChatPills();
   } catch (e) {
     document.getElementById('overview-content').innerHTML =
@@ -1092,7 +1101,7 @@ async function loadOverview() {
   }
 }
 
-function renderOverview(s, runs, topLeads, cfgSources) {
+function renderOverview(s, runs, topLeads, cfgSources, smartSched) {
   // KPI cards
   const kpis = `
     <div class="kpi-grid">
@@ -1222,6 +1231,7 @@ function renderOverview(s, runs, topLeads, cfgSources) {
             </div>
           </div>
         </div>
+        ${renderSmartScheduleCard(smartSched)}
         <div class="card" style="margin-bottom:16px">
           <div class="card-title">
             <span class="card-title-text">📈 Conversion Funnel</span>
@@ -1239,6 +1249,116 @@ function renderOverview(s, runs, topLeads, cfgSources) {
       </div>
     </div>
   `;
+}
+
+// ── Smart Schedule card ──
+function renderSmartScheduleCard(ss) {
+  if (!ss) ss = { enabled: false, windows: [], todayTimesGst: [] };
+  const enabled = ss.enabled;
+  const times   = ss.todayTimesGst || [];
+  const windows = ss.windows || [
+    { startGst: '08:00', endGst: '10:00' },
+    { startGst: '13:00', endGst: '15:00' },
+    { startGst: '19:00', endGst: '21:00' },
+  ];
+
+  // Compute next upcoming GST run time
+  let nextLabel = '';
+  if (enabled && times.length) {
+    const nowGstMin = (() => {
+      const now = new Date();
+      const gstMin = (now.getUTCHours() * 60 + now.getUTCMinutes() + 240) % 1440;
+      return gstMin;
+    })();
+    const upcomingMins = times
+      .map(t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; })
+      .filter(m => m > nowGstMin)
+      .sort((a, b) => a - b);
+    if (upcomingMins.length) {
+      const diff = upcomingMins[0] - nowGstMin;
+      const hh = String(Math.floor(diff / 60)).padStart(2, '0');
+      const mm = String(diff % 60).padStart(2, '0');
+      const runTime = `${String(Math.floor(upcomingMins[0]/60)).padStart(2,'0')}:${String(upcomingMins[0]%60).padStart(2,'0')}`;
+      nextLabel = `Next run at ${runTime} GST (in ${hh}h ${mm}m)`;
+    } else {
+      nextLabel = 'All runs done for today';
+    }
+  }
+
+  const windowsHtml = windows.map((w, i) => `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--muted);width:60px">Window ${i+1}</span>
+      <input class="ss-win-start" data-i="${i}" type="time" value="${w.startGst}"
+        style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--text);font-size:12px">
+      <span style="color:var(--muted);font-size:11px">→</span>
+      <input class="ss-win-end" data-i="${i}" type="time" value="${w.endGst}"
+        style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--input);color:var(--text);font-size:12px">
+      <span style="font-size:10px;color:var(--muted)">GST</span>
+    </div>`).join('');
+
+  return `
+  <div class="card" style="margin-bottom:16px" id="smart-sched-card">
+    <div class="card-title">
+      <span class="card-title-text">🗓 Auto-Schedule</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin:0">
+        <div class="toggle-wrap" onclick="toggleSmartSchedule(event)">
+          <input type="checkbox" id="ss-enabled" ${enabled ? 'checked' : ''} style="display:none">
+          <div class="toggle-track ${enabled ? 'on' : ''}" id="ss-toggle-track">
+            <div class="toggle-thumb"></div>
+          </div>
+        </div>
+        <span style="font-size:12px;color:var(--muted)">${enabled ? 'Active' : 'Off'}</span>
+      </label>
+    </div>
+    ${enabled ? `
+    <div style="margin-bottom:10px;padding:8px 10px;background:var(--card2);border-radius:8px;font-size:12px">
+      <span style="color:${times.length ? 'var(--green)' : 'var(--muted)'}">
+        ${times.length ? '⏰ Today: ' + times.join(', ') + ' GST' : 'No times generated yet'}
+      </span>
+      ${nextLabel ? `<div style="color:var(--accent);margin-top:3px;font-size:11px">${nextLabel}</div>` : ''}
+    </div>` : ''}
+    <div id="ss-config" style="${enabled ? '' : 'opacity:.45;pointer-events:none'}">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        One run is randomly placed within each window each day (GST times)
+      </div>
+      ${windowsHtml}
+      <button class="btn btn-sm btn-secondary" style="margin-top:6px;width:100%" onclick="saveSmartSchedule()">
+        Save & Regenerate Times
+      </button>
+    </div>
+  </div>`;
+}
+
+async function toggleSmartSchedule(e) {
+  e.preventDefault();
+  const cb = document.getElementById('ss-enabled');
+  const newEnabled = !cb.checked;
+  cb.checked = newEnabled;
+  document.getElementById('ss-toggle-track').className = 'toggle-track' + (newEnabled ? ' on' : '');
+  document.querySelector('#smart-sched-card .card-title span:last-child').textContent = newEnabled ? 'Active' : 'Off';
+  document.getElementById('ss-config').style.opacity = newEnabled ? '' : '.45';
+  document.getElementById('ss-config').style.pointerEvents = newEnabled ? '' : 'none';
+  try {
+    await api('PATCH', `/clients/${clientId}/smart-schedule`, { enabled: newEnabled });
+    chatNotify(`Auto-schedule ${newEnabled ? 'enabled' : 'disabled'}`, newEnabled ? 'ok' : 'info');
+    loadOverview();
+  } catch (err) {
+    chatNotify('Failed to toggle auto-schedule: ' + err.message, 'error');
+  }
+}
+
+async function saveSmartSchedule() {
+  const starts = [...document.querySelectorAll('.ss-win-start')].map(el => el.value);
+  const ends   = [...document.querySelectorAll('.ss-win-end')].map(el => el.value);
+  const windows = starts.map((s, i) => ({ startGst: s, endGst: ends[i] })).filter(w => w.startGst && w.endGst);
+  const enabled = document.getElementById('ss-enabled')?.checked ?? false;
+  try {
+    const res = await api('PATCH', `/clients/${clientId}/smart-schedule`, { enabled, windows });
+    chatNotify(`Schedule saved. Today's runs: ${(res.todayTimesGst || []).join(', ')} GST`, 'ok');
+    loadOverview();
+  } catch (err) {
+    chatNotify('Failed to save schedule: ' + err.message, 'error');
+  }
 }
 
 // ── Lead row renderer ──

@@ -2513,6 +2513,117 @@ setInterval(() => {
   }
 }, 60000);
 
+// ─── Smart Auto-Schedule for leadgen ─────────────────────────────────────────
+// GST = UTC+4. Converts GST "HH:MM" to total UTC minutes since midnight.
+function gstHhmmToUtcMin(gstHHMM) {
+  const [h, m] = gstHHMM.split(':').map(Number);
+  return (((h * 60 + m) - 240) + 1440) % 1440;
+}
+function utcMinToHhmm(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+function utcHhmmToGstHhmm(utcHHMM) {
+  const [h, m] = utcHHMM.split(':').map(Number);
+  return utcMinToHhmm((h * 60 + m + 240) % 1440);
+}
+
+// Generate one random UTC "HH:MM" per window. Windows are GST local time.
+function generateSmartScheduleTimes(windows) {
+  const times = [];
+  for (const win of (windows || [])) {
+    if (!win.startGst || !win.endGst) continue;
+    const startMin = gstHhmmToUtcMin(win.startGst);
+    const endMin   = gstHhmmToUtcMin(win.endGst);
+    const range    = endMin > startMin ? endMin - startMin : (1440 - startMin) + endMin;
+    if (range <= 0) continue;
+    times.push(utcMinToHhmm((startMin + Math.floor(Math.random() * range)) % 1440));
+  }
+  return times.sort();
+}
+
+// Write freshly-generated times into client config + schedule.leadgen
+function applySmartSchedule(clientId) {
+  const cfgPath = path.join(CLIENTS_DIR, clientId, 'config.json');
+  if (!fs.existsSync(cfgPath)) return;
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch { return; }
+  const ss = cfg.smartSchedule;
+  if (!ss || !ss.enabled) return;
+
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const times = generateSmartScheduleTimes(ss.windows || []);
+  cfg.smartSchedule.todayTimes    = times;
+  cfg.smartSchedule.generatedDate = todayUTC;
+  cfg.schedule = cfg.schedule || {};
+  cfg.schedule.leadgen = times;
+  try { fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2)); } catch {}
+  console.log(`[smart-schedule] ${clientId}: ${times.join(', ')} UTC`);
+}
+
+// At midnight UTC regenerate all smart schedules for the new day
+let _smartSchedLastDate = '';
+setInterval(() => {
+  const now = new Date();
+  const todayUTC = now.toISOString().slice(0, 10);
+  const hhmm     = now.toISOString().slice(11, 16);
+  if (hhmm === '00:00' && _smartSchedLastDate !== todayUTC) {
+    _smartSchedLastDate = todayUTC;
+    console.log('[smart-schedule] Midnight — regenerating smart schedules');
+    try { getClients().forEach(c => applySmartSchedule(c.clientId || c.id)); } catch {}
+  }
+}, 60000);
+
+// On startup: generate schedule for any client that hasn't had one today
+(() => {
+  try {
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    getClients().forEach(c => {
+      const ss = c.smartSchedule;
+      if (ss && ss.enabled && ss.generatedDate !== todayUTC) {
+        applySmartSchedule(c.clientId || c.id);
+      }
+    });
+  } catch {}
+})();
+
+// ─── Smart-schedule API ───────────────────────────────────────────────────────
+const DEFAULT_SS = {
+  enabled: false,
+  windows: [
+    { startGst: '08:00', endGst: '10:00' },
+    { startGst: '13:00', endGst: '15:00' },
+    { startGst: '19:00', endGst: '21:00' },
+  ],
+  days: [0, 1, 2, 3, 4, 5, 6],
+  todayTimes: [],
+  generatedDate: '',
+};
+
+app.get('/api/clients/:id/smart-schedule', requireLicense, (req, res) => {
+  const cfgPath = path.join(CLIENTS_DIR, req.params.id, 'config.json');
+  if (!fs.existsSync(cfgPath)) return res.status(404).json({ error: 'Client not found' });
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const ss  = { ...DEFAULT_SS, ...(cfg.smartSchedule || {}) };
+  res.json({ ...ss, todayTimesGst: (ss.todayTimes || []).map(utcHhmmToGstHhmm) });
+});
+
+app.patch('/api/clients/:id/smart-schedule', requireLicense, (req, res) => {
+  const cfgPath = path.join(CLIENTS_DIR, req.params.id, 'config.json');
+  if (!fs.existsSync(cfgPath)) return res.status(404).json({ error: 'Client not found' });
+  let cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.smartSchedule = { ...DEFAULT_SS, ...(cfg.smartSchedule || {}), ...req.body };
+  const times = generateSmartScheduleTimes(cfg.smartSchedule.windows || []);
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  cfg.smartSchedule.todayTimes    = times;
+  cfg.smartSchedule.generatedDate = todayUTC;
+  if (cfg.smartSchedule.enabled) {
+    cfg.schedule = cfg.schedule || {};
+    cfg.schedule.leadgen = times;
+  }
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  res.json({ success: true, ...cfg.smartSchedule, todayTimesGst: times.map(utcHhmmToGstHhmm) });
+});
+
 // ─── Next scheduled run times per platform ───
 app.get('/api/clients/:id/next-runs', requireLicense, (req, res) => {
   const clientDir = path.join(CLIENTS_DIR, req.params.id);
