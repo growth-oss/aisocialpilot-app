@@ -4008,33 +4008,23 @@ TASK:
    - 6–10 leads → format: "reel"
    - 10+ leads → format: "reel" AND create a second "carousel" brief for the same cluster
 
-3. For each brief, include a detailed Gemini image generation prompt that follows the brand visual identity above (Emirati woman in hair towel + bathrobe if showing lifestyle, UAE apartment setting, bilingual text overlay).
+3. For each brief, write a concise image prompt following the brand visual identity (Emirati woman, hair towel, bathrobe, UAE apartment setting).
 
-Return a JSON array ONLY, no other text. Each brief object:
+IMPORTANT: Return a JSON array ONLY. No markdown, no code fences, no extra text.
+Keep ALL string values SHORT (under 200 chars each). No bilingual text in JSON strings — English only to avoid encoding issues. Keep captions under 150 chars.
+
+Each brief object uses ONLY these fields:
 {
-  "brief_id": "brief_[6 random hex chars]",
-  "cluster_topic": "Short topic name e.g. Hot Sleepers UAE",
-  "cluster_size": N,
-  "pain_point_label": "kebab-case-label",
-  "pain_point_summary": "1-2 sentences: what these leads have in common and why this content will resonate",
-  "leads": [{"id": N, "username": "...", "platform": "...", "why_relevant": "brief reason"}],
-  "format": "carousel|reel|post|story|dm_only",
-  "platform": "instagram",
-  "key_message": "The single core message this content delivers",
-  "caption": "Full ready-to-post Instagram caption with emojis and soft CTA. Bilingual preferred (English then Arabic).",
-  "hashtags": ["#tag1", "#tag2"],
-  "post_time_gst": "HH:MM",
-  "slide_copy": ["Slide 1 text", "Slide 2 text", "Slide 3 text"],
-  "image_prompt": "Detailed Gemini imagen prompt: describe scene, setting, model appearance (Emirati, hair towel, bathrobe), product placement, lighting, bilingual text overlay content, aspect ratio 4:5. Be specific and vivid.",
-  "image_aspect_ratio": "4:5",
-  "tagging_strategy": "reply_tag|dm_notify|caption_ref",
-  "tagging_instructions": [
-    {"username": "@handle", "platform": "instagram", "action": "comment_tag|story_mention|dm", "suggested_text": "natural-feeling text referencing something specific from the lead's bio/notes"}
-  ],
-  "dm_sequence": [
-    {"username": "@handle", "platform": "instagram", "message": "personalised warm DM referencing their specific pain point. No pitch. Open with curiosity.", "timing": "30min_after_post|after_engage|immediate"}
-  ],
-  "amplification_steps": ["step 1", "step 2"]
+  "brief_id": "brief_XXXXXX",
+  "cluster_topic": "Hot Sleepers UAE",
+  "pain_point": "overheating at night",
+  "leads": [{"id": 1, "username": "@handle"}],
+  "format": "carousel",
+  "key_message": "one sentence",
+  "caption": "English caption under 150 chars with 2-3 hashtags",
+  "image_prompt": "scene description under 200 chars. Emirati woman in white bathrobe and hair towel, UAE apartment, bamboo bedding, soft morning light.",
+  "tagging_notes": "Who to tag and why, plain text",
+  "dm_template": "Short warm DM opening, no pitch, under 100 chars"
 }`;
 
   try {
@@ -4073,7 +4063,23 @@ Return a JSON array ONLY, no other text. Each brief object:
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return res.status(500).json({ error: `Claude returned no JSON. Stop reason: ${apiRes.stop_reason}. Preview: ${text.slice(0, 300)}` });
 
-    const newBriefs = JSON.parse(jsonMatch[0]).map(b => ({
+    // Try to parse; if it fails, attempt to extract individual objects as fallback
+    let parsedBriefs;
+    try {
+      parsedBriefs = JSON.parse(jsonMatch[0]);
+    } catch (parseErr) {
+      // Extract individual {...} objects that are valid JSON
+      const objMatches = jsonMatch[0].match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}/g) || [];
+      parsedBriefs = [];
+      for (const obj of objMatches) {
+        try { parsedBriefs.push(JSON.parse(obj)); } catch {}
+      }
+      if (!parsedBriefs.length) {
+        return res.status(500).json({ error: `JSON parse failed: ${parseErr.message}. Raw (first 400 chars): ${jsonMatch[0].slice(0, 400)}` });
+      }
+    }
+
+    const newBriefs = parsedBriefs.map(b => ({
       ...b,
       brief_id: b.brief_id || 'brief_' + Math.random().toString(16).slice(2, 8),
       status: 'pending',

@@ -1803,10 +1803,10 @@ async function openBriefModal(briefId) {
       : `<div style="height:120px;background:var(--bg);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;margin-bottom:16px">No image generated yet</div>`;
     const tiStr = Array.isArray(b.tagging_instructions)
       ? b.tagging_instructions.map(t=>`<div style="padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px;font-size:12px"><strong>@${t.username||t.handle||'?'}</strong> — ${escapeHtml(t.action||'')} · "${escapeHtml(t.suggested_text||'')}"</div>`).join('')
-      : escapeHtml(b.tagging_instructions||'—');
+      : escapeHtml(b.tagging_notes || b.tagging_instructions || '—');
     const dmStr = Array.isArray(b.dm_sequence)
       ? b.dm_sequence.map((d,i)=>`<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px"><strong>${d.username||'Step '+(i+1)}:</strong> ${escapeHtml(d.message||d)}</div>`).join('')
-      : '—';
+      : (b.dm_template ? `<div style="padding:8px;background:var(--bg);border-radius:6px">${escapeHtml(b.dm_template)}</div>` : '—');
     body.innerHTML = `
       <div style="font-size:18px;font-weight:700;margin-bottom:4px">${escapeHtml(b.cluster_topic)}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${FORMAT_LABELS[b.format]||b.format} · ${(b.leads||[]).length} leads · ${b.status}</div>
@@ -1819,7 +1819,7 @@ async function openBriefModal(briefId) {
       <div style="font-size:12px;background:var(--bg);border-radius:7px;padding:10px;margin-bottom:16px;color:#a0a0c8;font-family:monospace;white-space:pre-wrap">${escapeHtml(b.image_prompt||'—')}</div>
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Tagging Instructions</div>
       <div style="margin-bottom:16px">${tiStr}</div>
-      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">DM Sequence (${(b.dm_sequence||[]).length})</div>
+      <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">DM Template</div>
       <div style="font-size:13px;margin-bottom:16px">${dmStr}</div>
       <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Targeted Leads</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px">${(b.leads||[]).map(l=>`<span style="background:var(--card2);padding:3px 9px;border-radius:20px;font-size:11px">${escapeHtml(l.username||l)}</span>`).join('')||'<span style="font-size:12px;color:var(--muted)">—</span>'}</div>
