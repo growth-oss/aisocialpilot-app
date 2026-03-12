@@ -430,8 +430,8 @@ app.post('/api/setup', async (req, res) => {
   // Resend (daily report)
   const resolvedResendKey = resendApiKey || (keepResendKey ? config.resendApiKey : '');
   if (resolvedResendKey) config.resendApiKey = resolvedResendKey;
-  if (dailyReportEmail !== undefined) config.dailyReportEmail = dailyReportEmail;
-  if (dailyReportFrom  !== undefined) config.dailyReportFrom  = dailyReportFrom;
+  if (dailyReportEmail) config.dailyReportEmail = dailyReportEmail;
+  if (dailyReportFrom)  config.dailyReportFrom  = dailyReportFrom;
 
   config.setupComplete = true;
   saveConfig(config);
@@ -2676,8 +2676,10 @@ async function sendDailyReport() {
   const to     = process.env.DAILY_REPORT_EMAIL || config.dailyReportEmail;
   const from   = process.env.DAILY_REPORT_FROM  || config.dailyReportFrom;
   if (!apiKey || !to || !from) {
-    console.log('[daily-report] Skipping — RESEND_API_KEY, recipient, or from address not configured');
-    return;
+    const missing = [!apiKey && 'RESEND_API_KEY', !to && 'recipient email', !from && 'from address'].filter(Boolean).join(', ');
+    const msg = `[daily-report] Skipping — missing: ${missing}`;
+    console.log(msg);
+    throw new Error(msg);
   }
 
   // GST yesterday = UTC today-1 day (both point to same calendar date in GST since we're firing at 02:00 UTC = 06:00 GST)
