@@ -2064,11 +2064,20 @@ async function saveReportEmail() {
 
 async function sendClientTestReport() {
   toast('Sending test report…');
+  chatNotify('Sending test report…', 'info');
   try {
     const r = await api('POST', `/clients/${clientId}/daily-report/send-now`);
-    if (r.error) toast(r.error, 'error');
-    else toast('Test report sent! Check your inbox.');
-  } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    if (r.error) {
+      toast(r.error, 'error');
+      chatNotify('📬 Report failed: ' + r.error, 'error');
+    } else {
+      toast('Test report sent! Check your inbox.');
+      chatNotify('📬 Test report sent to ' + (document.getElementById('s-report-email')?.value || 'your inbox'), 'ok');
+    }
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+    chatNotify('📬 Report failed: ' + e.message, 'error');
+  }
 }
 
 // ── LOG MODAL ──
