@@ -878,7 +878,10 @@
           <div style="font-size:13px;color:var(--muted);margin-bottom:14px">
             Advanced settings (API keys, prompts, schedule) are managed in the full admin panel.
           </div>
-          <button class="btn btn-primary" onclick="openAdmin()">Open Admin Panel</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="openAdmin()">Open Admin Panel</button>
+            <button class="btn btn-ghost" onclick="openAdminSection('settings')">📬 Daily Report &amp; Email</button>
+          </div>
         </div>
         <div class="card" id="settings-config-card">
           <div class="card-title"><span class="card-title-text">⚙️ Quick Config</span></div>
@@ -1029,6 +1032,9 @@ async function api(method, path, body) {
 function openAdmin() {
   window.opener ? window.close() : (location.href = '/');
   return false;
+}
+function openAdminSection(section) {
+  location.href = `/?section=${section}`;
 }
 
 function switchTab(tab) {
