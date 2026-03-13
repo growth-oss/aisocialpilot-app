@@ -137,6 +137,7 @@ GET    /api/clients/:id/proxy-test        — test proxy via curl + Playwright f
 | `templates/escalation-rules.md` | Conversion funnel changed, new escalation triggers, coupon tiers changed |
 | `templates/reply-templates.md` | New reply patterns, new engagement scenarios |
 | `.claude/CLAUDE.md` | Automation behavior changed, new run commands, browser/proxy logic changed |
+| `PROJECT_STATE.md` | New source added/status changed, new feature working, priorities changed, architecture gotchas added |
 
 ### Specifically:
 
