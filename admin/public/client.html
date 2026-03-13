@@ -2426,6 +2426,9 @@ async function openProductCarouselPicker() {
     return;
   }
 
+  // Store products by index so onclick can reference by index (avoids quoting issues with product names)
+  window._carouselProducts = withImages;
+
   const existing = document.getElementById('carousel-picker-modal');
   if (existing) existing.remove();
 
@@ -2442,22 +2445,32 @@ async function openProductCarouselPicker() {
         <button onclick="document.getElementById('carousel-picker-modal').remove()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;flex-shrink:0">✕</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
-        ${withImages.map((p) => {
+        ${withImages.map((p, idx) => {
           const imgs = (p.images || []).filter(img => img.local_url || img.url);
           const thumbSrc = imgs[0] ? (imgs[0].local_url || imgs[0].url) : '';
-          return `<div onclick="generateProductCarousel(${JSON.stringify(p.name).replace(/'/g,"\\'")})"
+          return `<div data-product-idx="${idx}"
             style="cursor:pointer;border:2px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s"
             onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
             <div style="position:relative">
-              <img src="${escapeHtml(thumbSrc)}" style="width:100%;height:90px;object-fit:cover;display:block" onerror="this.style.display='none'">
-              ${imgs.length > 1 ? `<span style="position:absolute;bottom:4px;right:5px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">${imgs.length} imgs</span>` : ''}
+              <img src="${escapeHtml(thumbSrc)}" style="width:100%;height:90px;object-fit:cover;display:block;pointer-events:none" onerror="this.style.display='none'">
+              ${imgs.length > 1 ? `<span style="position:absolute;bottom:4px;right:5px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;pointer-events:none">${imgs.length} imgs</span>` : ''}
             </div>
-            <div style="padding:7px 8px;font-size:11px;color:var(--text);line-height:1.3">${escapeHtml((p.name || '').slice(0, 45))}</div>
+            <div style="padding:7px 8px;font-size:11px;color:var(--text);line-height:1.3;pointer-events:none">${escapeHtml((p.name || '').slice(0, 45))}</div>
           </div>`;
         }).join('')}
       </div>
     </div>`;
   document.body.appendChild(picker);
+
+  // Use event delegation on the grid — avoids all onclick quoting issues
+  picker.querySelector('[style*="grid"]').addEventListener('click', e => {
+    const card = e.target.closest('[data-product-idx]');
+    if (!card) return;
+    const idx = parseInt(card.dataset.productIdx, 10);
+    const p = window._carouselProducts[idx];
+    if (p) generateProductCarousel(p.name);
+  });
+
   picker.addEventListener('click', e => { if (e.target === picker) picker.remove(); });
 }
 
