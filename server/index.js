@@ -3217,7 +3217,9 @@ app.post('/api/clients/:id/session/start', requireLicense, (req, res) => {
   }
 
   const scriptPath = path.join(__dirname, '../scripts/open-session.js');
-  const proxyUrl = clientConfig.proxy?.url || '';
+  // Google/YouTube: proxy blocks these domains (confirmed timeout in logs) — skip proxy
+  const noProxyPlatforms = ['google'];
+  const proxyUrl = noProxyPlatforms.includes(platform) ? '' : (clientConfig.proxy?.url || '');
   const args = [scriptPath, url, sessionDir];
   if (proxyUrl) args.push(proxyUrl);
 
