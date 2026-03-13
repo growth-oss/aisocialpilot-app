@@ -701,15 +701,24 @@ KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discove
     await page.waitForTimeout(1500);
   }
 
-  // 6. Click Share
-  const share = page.locator('div[role="button"]:has-text("Share"), button:has-text("Share")').last();
-  await share.click();
-  await page.waitForTimeout(5000); // wait for post to publish
+  // 6. Click Share — Instagram's Share is a header element, NOT div[role=button]
+  // Use JS click via evaluate (most reliable, bypasses overlay intercepts)
+  const shared = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('div[role="button"], button, span[role="button"], div')];
+    const btn = all.find(el => el.textContent.trim() === 'Share' && el.offsetParent !== null);
+    if (btn) { btn.click(); return true; }
+    return false;
+  });
+  if (!shared) {
+    await page.locator(':text-is("Share")').last().click({ force: true });
+  }
+  await page.waitForTimeout(6000); // wait for post to publish and success screen
 
   // 7. Verify: navigate to own profile, get post URL from grid
-  await page.goto('https://www.instagram.com/${instagramHandle}/', { waitUntil: 'networkidle' });
-  await page.waitForTimeout(3000);
-  const firstPost = page.locator('article a[href*="/p/"], a[href*="/p/"]').first();
+  await page.goto('https://www.instagram.com/${instagramHandle}/', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(4000); // wait for grid to render
+  await page.waitForSelector('a[href*="/p/"]', { timeout: 10000 }).catch(() => {});
+  const firstPost = page.locator('a[href*="/p/"]').first();
   await firstPost.click();
   await page.waitForTimeout(2000);
   const postUrl = page.url(); // THIS is the real post URL — must start with /p/
