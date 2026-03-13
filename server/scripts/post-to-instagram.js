@@ -214,37 +214,66 @@ if (PROXY_URL && EXPECTED_GEO) {
       // ── 5. Open Create → Post ────────────────────────────────────────────
       log('post', 'Opening Create dropdown…');
 
-      // Click the Create/+ button in the left nav
-      const createBtn = page.locator([
-        'svg[aria-label="New post"]',
-        'a[aria-label="New post"]',
-        'div[aria-label="New post"]',
-        'svg[aria-label="Create"]',
-        'a[aria-label="Create"]',
-        'div[aria-label="Create"]',
-      ].join(', ')).first();
-      await createBtn.click({ timeout: 10000 });
+      // IMPORTANT: click the parent <a>/<div> element that wraps the Create SVG icon.
+      // Clicking the SVG directly may not propagate to the link's click handler.
+      // Instagram's Create button is typically: <a role="link"><svg aria-label="New post"/></a>
+      const createBtnClicked = await page.evaluate(() => {
+        // Find via SVG aria-label, then walk up to the clickable ancestor
+        const svg = document.querySelector(
+          'svg[aria-label="New post"], svg[aria-label="Create"], svg[aria-label="إنشاء"]'
+        );
+        if (svg) {
+          const clickable = svg.closest('a, [role="button"], [role="link"]');
+          if (clickable) { clickable.click(); return 'via-ancestor'; }
+          svg.click(); return 'svg-direct';
+        }
+        // Fallback: look for any element with aria-label Create/New post
+        const el = document.querySelector(
+          '[aria-label="New post"], [aria-label="Create"], [aria-label="إنشاء"]'
+        );
+        if (el) { el.click(); return 'via-aria'; }
+        return null;
+      });
+      log('post', 'Create button click strategy:', createBtnClicked || 'NOT FOUND');
       await page.waitForTimeout(1500);
 
-      // Click "Post" from the dropdown menu
-      const postMenuItem = page.locator([
-        'a[role="link"]:has-text("Post")',
-        'div[role="menuitem"]:has-text("Post")',
-        'span:has-text("Post")',
-      ].join(', ')).first();
-      const postMenuVisible = await postMenuItem.isVisible({ timeout: 5000 }).catch(() => false);
-      if (postMenuVisible) {
-        await postMenuItem.click();
-      } else {
-        // Fallback: evaluate to find and click
-        await page.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('a[role="link"], div[role="menuitem"]'));
-          const post  = links.find(l => l.textContent.trim() === 'Post');
-          if (post) post.click();
+      // Screenshot to see what the dropdown looks like
+      await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `create-menu-${BRIEF_ID}-${Date.now()}.png`) });
+
+      // Click "Post" from the dropdown menu that appears
+      // The menu items may have role="link" (old UI) or no role (new UI)
+      const postClicked = await page.evaluate(() => {
+        // Look for an element with text exactly "Post" that is now visible
+        const all = [
+          ...document.querySelectorAll('a, [role="menuitem"], [role="link"], span, div'),
+        ];
+        const candidates = all.filter(el => {
+          const t = el.textContent.trim();
+          return (t === 'Post' || t === 'منشور') && el.offsetParent !== null;
         });
+        // Prefer smallest element (most specific match)
+        candidates.sort((a, b) => (a.textContent.length - b.textContent.length));
+        if (candidates[0]) { candidates[0].click(); return candidates[0].tagName + ':' + candidates[0].textContent.trim(); }
+        return null;
+      });
+      log('post', 'Post menu item click:', postClicked || 'NOT FOUND');
+      await page.waitForTimeout(1000);
+
+      // Wait for the upload dialog — try multiple selector variants with a longer timeout
+      // Instagram may use div[role="dialog"], a named dialog, or a custom class
+      const dialogAppeared = await Promise.race([
+        page.waitForSelector('div[role="dialog"]',            { timeout: 15000 }).then(() => 'dialog'),
+        page.waitForSelector('[aria-label="Create new post"]',{ timeout: 15000 }).then(() => 'create-new-post'),
+        page.waitForSelector('button:has-text("Select from computer")', { timeout: 15000 }).then(() => 'select-btn'),
+        page.waitForSelector('input[type="file"]',            { timeout: 15000 }).then(() => 'file-input'),
+      ]).catch(() => null);
+
+      if (!dialogAppeared) {
+        // Final screenshot to show current state, then bail
+        await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `dialog-timeout-${BRIEF_ID}-${Date.now()}.png`) });
+        throw new Error('Create post dialog never appeared — check dialog-timeout screenshot');
       }
-      await page.waitForSelector('div[role="dialog"]', { timeout: 10000 });
-      log('post', 'Create dialog open');
+      log('post', 'Create dialog open (detected via:', dialogAppeared + ')');
 
       // ── 6. Upload image(s) ───────────────────────────────────────────────
       // Screenshot the dialog so we can diagnose any upload issues from run logs
