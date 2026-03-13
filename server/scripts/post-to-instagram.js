@@ -427,22 +427,52 @@ if (PROXY_URL && EXPECTED_GEO) {
           throw new Error('Share button not found — check share-not-found screenshot');
         }
       }
-      log('post', 'Share clicked — waiting for dialog to close (publish confirmation)…');
+      log('post', 'Share clicked — waiting for publish confirmation…');
 
-      // The real success signal is the Create post dialog closing.
-      // Only after it closes is the post actually published.
-      // If it stays open > 25s, Instagram may have shown an error.
-      const dialogClosed = await page.waitForSelector('div[role="dialog"]', {
-        state: 'hidden',
-        timeout: 25000,
-      }).then(() => true).catch(() => false);
+      // Instagram's post flow after Share:
+      //   1. Dialog shows a loading spinner (dialog still open)
+      //   2. Dialog shows "Your post has been shared." + a Close button
+      //   3. User (or script) clicks Close → dialog finally disappears
+      //
+      // So we wait for EITHER the success text OR dialog auto-close, whichever comes first.
+      const publishResult = await Promise.race([
+        // Success text appears inside the dialog
+        page.waitForSelector([
+          ':text("Your post has been shared")',
+          ':text("Post shared")',
+          ':text("تمت مشاركة منشورك")',
+          ':text("تم مشاركة")',
+        ].join(', '), { timeout: 30000 }).then(() => 'success-text'),
+        // Dialog auto-closes (some IG variants skip the success screen)
+        page.waitForSelector('div[role="dialog"]', { state: 'hidden', timeout: 30000 }).then(() => 'auto-close'),
+      ]).catch(() => null);
 
-      if (!dialogClosed) {
+      if (!publishResult) {
         await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-stuck-${BRIEF_ID}-${Date.now()}.png`) });
-        throw new Error('Post dialog did not close after Share — Instagram may have rejected the post. Check share-stuck screenshot.');
+        throw new Error('Post dialog did not show success or close after Share. Check share-stuck screenshot.');
       }
-      log('post', 'Dialog closed — post published ✓');
-      await page.waitForTimeout(3000); // let IG finish background processing
+
+      if (publishResult === 'success-text') {
+        log('post', 'Post published — "Your post has been shared" confirmed. Clicking Close…');
+        // Click the Close button to dismiss the confirmation screen
+        const closedViaBtn = await page.evaluate(() => {
+          const btns = [...document.querySelectorAll('button, div[role="button"], a')];
+          const btn = btns.find(b => {
+            const t = b.textContent.trim();
+            return (t === 'Close' || t === 'إغلاق' || t === 'Done' || t === 'تم') && b.offsetParent !== null;
+          });
+          if (btn) { btn.click(); return true; }
+          return false;
+        });
+        if (!closedViaBtn) {
+          // Try Escape key as fallback
+          await page.keyboard.press('Escape');
+        }
+        await page.waitForTimeout(2000);
+      } else {
+        log('post', 'Dialog auto-closed — post published ✓');
+      }
+      await page.waitForTimeout(2000); // let IG finish background processing
 
       // ── 10. Verify post on own profile ────────────────────────────────────
       await page.goto(`https://www.instagram.com/${HANDLE}/`, {
