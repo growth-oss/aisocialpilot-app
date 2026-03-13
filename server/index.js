@@ -647,182 +647,21 @@ Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
     let brandVoice = '';
     try { brandVoice = fs.readFileSync(path.join(clientDir2, 'config', 'brand-voice.md'), 'utf8').slice(0, 600); } catch {}
 
-    return `You are running a PRECISION CONTENT POST session for "${clientConfig.name}".
-This is a FOCUSED run — ONE brief to post. No scraping. No pipeline work. Just post this brief to Instagram + DMs.
+    return `You are running a PRECISION CONTENT POST for "${clientConfig.name}".
+Brief: ${brief2.brief_id} | Topic: ${brief2.cluster_topic} | Format: ${brief2.format}
+${eligibleForDM.length > 0 ? `DM targets (stage ≥ 3): ${eligibleForDM.map(l => l.username).join(', ')}` : 'No DM targets for this brief.'}
 
-━━━ PROXY / GEO CHECK (MANDATORY FIRST STEP) ━━━
-${proxyUrl ? `Run this EXACT command before opening any browser:
-  curl -s -x '${proxyUrl}' --max-time 20 --connect-timeout 15 https://ipinfo.io/json
-Verify "country" = "${expectedGeo}". If geo mismatch: STOP and log error.` : 'No proxy configured — proceed without geo check.'}
+All posting config is already injected into your environment.
+Run the static posting script — do NOT write any Playwright code:
 
-━━━ BRIEF TO POST ━━━
-Brief ID: ${brief2.brief_id}
-Topic: ${brief2.cluster_topic}
-Format: ${brief2.format}
-Caption: ${brief2.caption || brief2.key_message}
-Image path: ${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : 'none — post caption only'}
-DM template: ${brief2.dm_template || '(none)'}
-Target leads: ${briefLeads.map(l => `${l.username} (stage ${l.stage})`).join(', ') || 'none'}
-Eligible for DM (stage ≥ 3): ${eligibleForDM.map(l => l.username).join(', ') || 'none — skip DM step'}
+  node /app/server/scripts/post-to-instagram.js
 
-━━━ BRAND VOICE ━━━
-${brandVoice || '(not configured)'}
+The script handles everything: geo check, session verification, warmup, image upload,
+caption, share, profile verification, DMs, brief status update, and screenshots.
+It will print a SUMMARY at the end showing post status and URL.
 
-━━━ INSTAGRAM SESSION ━━━
-Session dir: ${sessionDir}
-Account: ${instagramHandle}
-
-Standard launch pattern:
-const { chromium } = require('playwright');
-(async () => {
-  const opts = { headless: false, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'] };
-  ${proxyUrl ? `const pu = new URL('${proxyUrl}'.includes('://') ? '${proxyUrl}' : 'http://${proxyUrl}'); opts.proxy = { server: pu.protocol+'//'+pu.host, username: decodeURIComponent(pu.username||''), password: decodeURIComponent(pu.password||'') };` : ''}
-  const context = await chromium.launchPersistentContext('${sessionDir}', opts);
-  const page = context.pages()[0] || await context.newPage();
-  // ... post logic
-})();
-
-━━━ POSTING STEPS ━━━
-${brief2.format === 'dm_only' ? 'Format is DM ONLY — skip Instagram posting, go straight to the DM step below.' : `
-Write a complete Playwright script to /tmp/run-precision-${brief2.brief_id}.js and run it with node.
-
-${brief2.brief_type === 'product_carousel' ? `PRODUCT CAROUSEL — images are CDN URLs, must be downloaded first:
-const https = require('https'), fs = require('fs');
-const carouselImages = ${JSON.stringify((brief2.product_carousel_images || []).map(i => i.url))};
-const tempFiles = [];
-for (let i = 0; i < carouselImages.length; i++) {
-  const p = '/tmp/carousel-${brief2.brief_id}-' + i + '.jpg';
-  await new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(p);
-    https.get(carouselImages[i], res => { res.pipe(file); file.on('finish', resolve); }).on('error', reject);
-  });
-  tempFiles.push(p);
-}
-// tempFiles now has ${(brief2.product_carousel_images || []).length} local image(s) ready to upload
-` : ''}
-KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discover):
-
-  // 1. Open Create dropdown
-  await page.locator('svg[aria-label="New post"], a[href="#"][role="link"] svg').first().click();
-  await page.waitForTimeout(1500);
-
-  // 2. Click "Post" — must use evaluate() NOT locator.click() (href="#" causes navigation)
-  await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll('a[role="link"]'));
-    const post = links.find(l => l.textContent.trim() === 'Post');
-    if (post) post.click();
-  });
-  await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
-
-  // 3. Upload image(s)
-  const fileInput = page.locator('input[type="file"]').first();
-${brief2.brief_type === 'product_carousel' ? `  // Product carousel: try passing all files at once (Instagram accepts multiple)
-  await fileInput.setInputFiles(tempFiles);
-  await page.waitForTimeout(3000);
-  // If only first image loaded, try clicking "Add more" for each remaining image
-  for (let i = 1; i < tempFiles.length; i++) {
-    const addMore = await page.evaluate(() => {
-      const btns = [...document.querySelectorAll('button, div[role="button"], span[role="button"]')];
-      const btn = btns.find(b => b.querySelector('svg') || b.textContent.includes('Add') || (b.getAttribute('aria-label') || '').toLowerCase().includes('add'));
-      if (btn) { btn.click(); return true; }
-      return false;
-    });
-    if (addMore) {
-      await page.waitForTimeout(1000);
-      const moreInput = page.locator('input[type="file"]').first();
-      await moreInput.setInputFiles(tempFiles[i]);
-      await page.waitForTimeout(2000);
-    }
-  }` : `  await fileInput.setInputFiles('${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : ''}');
-  await page.waitForTimeout(3000); // wait for preview to load`}
-
-  // 4. Advance through crop/filter/caption screens (click "Next" button each time)
-  for (let i = 0; i < 3; i++) {
-    const next = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next")').last();
-    if (await next.isVisible({ timeout: 4000 }).catch(() => false)) { await next.click(); await page.waitForTimeout(2000); }
-  }
-
-  // 5. Type caption (on the caption screen, before final Share)
-  const captionBox = page.locator('div[role="textbox"], textarea[placeholder*="caption"], div[contenteditable="true"]').first();
-  if (await captionBox.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await captionBox.click();
-    await page.keyboard.type('${(brief2.caption || brief2.key_message || '').replace(/'/g, "\\'")}', { delay: 40 });
-    await page.waitForTimeout(1500);
-  }
-
-  // 6. Click Share — Instagram's Share is a header element, NOT div[role=button]
-  // Use JS click via evaluate (most reliable, bypasses overlay intercepts)
-  const shared = await page.evaluate(() => {
-    const all = [...document.querySelectorAll('div[role="button"], button, span[role="button"], div')];
-    const btn = all.find(el => el.textContent.trim() === 'Share' && el.offsetParent !== null);
-    if (btn) { btn.click(); return true; }
-    return false;
-  });
-  if (!shared) {
-    await page.locator(':text-is("Share")').last().click({ force: true });
-  }
-  await page.waitForTimeout(6000); // wait for post to publish and success screen
-
-  // 7. Verify: navigate to own profile, get post URL from grid
-  await page.goto('https://www.instagram.com/${instagramHandle}/', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(4000); // wait for grid to render
-  await page.waitForSelector('a[href*="/p/"]', { timeout: 10000 }).catch(() => {});
-  const firstPost = page.locator('a[href*="/p/"]').first();
-  await firstPost.click();
-  await page.waitForTimeout(2000);
-  const postUrl = page.url(); // THIS is the real post URL — must start with /p/
-  // screenshot
-  await page.screenshot({ path: '${screenshotsDir}/posted-${brief2.brief_id}-' + Date.now() + '.png' });
-
-Steps:
-1. Open Instagram and verify logged in as ${instagramHandle} — if login prompt: STOP
-2. Scroll feed 60s (warmup — do NOT capture any URLs during this)
-${brief2.brief_type === 'product_carousel' ? '3. Download carousel images to temp files (see download code above)\n4. Run the posting sequence above' : '3. Run the posting sequence above'}
-${brief2.brief_type === 'product_carousel' ? '5' : '4'}. postUrl variable will hold the verified URL — use it when updating the brief`}
-
-━━━ DM STEP ━━━
-${eligibleForDM.length === 0 ? 'No eligible leads for DM (none at stage ≥ 3). Skip DM step.' : `
-Wait 2-3 min after posting (or immediately if dm_only).
-For each eligible lead, navigate to their profile and send DM:
-${eligibleForDM.map(l => `  - ${l.username}: "${brief2.dm_template || 'Hello! Thought you might love our bamboo bedding.'}"`).join('\n')}
-
-After each DM:
-- Update lead engagement_stage to 6 in: ${lgDir2}/leads.json
-  (Read the file, find the lead by username, set engagement_stage=6, updated_at=ISO timestamp, write back)
-- Append to outreach log: ${path.join(clientDir2, 'logs', 'outreach-log.ndjson')}
-  {"timestamp":"ISO","action_type":"dm","platform":"instagram","username":"@handle","content_used":"message sent","brief_id":"${brief2.brief_id}"}
-`}
-
-━━━ UPDATE BRIEF STATUS ━━━
-After all steps are done:
-1. Read: ${lgDir2}/precision-briefs.json
-2. Find brief_id "${brief2.brief_id}"
-3. Set fields:
-   - status = "posted" (ONLY if you verified the post appeared in ${instagramHandle}'s profile grid)
-   - status = "failed" (if posting failed or could not be verified)
-   ${brief2.format !== 'dm_only' ? '- post_url = the URL you got from page.url() after clicking the post in YOUR OWN profile grid (must start with https://www.instagram.com/p/)' : ''}
-   - posted_at = ISO timestamp
-   - amplification_done = true
-4. Write the updated JSON back to the file
-IMPORTANT: If you are not 100% certain the post was created and you have its real URL from the profile grid, set status="failed" — do not guess.
-
-━━━ SAFETY RULES ━━━
-- If Instagram shows "action blocked" or CAPTCHA: STOP, screenshot, log error
-- If session asks for login / QR code: STOP and log "session expired — manual login needed"
-- NEVER use a URL from the home feed or explore page as the post_url — those are OTHER people's posts
-- ONLY set post_url after navigating to ${instagramHandle}'s own profile and clicking the new post
-- If you cannot verify the post appeared in the profile grid: set status="failed" not "posted"
-- Never DM the same person twice
-- Never include a URL in a first DM
-- SingletonLock conflict: delete ${sessionDir}/SingletonLock and retry once
-
-━━━ SUMMARY OUTPUT ━━━
-Print at the end:
-  Brief: ${brief2.brief_id}
-  Post status: [posted / failed / dm_only]
-  Post URL: [url or N/A]
-  DMs sent: [count]
-  Brief status updated: [yes/no]
+If the script exits with an error, read the output carefully and report what went wrong.
+Do not retry automatically — report the error so the user can investigate.
 `;
   }
   // ── End precision-post ────────────────────────────────────────────────────
@@ -1761,6 +1600,49 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   fs.writeFileSync(tmpPromptFile, prompt, { mode: 0o644 });
 
   const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`;
+
+  // Build extra env exports for precision-post — injected so the static script
+  // can run without Claude having to write any Playwright code itself
+  const extraEnvExports = [];
+  if (command.startsWith('precision-post:')) {
+    const pBriefId  = command.slice('precision-post:'.length);
+    const pLgDir    = path.join(clientDir, 'leadgen');
+    const pBriefs   = (() => { try { return JSON.parse(fs.readFileSync(path.join(pLgDir, 'precision-briefs.json'), 'utf8')); } catch { return []; } })();
+    const pBrief    = pBriefs.find(b => b.brief_id === pBriefId) || {};
+    const pLeads    = (() => { try { return JSON.parse(fs.readFileSync(path.join(pLgDir, 'leads.json'), 'utf8')); } catch { return []; } })();
+    const pHandle   = (clientConfig.platforms?.instagram?.handle || '').replace(/^@/, '');
+    const pAssetsDir = path.join(clientDir, 'assets', 'precision');
+    const pImagePath = pBrief.image_url
+      ? path.join(pAssetsDir, pBrief.image_url.split('/').pop())
+      : '';
+    const pCarouselImages = (pBrief.product_carousel_images || []).map(i => i.url);
+    const pBriefLeads = (pBrief.leads || []).map(bl => {
+      const uname = typeof bl === 'string' ? bl : (bl.username || '');
+      const lead  = pLeads.find(l => l.username === uname.replace(/^@/, '') || '@' + l.username === uname);
+      return { username: uname, stage: lead?.engagement_stage ?? 0, dmTemplate: pBrief.dm_template || '' };
+    });
+    const pDmLeads = pBriefLeads
+      .filter(l => l.stage >= 3)
+      .map(l => ({ username: l.username, message: l.dmTemplate }));
+
+    extraEnvExports.push(
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export INSTAGRAM_HANDLE=${se(pHandle)}`,
+      `export BRIEF_ID=${se(pBriefId)}`,
+      `export BRIEF_TYPE=${se(pBrief.brief_type || 'standard')}`,
+      `export FORMAT=${se(pBrief.format || 'carousel')}`,
+      `export CAPTION=${se(pBrief.caption || pBrief.key_message || '')}`,
+      `export IMAGE_PATH=${se(pImagePath)}`,
+      `export CAROUSEL_IMAGES=${se(JSON.stringify(pCarouselImages))}`,
+      `export BRIEFS_FILE=${se(path.join(pLgDir, 'precision-briefs.json'))}`,
+      `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+      `export DM_LEADS=${se(JSON.stringify(pDmLeads))}`,
+      `export LEADS_FILE=${se(path.join(pLgDir, 'leads.json'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export PROXY_URL=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   const tmpScript = `/tmp/claude-run-${runId}.sh`;
   fs.writeFileSync(tmpScript, [
     '#!/bin/bash',
@@ -1775,6 +1657,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
     `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
+    ...extraEnvExports,
     `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
     `cat ${se(tmpPromptFile)} | claude --output-format stream-json --verbose --dangerously-skip-permissions 2>&1`,
