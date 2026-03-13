@@ -58,7 +58,14 @@ if (!url || !userDataDir) {
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   } catch (err) {
-    console.error(`✦ Navigation error: ${err.message}`);
+    console.error(`✦ Navigation error (attempt 1): ${err.message}`);
+    // Retry once — persistent context sometimes needs a moment
+    try {
+      await page.waitForTimeout(2000);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (err2) {
+      console.error(`✦ Navigation error (attempt 2): ${err2.message}`);
+    }
   }
 
   console.log('✦ Browser ready — log in then click Done in the admin panel');
