@@ -702,6 +702,9 @@
       <button class="nav-item" onclick="switchTab('products')" id="nav-products">
         <span class="nav-icon">📦</span> Products
       </button>
+      <button class="nav-item" onclick="switchTab('screenshots')" id="nav-screenshots">
+        <span class="nav-icon">📷</span> Screenshots
+      </button>
       <button class="nav-item" onclick="switchTab('settings')" id="nav-settings">
         <span class="nav-icon">⚙️</span> Settings
       </button>
@@ -872,6 +875,16 @@
             <div id="scrape-modal-log" style="display:none;margin-top:14px;background:var(--card2);border-radius:8px;padding:10px;font-family:monospace;font-size:11px;color:var(--muted);max-height:160px;overflow-y:auto;white-space:pre-wrap"></div>
           </div>
         </div>
+      </div>
+
+      <!-- SCREENSHOTS TAB -->
+      <div class="tab-pane" id="tab-screenshots">
+        <div class="page-title">Run Screenshots</div>
+        <div class="page-subtitle">Diagnostic screenshots saved during automation runs</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <button class="btn btn-ghost btn-sm" onclick="loadScreenshots()">↻ Refresh</button>
+        </div>
+        <div id="screenshots-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px"></div>
       </div>
 
       <!-- SETTINGS TAB -->
@@ -1069,6 +1082,7 @@ function switchTab(tab, scrollTo) {
   else if (tab === 'settings') loadSettings();
   else if (tab === 'content') loadBriefs();
   else if (tab === 'products') loadProducts();
+  else if (tab === 'screenshots') loadScreenshots();
   else if (tab === 'overview') loadOverview();
   if (scrollTo) {
     setTimeout(() => {
@@ -1644,6 +1658,25 @@ async function saveSmartSchedule() {
 
 // ── Products tab ──────────────────────────────────────────────────────────────
 let _pullStatusTimer = null;
+
+async function loadScreenshots() {
+  const grid = document.getElementById('screenshots-grid');
+  grid.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading…</div>';
+  try {
+    const files = await api('GET', `/clients/${clientId}/screenshots`);
+    if (!files.length) {
+      grid.innerHTML = '<div style="color:var(--muted);font-size:13px">No screenshots yet — they appear here after automation runs.</div>';
+      return;
+    }
+    grid.innerHTML = files.map(f => `
+      <div class="card" style="padding:8px;cursor:pointer" onclick="window.open('${f.url}','_blank')">
+        <img src="${f.url}" style="width:100%;border-radius:6px;display:block;margin-bottom:6px" loading="lazy" onerror="this.style.display='none'">
+        <div style="font-size:10px;color:var(--muted);word-break:break-all">${escapeHtml(f.name)}</div>
+      </div>`).join('');
+  } catch(e) {
+    grid.innerHTML = `<div style="color:var(--red);font-size:13px">${e.message}</div>`;
+  }
+}
 
 async function loadProducts() {
   const el = document.getElementById('products-list');

@@ -411,50 +411,62 @@ if (PROXY_URL && EXPECTED_GEO) {
       // ── 9. Share ─────────────────────────────────────────────────────────
       await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `pre-share-${BRIEF_ID}-${Date.now()}.png`) });
 
-      const shared = await page.evaluate(() => {
-        const all = [...document.querySelectorAll('div[role="button"], button, span[role="button"], div')];
-        const btn = all.find(el => el.textContent.trim() === 'Share' && el.offsetParent !== null);
-        if (btn) { btn.click(); return true; }
-        return false;
+      // Log visible dialog text so we can see what screen we're actually on
+      const preShareText = await page.evaluate(() => {
+        const d = document.querySelector('div[role="dialog"]');
+        return d ? d.innerText.substring(0, 500) : '(no dialog)';
       });
-      if (!shared) {
-        log('post', 'Share not found via evaluate — trying locator fallback…');
-        const shareLoc = page.locator(':text-is("Share")').last();
-        if (await shareLoc.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await shareLoc.click({ force: true });
-        } else {
-          await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-not-found-${BRIEF_ID}-${Date.now()}.png`) });
-          throw new Error('Share button not found — check share-not-found screenshot');
+      log('post', 'Dialog text before Share:', preShareText);
+
+      // Find and click Share (or Post/Publish — IG uses different labels in different locales)
+      const sharedBtn = await page.evaluate(() => {
+        const candidates = ['Share', 'شارك', 'Post', 'Publish', 'انشر'];
+        const all = [...document.querySelectorAll('div[role="button"], button, span[role="button"]')];
+        for (const label of candidates) {
+          const btn = all.find(el => el.textContent.trim() === label && el.offsetParent !== null);
+          if (btn) { btn.click(); return label; }
         }
+        return null;
+      });
+      if (sharedBtn) {
+        log('post', `Share clicked (label: "${sharedBtn}")`);
+      } else {
+        await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-not-found-${BRIEF_ID}-${Date.now()}.png`) });
+        throw new Error('Share/Post button not found — check share-not-found screenshot');
       }
-      log('post', 'Share clicked — waiting for publish confirmation…');
+      log('post', 'Waiting for publish confirmation…');
 
       // Instagram's post flow after Share:
-      //   1. Dialog shows a loading spinner (dialog still open)
-      //   2. Dialog shows "Your post has been shared." + a Close button
-      //   3. User (or script) clicks Close → dialog finally disappears
+      //   1. Loading spinner (dialog still open)
+      //   2. "Your post has been shared." success screen (dialog still open) + a Close button
+      //   3. Click Close → dialog disappears
+      // Some variants auto-close. We handle both.
       //
-      // So we wait for EITHER the success text OR dialog auto-close, whichever comes first.
+      // Use waitForFunction (not waitForSelector with :text()) for text detection
       const publishResult = await Promise.race([
-        // Success text appears inside the dialog
-        page.waitForSelector([
-          ':text("Your post has been shared")',
-          ':text("Post shared")',
-          ':text("تمت مشاركة منشورك")',
-          ':text("تم مشاركة")',
-        ].join(', '), { timeout: 30000 }).then(() => 'success-text'),
-        // Dialog auto-closes (some IG variants skip the success screen)
-        page.waitForSelector('div[role="dialog"]', { state: 'hidden', timeout: 30000 }).then(() => 'auto-close'),
+        page.waitForFunction(() => {
+          const body = document.body.innerText || '';
+          return body.includes('Your post has been shared') ||
+                 body.includes('Post shared') ||
+                 body.includes('تمت مشاركة منشورك') ||
+                 body.includes('تم مشاركة');
+        }, { timeout: 35000 }).then(() => 'success-text'),
+        page.waitForSelector('div[role="dialog"]', { state: 'hidden', timeout: 35000 }).then(() => 'auto-close'),
       ]).catch(() => null);
 
       if (!publishResult) {
+        // Log what the dialog says now (might be an error message)
+        const stuckText = await page.evaluate(() => {
+          const d = document.querySelector('div[role="dialog"]');
+          return d ? d.innerText.substring(0, 800) : '(dialog gone)';
+        });
+        log('post', 'Dialog text when stuck:', stuckText);
         await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-stuck-${BRIEF_ID}-${Date.now()}.png`) });
-        throw new Error('Post dialog did not show success or close after Share. Check share-stuck screenshot.');
+        throw new Error(`Post dialog did not confirm publish after 35s. Dialog said: "${stuckText.substring(0, 200)}"`);
       }
 
       if (publishResult === 'success-text') {
-        log('post', 'Post published — "Your post has been shared" confirmed. Clicking Close…');
-        // Click the Close button to dismiss the confirmation screen
+        log('post', 'Post published — success text detected. Clicking Close…');
         const closedViaBtn = await page.evaluate(() => {
           const btns = [...document.querySelectorAll('button, div[role="button"], a')];
           const btn = btns.find(b => {
@@ -464,15 +476,12 @@ if (PROXY_URL && EXPECTED_GEO) {
           if (btn) { btn.click(); return true; }
           return false;
         });
-        if (!closedViaBtn) {
-          // Try Escape key as fallback
-          await page.keyboard.press('Escape');
-        }
+        if (!closedViaBtn) await page.keyboard.press('Escape');
         await page.waitForTimeout(2000);
       } else {
         log('post', 'Dialog auto-closed — post published ✓');
       }
-      await page.waitForTimeout(2000); // let IG finish background processing
+      await page.waitForTimeout(2000);
 
       // ── 10. Verify post on own profile ────────────────────────────────────
       await page.goto(`https://www.instagram.com/${HANDLE}/`, {

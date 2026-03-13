@@ -1605,9 +1605,31 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
 
   const se = v => `'${String(v || '').replace(/'/g, "'\\''")}'`;
 
-  // Build extra env exports for precision-post — injected so the static script
-  // can run without Claude having to write any Playwright code itself
+  // Build extra env exports — injected so static scripts can run without
+  // Claude having to write any Playwright code itself
   const extraEnvExports = [];
+
+  // YouTube scraping env vars for leadgen runs
+  if (command === 'leadgen') {
+    const lgDir = path.join(clientDir, 'leadgen');
+    const kDir  = path.join(clientDir, 'knowledge');
+    const allSources = (() => { try { return JSON.parse(fs.readFileSync(path.join(kDir, 'hot-sources.json'), 'utf8')); } catch { return []; } })();
+    const ytSources = allSources.filter(s => s.platform === 'youtube' && s.enabled !== false);
+    if (ytSources.length) {
+      const cfg = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir, 'leadgen-config.json'), 'utf8')); } catch { return {}; } })();
+      extraEnvExports.push(
+        `export GOOGLE_SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'google'))}`,
+        `export LEADS_FILE=${se(path.join(lgDir, 'leads.json'))}`,
+        `export SOURCES=${se(JSON.stringify(ytSources.map(s => ({ type: s.type, handle_or_url: s.handle_or_url, why: s.why || '' }))))}`,
+        `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+        `export SCORE_VIDEO_COMMENTER=${se(String(cfg.scoring?.comment_on_youtube_video ?? 25))}`,
+        `export SCORE_CHANNEL_COMMENTER=${se(String(cfg.scoring?.comment_on_youtube_channel ?? 30))}`,
+        `export SCORE_PURCHASE_SIGNAL=${se(String(cfg.scoring?.youtube_purchase_signal ?? 15))}`,
+      );
+    }
+  }
+
   if (command.startsWith('precision-post:')) {
     const pBriefId  = command.slice('precision-post:'.length);
     const pLgDir    = path.join(clientDir, 'leadgen');
@@ -4387,6 +4409,26 @@ app.get('/api/clients/:id/precision/briefs', requireLicense, (req, res) => {
   const cDir = clientDir(req.params.id);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
   res.json(loadPrecisionBriefs(cDir));
+});
+
+// GET /api/clients/:id/screenshots — list run screenshots (newest first)
+app.get('/api/clients/:id/screenshots', requireLicense, (req, res) => {
+  const screenshotsDir = path.join(clientDir(req.params.id), 'logs', 'screenshots');
+  if (!fs.existsSync(screenshotsDir)) return res.json([]);
+  const files = fs.readdirSync(screenshotsDir)
+    .filter(f => f.endsWith('.png'))
+    .sort().reverse().slice(0, 60)
+    .map(f => ({ name: f, url: `/api/clients/${req.params.id}/screenshots/${encodeURIComponent(f)}` }));
+  res.json(files);
+});
+
+// GET /api/clients/:id/screenshots/:filename — serve a screenshot image
+app.get('/api/clients/:id/screenshots/:filename', requireLicense, (req, res) => {
+  const fname = decodeURIComponent(req.params.filename);
+  if (!fname.endsWith('.png') || fname.includes('..')) return res.status(400).end();
+  const p = path.join(clientDir(req.params.id), 'logs', 'screenshots', fname);
+  if (!fs.existsSync(p)) return res.status(404).end();
+  res.sendFile(p);
 });
 
 // PATCH /api/clients/:id/precision/briefs/:briefId — approve/reject/edit
