@@ -324,27 +324,52 @@ if (PROXY_URL && EXPECTED_GEO) {
       for (const lead of DM_LEADS) {
         try {
           const username = lead.username.replace(/^@/, '');
-          await page.goto(`https://www.instagram.com/${username}/`, {
+
+          // Navigate directly to the DM thread — more reliable than clicking Message button
+          // Instagram redirects /direct/new/?username=X to the thread automatically
+          await page.goto(`https://www.instagram.com/direct/new/?username=${username}`, {
             waitUntil: 'domcontentloaded',
-            timeout: 20000,
+            timeout: 25000,
           });
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(3000);
 
-          const msgClicked = await page.evaluate(() => {
-            const btns = [...document.querySelectorAll('div[role="button"], button')];
-            const btn  = btns.find(b => b.textContent.trim() === 'Message');
-            if (btn) { btn.click(); return true; }
-            return false;
-          });
-          if (!msgClicked) { log('dm', `  No Message button for @${username} — skipping`); continue; }
+          // Wait for the DM thread to load — input is contenteditable inside the thread
+          // Instagram's DM input: placeholder is "Message..." (EN) or "أرسل رسالة" (AR)
+          const msgBox = page.locator(
+            'div[contenteditable="true"][aria-label], ' +
+            'div[role="textbox"], ' +
+            'p[data-lexical-editor="true"]'
+          ).first();
 
-          await page.waitForTimeout(2000);
-          const msgBox = page.locator('div[role="textbox"], textarea[placeholder*="message"]').first();
-          if (await msgBox.isVisible({ timeout: 5000 }).catch(() => false)) {
+          if (!(await msgBox.isVisible({ timeout: 8000 }).catch(() => false))) {
+            // Fallback: try clicking "Message" button on profile page
+            await page.goto(`https://www.instagram.com/${username}/`, {
+              waitUntil: 'domcontentloaded',
+              timeout: 20000,
+            });
+            await page.waitForTimeout(2500);
+            const clicked = await page.evaluate(() => {
+              const btns = [...document.querySelectorAll('div[role="button"], button')];
+              const btn  = btns.find(b => b.textContent.trim() === 'Message' || b.textContent.trim() === 'رسالة');
+              if (btn) { btn.click(); return true; }
+              return false;
+            });
+            if (!clicked) { log('dm', `  No Message button for @${username} — skipping`); continue; }
+            await page.waitForTimeout(3000);
+          }
+
+          if (await msgBox.isVisible({ timeout: 8000 }).catch(() => false)) {
             await msgBox.click();
             await page.keyboard.type(lead.message, { delay: 40 });
             await page.waitForTimeout(1000);
-            await page.keyboard.press('Enter');
+            // Send via Enter (or click Send button as fallback)
+            const sent = await page.evaluate(() => {
+              const btns = [...document.querySelectorAll('div[role="button"], button')];
+              const btn  = btns.find(b => b.textContent.trim() === 'Send' || b.textContent.trim() === 'إرسال');
+              if (btn) { btn.click(); return true; }
+              return false;
+            });
+            if (!sent) await page.keyboard.press('Enter');
             await page.waitForTimeout(2000);
             dmsSent++;
             log('dm', `  Sent DM to @${username}`);
