@@ -554,7 +554,18 @@ Posts geotagged at competitor stores or relevant ${targetGeoCode || 'target mark
 2. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
 
 ——— SOURCE TYPE: youtube + type: keyword (YouTube Search → video commenters) ———
-YouTube comments are PUBLIC — no login required for reading. If a Google session exists (browser-sessions/google/), use it for better access. Otherwise launch a fresh browser context.
+IMPORTANT: The social media proxy BLOCKS YouTube/Google. You MUST launch a SEPARATE browser
+context WITHOUT proxy for all YouTube sources. Use the Google session dir for cookies:
+
+\`\`\`javascript
+// YouTube — NO PROXY, use Google session
+const ytContext = await chromium.launchPersistentContext(
+  '${path.join(dataDir, 'clients', clientId, 'browser-sessions', 'google')}',
+  { headless: false, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'] }
+);
+const ytPage = ytContext.pages()[0] || await ytContext.newPage();
+\`\`\`
+After finishing all YouTube sources, close ytContext and continue with the Instagram proxy context for other sources.
 
 1. Navigate to https://www.youtube.com/results?search_query=HANDLE_OR_URL (the keyword from the source config)
    Example keywords: "bamboo bedding review", "best mattress UAE", "sleep tips"
@@ -588,7 +599,7 @@ YouTube comments are PUBLIC — no login required for reading. If a Google sessi
 6. Target: 50-100 commenters per keyword source. Move to next source after 10 videos or 100 commenters.
 
 ——— SOURCE TYPE: youtube + type: account (YouTube Channel → video commenters) ———
-Scrape commenters from a specific YouTube channel's videos. No login needed.
+Use the same NO-PROXY YouTube browser context described above (ytContext/ytPage).
 
 1. Navigate to the channel URL from handle_or_url (e.g. https://www.youtube.com/@channelname or channel ID URL)
 2. Click/navigate to the "Videos" tab: append /videos to the channel URL
