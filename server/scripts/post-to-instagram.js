@@ -225,30 +225,60 @@ if (PROXY_URL && EXPECTED_GEO) {
       log('post', 'Create dialog open');
 
       // ── 6. Upload image(s) ───────────────────────────────────────────────
-      const fileInput = page.locator('input[type="file"]').first();
-      // Pass all files at once — Instagram's file input accepts multiple
-      await fileInput.setInputFiles(imageFiles);
-      await page.waitForTimeout(3000);
-      log('post', `Uploaded ${imageFiles.length} file(s)`);
+      // Use waitForEvent('filechooser') — intercepts the native OS file picker
+      // regardless of how/where Instagram triggers it. Much more reliable than
+      // hunting for hidden input[type="file"] which Instagram may hide or move.
+      log('post', 'Waiting for file chooser — clicking Select from computer…');
 
-      // For multi-image: if only first loaded, click "Add more" for remaining
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 15000 }),
+        page.evaluate(() => {
+          // Click "Select from computer" or any visible upload trigger button
+          const all = [...document.querySelectorAll('button, div[role="button"], input[type="file"]')];
+          const btn = all.find(el => {
+            const t = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
+            return t.includes('computer') || t.includes('select') || t.includes('upload') ||
+                   t.includes('choose') || el.tagName === 'INPUT';
+          });
+          if (btn) { btn.click(); return btn.tagName; }
+          return null;
+        }),
+      ]).catch(async (err) => {
+        // Fallback: file input may already be accessible — try direct setInputFiles
+        log('post', 'filechooser event not fired, trying direct input fallback…');
+        const fi = page.locator('input[type="file"]').first();
+        await fi.setInputFiles(imageFiles, { timeout: 15000 });
+        return null; // signal we used fallback
+      });
+
+      if (fileChooser) {
+        await fileChooser.setFiles(imageFiles);
+        log('post', `Uploaded ${imageFiles.length} file(s) via file chooser`);
+      }
+      await page.waitForTimeout(3000);
+
+      // For multi-image carousel: if only first loaded, use "Add more" button + new chooser
       if (imageFiles.length > 1) {
         for (let i = 1; i < imageFiles.length; i++) {
-          const added = await page.evaluate(() => {
-            const btns = [...document.querySelectorAll('button, div[role="button"], span[role="button"]')];
-            const btn  = btns.find(b =>
-              (b.getAttribute('aria-label') || '').toLowerCase().includes('add') ||
-              b.textContent.trim() === '+'
-            );
-            if (btn) { btn.click(); return true; }
-            return false;
-          });
-          if (added) {
-            await page.waitForTimeout(1000);
-            const moreInput = page.locator('input[type="file"]').first();
-            await moreInput.setInputFiles(imageFiles[i]);
+          const [moreChooser] = await Promise.all([
+            page.waitForEvent('filechooser', { timeout: 8000 }),
+            page.evaluate(() => {
+              const btns = [...document.querySelectorAll('button, div[role="button"], span[role="button"]')];
+              const btn  = btns.find(b =>
+                (b.getAttribute('aria-label') || '').toLowerCase().includes('add') ||
+                b.textContent.trim() === '+'
+              );
+              if (btn) { btn.click(); return true; }
+              return false;
+            }),
+          ]).catch(() => [null]);
+
+          if (moreChooser) {
+            await moreChooser.setFiles(imageFiles[i]);
             await page.waitForTimeout(2000);
             log('post', `  Added carousel image ${i + 1}`);
+          } else {
+            log('post', `  Could not add carousel image ${i + 1} — Add button not found`);
           }
         }
       }
