@@ -20,6 +20,18 @@ if (!url || !userDataDir) {
   catch (e) { if (e.code !== 'ENOENT') console.log(`✦ Note: could not remove ${f}: ${e.code}`); }
 });
 
+// Clear crash recovery state so "Restore pages?" bubble doesn't block navigation
+const prefsPath = path.join(userDataDir, 'Default', 'Preferences');
+try {
+  if (fs.existsSync(prefsPath)) {
+    const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+    if (prefs.profile) prefs.profile.exit_type = 'Normal';
+    if (prefs.profile) prefs.profile.exited_cleanly = true;
+    fs.writeFileSync(prefsPath, JSON.stringify(prefs));
+    console.log('✦ Cleared crash recovery state');
+  }
+} catch (e) { console.log(`✦ Note: could not clear crash state: ${e.message}`); }
+
 (async () => {
   const options = {
     headless: false,
@@ -28,6 +40,9 @@ if (!url || !userDataDir) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
+      '--disable-session-crashed-bubble',
+      '--disable-infobars',
+      '--hide-crash-restore-bubble',
     ],
   };
 
