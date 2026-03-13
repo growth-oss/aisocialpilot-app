@@ -29,6 +29,8 @@ function atomicWrite(filePath, data) {
   const tmp = filePath + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
   fs.renameSync(tmp, filePath);
+  // Make writable by all users (claude_runner needs to update these files during runs)
+  try { fs.chmodSync(filePath, 0o666); } catch {}
 }
 
 // ─── Leads ───────────────────────────────────────────────────────────────────

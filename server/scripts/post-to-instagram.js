@@ -325,40 +325,37 @@ if (PROXY_URL && EXPECTED_GEO) {
         try {
           const username = lead.username.replace(/^@/, '');
 
-          // Navigate directly to the DM thread — more reliable than clicking Message button
-          // Instagram redirects /direct/new/?username=X to the thread automatically
-          await page.goto(`https://www.instagram.com/direct/new/?username=${username}`, {
+          // Go to profile and click Message button — most reliable path
+          await page.goto(`https://www.instagram.com/${username}/`, {
             waitUntil: 'domcontentloaded',
             timeout: 25000,
           });
           await page.waitForTimeout(3000);
 
-          // Wait for the DM thread to load — input is contenteditable inside the thread
-          // Instagram's DM input: placeholder is "Message..." (EN) or "أرسل رسالة" (AR)
-          const msgBox = page.locator(
-            'div[contenteditable="true"][aria-label], ' +
-            'div[role="textbox"], ' +
-            'p[data-lexical-editor="true"]'
-          ).first();
-
-          if (!(await msgBox.isVisible({ timeout: 8000 }).catch(() => false))) {
-            // Fallback: try clicking "Message" button on profile page
-            await page.goto(`https://www.instagram.com/${username}/`, {
-              waitUntil: 'domcontentloaded',
-              timeout: 20000,
+          // Click the Message button (text varies by language)
+          const clicked = await page.evaluate(() => {
+            const btns = [...document.querySelectorAll('div[role="button"], button, a[role="link"]')];
+            const btn  = btns.find(b => {
+              const t = b.textContent.trim();
+              return t === 'Message' || t === 'رسالة' || t === 'Send message' || t === 'إرسال رسالة';
             });
-            await page.waitForTimeout(2500);
-            const clicked = await page.evaluate(() => {
-              const btns = [...document.querySelectorAll('div[role="button"], button')];
-              const btn  = btns.find(b => b.textContent.trim() === 'Message' || b.textContent.trim() === 'رسالة');
-              if (btn) { btn.click(); return true; }
-              return false;
-            });
-            if (!clicked) { log('dm', `  No Message button for @${username} — skipping`); continue; }
-            await page.waitForTimeout(3000);
-          }
+            if (btn) { btn.click(); return true; }
+            return false;
+          });
+          if (!clicked) { log('dm', `  No Message button for @${username} — skipping`); continue; }
 
-          if (await msgBox.isVisible({ timeout: 8000 }).catch(() => false)) {
+          // Wait for DM thread to load (navigates to /direct/t/... or shows inline panel)
+          await page.waitForTimeout(4000);
+
+          // DM input selector — Instagram uses contenteditable div; aria-label is optional
+          // Try multiple selectors in order of specificity
+          const msgBox = page.locator([
+            'div[contenteditable="true"]',
+            'div[role="textbox"]',
+            'p[data-lexical-editor="true"]',
+          ].join(', ')).first();
+
+          if (await msgBox.isVisible({ timeout: 10000 }).catch(() => false)) {
             await msgBox.click();
             await page.keyboard.type(lead.message, { delay: 40 });
             await page.waitForTimeout(1000);

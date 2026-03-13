@@ -4367,6 +4367,8 @@ function savePrecisionBriefs(cDir, briefs) {
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(briefs, null, 2));
   fs.renameSync(tmp, p);
+  // Make writable by all users (claude_runner needs to update status during runs)
+  try { fs.chmodSync(p, 0o666); } catch {}
 }
 
 // Atomic patch for a single brief — re-reads file immediately before writing
