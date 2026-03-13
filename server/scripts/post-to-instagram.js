@@ -379,29 +379,38 @@ if (PROXY_URL && EXPECTED_GEO) {
       }
 
       // ── 7. Advance through crop → filter → caption screens ───────────────
+      // Screenshot before Next clicks so we can see what screen we're on
+      await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `pre-next-${BRIEF_ID}-${Date.now()}.png`) });
       for (let i = 0; i < 3; i++) {
         const next = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next")').last();
         if (await next.isVisible({ timeout: 4000 }).catch(() => false)) {
           await next.click();
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(2500);
           log('post', `  Clicked Next (step ${i + 1})`);
+          await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `next-${i+1}-${BRIEF_ID}-${Date.now()}.png`) });
+        } else {
+          log('post', `  No Next button found at step ${i + 1} — may already be on caption screen`);
+          break;
         }
       }
 
       // ── 8. Type caption ──────────────────────────────────────────────────
       const captionBox = page.locator(
-        'div[role="textbox"], textarea[placeholder*="caption"], div[contenteditable="true"]'
+        'div[aria-label="Write a caption..."], div[role="textbox"], textarea[placeholder*="caption"], div[contenteditable="true"]'
       ).first();
       if (await captionBox.isVisible({ timeout: 5000 }).catch(() => false)) {
         await captionBox.click();
-        await page.keyboard.type(CAPTION, { delay: 40 });
+        await page.keyboard.type(CAPTION, { delay: 30 });
         await page.waitForTimeout(1500);
         log('post', 'Caption typed');
       } else {
         log('post', 'WARNING: Caption box not found — posting without caption');
+        await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `no-caption-box-${BRIEF_ID}-${Date.now()}.png`) });
       }
 
       // ── 9. Share ─────────────────────────────────────────────────────────
+      await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `pre-share-${BRIEF_ID}-${Date.now()}.png`) });
+
       const shared = await page.evaluate(() => {
         const all = [...document.querySelectorAll('div[role="button"], button, span[role="button"], div')];
         const btn = all.find(el => el.textContent.trim() === 'Share' && el.offsetParent !== null);
@@ -409,32 +418,47 @@ if (PROXY_URL && EXPECTED_GEO) {
         return false;
       });
       if (!shared) {
-        await page.locator(':text-is("Share")').last().click({ force: true });
+        log('post', 'Share not found via evaluate — trying locator fallback…');
+        const shareLoc = page.locator(':text-is("Share")').last();
+        if (await shareLoc.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await shareLoc.click({ force: true });
+        } else {
+          await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-not-found-${BRIEF_ID}-${Date.now()}.png`) });
+          throw new Error('Share button not found — check share-not-found screenshot');
+        }
       }
-      await page.waitForTimeout(6000);
-      log('post', 'Share clicked — waiting for publish…');
+      log('post', 'Share clicked — waiting for dialog to close (publish confirmation)…');
+
+      // The real success signal is the Create post dialog closing.
+      // Only after it closes is the post actually published.
+      // If it stays open > 25s, Instagram may have shown an error.
+      const dialogClosed = await page.waitForSelector('div[role="dialog"]', {
+        state: 'hidden',
+        timeout: 25000,
+      }).then(() => true).catch(() => false);
+
+      if (!dialogClosed) {
+        await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `share-stuck-${BRIEF_ID}-${Date.now()}.png`) });
+        throw new Error('Post dialog did not close after Share — Instagram may have rejected the post. Check share-stuck screenshot.');
+      }
+      log('post', 'Dialog closed — post published ✓');
+      await page.waitForTimeout(3000); // let IG finish background processing
 
       // ── 10. Verify post on own profile ────────────────────────────────────
       await page.goto(`https://www.instagram.com/${HANDLE}/`, {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
-      await page.waitForTimeout(4000);
+      await page.waitForTimeout(5000);
       await page.waitForSelector('a[href*="/p/"]', { timeout: 10000 }).catch(() => {});
 
-      const firstPost = page.locator('a[href*="/p/"]').first();
-      if (await firstPost.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await firstPost.click();
-        await page.waitForTimeout(2000);
-        const url = page.url();
-        if (url.includes('/p/')) {
-          postUrl = url;
-          log('post', 'Verified post URL:', postUrl);
-        } else {
-          log('post', 'ERROR: URL after clicking first post is not a /p/ URL:', url);
-        }
+      // Get the href of the first post WITHOUT clicking — avoids navigating away
+      const firstPostHref = await page.locator('a[href*="/p/"]').first().getAttribute('href').catch(() => null);
+      if (firstPostHref) {
+        postUrl = 'https://www.instagram.com' + firstPostHref.replace(/\/$/, '') + '/';
+        log('post', 'Verified post URL:', postUrl);
       } else {
-        log('post', 'ERROR: No posts found in profile grid after posting');
+        log('post', 'ERROR: No /p/ posts found in profile grid after posting');
       }
 
       // Screenshot
