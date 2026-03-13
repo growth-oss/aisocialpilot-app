@@ -666,29 +666,65 @@ const { chromium } = require('playwright');
 
 ━━━ POSTING STEPS ━━━
 ${brief2.format === 'dm_only' ? 'Format is DM ONLY — skip Instagram posting, go straight to the DM step below.' : `
-1. Write script to /tmp/run-precision-${brief2.brief_id}.js and run it with node
-2. Open Instagram (https://www.instagram.com) in the browser session above
-3. Verify you are logged in as ${instagramHandle} — if login prompt appears: STOP and log "session expired"
-4. Human-like warmup: scroll feed for 2-4 min, like 2-3 posts
-5. Create new post:
-   - Click the + (new post) button
-   - Upload image from: ${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : '(no image — post caption only, use the text option)'}
-   - IMPORTANT: use page.locator() — avoid stale DOM handles from page.$()
-   - Type caption using page.keyboard.type() with realistic delays (not page.fill())
-   - Caption: ${brief2.caption || brief2.key_message}
-6. Share the post — click the final "Share" button and wait for the success confirmation dialog
-7. VERIFY the post was created — CRITICAL:
-   a. After the success dialog appears, navigate to: https://www.instagram.com/${instagramHandle}/
-   b. Wait for the profile grid to load (wait for 'article' elements or the grid)
-   c. The FIRST post in the grid (top-left) should be the one you just created
-   d. Click on it — the URL in the browser will change to https://www.instagram.com/p/XXXXXXXX/
-   e. THAT is the real post URL — use page.url() to capture it
-   f. Do NOT use any URL from the feed/explore/home page — only the URL from your OWN profile grid
-8. Screenshot the posted content on your profile → ${screenshotsDir}/posted-${brief2.brief_id}-{timestamp}.png`}
+Write a complete Playwright script to /tmp/run-precision-${brief2.brief_id}.js and run it with node.
+
+KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discover):
+
+  // 1. Open Create dropdown
+  await page.locator('svg[aria-label="New post"], a[href="#"][role="link"] svg').first().click();
+  await page.waitForTimeout(1500);
+
+  // 2. Click "Post" — must use evaluate() NOT locator.click() (href="#" causes navigation)
+  await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('a[role="link"]'));
+    const post = links.find(l => l.textContent.trim() === 'Post');
+    if (post) post.click();
+  });
+  await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
+
+  // 3. Upload image — file input is hidden, use setInputFiles() directly
+  const fileInput = page.locator('input[type="file"]').first();
+  await fileInput.setInputFiles('${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : ''}');
+  await page.waitForTimeout(3000); // wait for preview to load
+
+  // 4. Advance through crop/filter/caption screens (click "Next" button each time)
+  for (let i = 0; i < 3; i++) {
+    const next = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next")').last();
+    if (await next.isVisible({ timeout: 4000 }).catch(() => false)) { await next.click(); await page.waitForTimeout(2000); }
+  }
+
+  // 5. Type caption (on the caption screen, before final Share)
+  const captionBox = page.locator('div[role="textbox"], textarea[placeholder*="caption"], div[contenteditable="true"]').first();
+  if (await captionBox.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await captionBox.click();
+    await page.keyboard.type('${(brief2.caption || brief2.key_message || '').replace(/'/g, "\\'")}', { delay: 40 });
+    await page.waitForTimeout(1500);
+  }
+
+  // 6. Click Share
+  const share = page.locator('div[role="button"]:has-text("Share"), button:has-text("Share")').last();
+  await share.click();
+  await page.waitForTimeout(5000); // wait for post to publish
+
+  // 7. Verify: navigate to own profile, get post URL from grid
+  await page.goto('https://www.instagram.com/${instagramHandle}/', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(3000);
+  const firstPost = page.locator('article a[href*="/p/"], a[href*="/p/"]').first();
+  await firstPost.click();
+  await page.waitForTimeout(2000);
+  const postUrl = page.url(); // THIS is the real post URL — must start with /p/
+  // screenshot
+  await page.screenshot({ path: '${screenshotsDir}/posted-${brief2.brief_id}-' + Date.now() + '.png' });
+
+Steps:
+1. Open Instagram and verify logged in as ${instagramHandle} — if login prompt: STOP
+2. Scroll feed 60s (warmup — do NOT capture any URLs during this)
+3. Run the posting sequence above
+4. postUrl variable will hold the verified URL — use it when updating the brief`}
 
 ━━━ DM STEP ━━━
 ${eligibleForDM.length === 0 ? 'No eligible leads for DM (none at stage ≥ 3). Skip DM step.' : `
-Wait 5-10 min after posting (or immediately if dm_only).
+Wait 2-3 min after posting (or immediately if dm_only).
 For each eligible lead, navigate to their profile and send DM:
 ${eligibleForDM.map(l => `  - ${l.username}: "${brief2.dm_template || 'Hello! Thought you might love our bamboo bedding.'}"`).join('\n')}
 
