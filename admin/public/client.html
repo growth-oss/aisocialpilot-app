@@ -2339,7 +2339,9 @@ async function loadBriefs() {
 function renderBriefCard(b) {
   const bid = b.brief_id || b.id;
   const statusColor = { pending:'var(--muted)', draft:'var(--muted)', queued:'var(--amber)', approved:'var(--green)', rejected:'var(--red)', posted:'var(--accent)' };
-  const statusLabel = { pending:'Pending', draft:'Draft', queued:'⏳ In Queue', approved:'Approved', rejected:'Rejected', posted:'✓ Posted' };
+  const isPosted = b.status === 'posted';
+  const postedLabel = b.format === 'dm_only' ? '💌 DMs Sent' : (b.posted_url || b.post_url ? '✓ Posted' : '✓ Completed');
+  const statusLabel = { pending:'Pending', draft:'Draft', queued:'⏳ In Queue', approved:'Approved', rejected:'Rejected', posted: isPosted ? postedLabel : '✓ Posted' };
   const sc = statusColor[b.status] || 'var(--muted)';
   let imgTag;
   if (b.brief_type === 'product_carousel' && b.product_carousel_images?.length) {
@@ -2382,6 +2384,9 @@ function renderBriefCard(b) {
     </div>
     ${b.brief_type !== 'product_carousel' ? productPill : `<div style="font-size:11px;color:var(--accent);margin-bottom:10px;padding:5px 9px;background:rgba(99,102,241,.08);border-radius:6px">📦 ${(b.product_carousel_images||[]).length} product image${(b.product_carousel_images||[]).length===1?'':'s'} · no AI generation needed</div>`}
     ${b.status === 'queued' ? `<div style="font-size:11px;color:var(--amber);margin-bottom:10px;padding:6px 10px;background:rgba(245,158,11,.08);border-radius:6px">Will post naturally during next Run — woven into normal browsing to avoid detection</div>` : ''}
+    ${b.status === 'posted' && b.format === 'dm_only' ? `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;padding:5px 9px;background:var(--bg);border-radius:6px">💌 DM-only — no Instagram post created. DMs sent to ${(b.leads||[]).length} target${(b.leads||[]).length===1?'':'s'}.</div>` : ''}
+    ${b.status === 'posted' && b.format !== 'dm_only' && (b.posted_url || b.post_url) ? `<div style="font-size:11px;margin-bottom:10px;padding:5px 9px;background:var(--bg);border-radius:6px"><a href="${escapeHtml(b.posted_url||b.post_url)}" target="_blank" style="color:var(--accent);text-decoration:none">↗ View on Instagram</a></div>` : ''}
+    ${b.status === 'posted' && b.format !== 'dm_only' && !(b.posted_url || b.post_url) ? `<div style="font-size:11px;color:var(--red);margin-bottom:10px;padding:5px 9px;background:var(--bg);border-radius:6px">⚠ Marked posted but no URL recorded — post may not have published</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${bid}')">View Brief</button>
       ${b.status !== 'posted' && b.brief_type !== 'product_carousel' ? (!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🔄 Re-generate</button>`) : ''}
