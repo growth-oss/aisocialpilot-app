@@ -660,8 +660,12 @@ The script handles everything: geo check, session verification, warmup, image up
 caption, share, profile verification, DMs, brief status update, and screenshots.
 It will print a SUMMARY at the end showing post status and URL.
 
-If the script exits with an error, read the output carefully and report what went wrong.
-Do not retry automatically — report the error so the user can investigate.
+If the script exits with an error:
+- SingletonLock / profile lock → run these two commands then stop (the next run will be clean):
+    rm -f '${sessionDir}/SingletonLock' '${sessionDir}/SingletonCookie' '${sessionDir}/SingletonSocket'
+    node /app/server/scripts/post-to-instagram.js
+- session_expired / login prompt → STOP, do not retry, report to user
+- Any other error → report what went wrong, do not retry
 `;
   }
   // ── End precision-post ────────────────────────────────────────────────────

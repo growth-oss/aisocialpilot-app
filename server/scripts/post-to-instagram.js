@@ -126,11 +126,18 @@ if (PROXY_URL && EXPECTED_GEO) {
   let postUrl = null;
   let dmsSent = 0;
 
-  // Remove stale SingletonLock
-  const lockFile = path.join(SESSION_DIR, 'SingletonLock');
-  if (fs.existsSync(lockFile)) {
-    fs.unlinkSync(lockFile);
-    log('session', 'Removed stale SingletonLock');
+  // Kill any live Chrome process that still holds the session, then clean all lock files.
+  // A running process will immediately recreate SingletonLock if we only delete the file.
+  try {
+    execSync(
+      `fuser -k '${SESSION_DIR}/SingletonLock' 2>/dev/null || pkill -f 'user-data-dir=${SESSION_DIR}' 2>/dev/null || true`,
+      { timeout: 5000 }
+    );
+    await new Promise(r => setTimeout(r, 1000)); // let process die
+  } catch {}
+  for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+    const p = path.join(SESSION_DIR, f);
+    if (fs.existsSync(p)) { fs.unlinkSync(p); log('session', `Removed ${f}`); }
   }
 
   const opts = {
