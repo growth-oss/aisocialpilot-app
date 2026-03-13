@@ -3215,9 +3215,7 @@ app.post('/api/clients/:id/session/start', requireLicense, (req, res) => {
   }
 
   const scriptPath = path.join(__dirname, '../scripts/open-session.js');
-  // Google/YouTube don't need proxy (public content, and proxy may block Google login)
-  const skipProxy = ['google'].includes(platform);
-  const proxyUrl = (!skipProxy && clientConfig.proxy?.url) || '';
+  const proxyUrl = clientConfig.proxy?.url || '';
   const args = [scriptPath, url, sessionDir];
   if (proxyUrl) args.push(proxyUrl);
 
