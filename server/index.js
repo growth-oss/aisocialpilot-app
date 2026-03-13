@@ -686,6 +686,20 @@ const { chromium } = require('playwright');
 ${brief2.format === 'dm_only' ? 'Format is DM ONLY — skip Instagram posting, go straight to the DM step below.' : `
 Write a complete Playwright script to /tmp/run-precision-${brief2.brief_id}.js and run it with node.
 
+${brief2.brief_type === 'product_carousel' ? `PRODUCT CAROUSEL — images are CDN URLs, must be downloaded first:
+const https = require('https'), fs = require('fs');
+const carouselImages = ${JSON.stringify((brief2.product_carousel_images || []).map(i => i.url))};
+const tempFiles = [];
+for (let i = 0; i < carouselImages.length; i++) {
+  const p = '/tmp/carousel-${brief2.brief_id}-' + i + '.jpg';
+  await new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(p);
+    https.get(carouselImages[i], res => { res.pipe(file); file.on('finish', resolve); }).on('error', reject);
+  });
+  tempFiles.push(p);
+}
+// tempFiles now has ${(brief2.product_carousel_images || []).length} local image(s) ready to upload
+` : ''}
 KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discover):
 
   // 1. Open Create dropdown
@@ -700,10 +714,27 @@ KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discove
   });
   await page.waitForSelector('div[role="dialog"]', { timeout: 8000 });
 
-  // 3. Upload image — file input is hidden, use setInputFiles() directly
+  // 3. Upload image(s)
   const fileInput = page.locator('input[type="file"]').first();
-  await fileInput.setInputFiles('${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : ''}');
-  await page.waitForTimeout(3000); // wait for preview to load
+${brief2.brief_type === 'product_carousel' ? `  // Product carousel: try passing all files at once (Instagram accepts multiple)
+  await fileInput.setInputFiles(tempFiles);
+  await page.waitForTimeout(3000);
+  // If only first image loaded, try clicking "Add more" for each remaining image
+  for (let i = 1; i < tempFiles.length; i++) {
+    const addMore = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('button, div[role="button"], span[role="button"]')];
+      const btn = btns.find(b => b.querySelector('svg') || b.textContent.includes('Add') || (b.getAttribute('aria-label') || '').toLowerCase().includes('add'));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    if (addMore) {
+      await page.waitForTimeout(1000);
+      const moreInput = page.locator('input[type="file"]').first();
+      await moreInput.setInputFiles(tempFiles[i]);
+      await page.waitForTimeout(2000);
+    }
+  }` : `  await fileInput.setInputFiles('${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : ''}');
+  await page.waitForTimeout(3000); // wait for preview to load`}
 
   // 4. Advance through crop/filter/caption screens (click "Next" button each time)
   for (let i = 0; i < 3; i++) {
@@ -746,8 +777,8 @@ KNOWN WORKING INSTAGRAM DOM PATTERNS (use these exactly — do not probe/discove
 Steps:
 1. Open Instagram and verify logged in as ${instagramHandle} — if login prompt: STOP
 2. Scroll feed 60s (warmup — do NOT capture any URLs during this)
-3. Run the posting sequence above
-4. postUrl variable will hold the verified URL — use it when updating the brief`}
+${brief2.brief_type === 'product_carousel' ? '3. Download carousel images to temp files (see download code above)\n4. Run the posting sequence above' : '3. Run the posting sequence above'}
+${brief2.brief_type === 'product_carousel' ? '5' : '4'}. postUrl variable will hold the verified URL — use it when updating the brief`}
 
 ━━━ DM STEP ━━━
 ${eligibleForDM.length === 0 ? 'No eligible leads for DM (none at stage ≥ 3). Skip DM step.' : `
@@ -4763,6 +4794,118 @@ app.get('/api/clients/:id/assets/precision/:filename', requireLicense, (req, res
   if (!filePath.startsWith(CLIENTS_DIR)) return res.status(403).send('Forbidden');
   if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
   res.sendFile(filePath);
+});
+
+// POST /api/clients/:id/precision/generate-product-carousel — instant product carousel brief from catalog images
+app.post('/api/clients/:id/precision/generate-product-carousel', requireLicense, async (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+  let clientConfig = {};
+  try { clientConfig = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8')); } catch {}
+
+  let brandVoiceMd = '';
+  try { brandVoiceMd = fs.readFileSync(path.join(cDir, 'config', 'brand-voice.md'), 'utf8'); } catch {}
+
+  let products = [];
+  try { products = JSON.parse(fs.readFileSync(path.join(cDir, 'knowledge', 'products.json'), 'utf8')); } catch {}
+
+  const { productName } = req.body || {};
+  const product = productName
+    ? products.find(p => p.name === productName)
+    : products.find(p => (p.images || []).some(img => img.local_url || img.url));
+
+  if (!product) return res.status(400).json({ error: 'No products with images — scrape your store first in the Products tab' });
+
+  const productImages = (product.images || [])
+    .filter(img => img.local_url || img.url)
+    .slice(0, 3)
+    .map(img => ({ url: img.local_url || img.url, alt: img.alt || product.name }));
+
+  if (!productImages.length) return res.status(400).json({ error: 'Selected product has no images' });
+
+  // Extract brand tone from brand voice md
+  const toneMatch = brandVoiceMd.match(/(?:Tone|Voice|Personality)([\s\S]{0,400}?)(?=^##|\Z)/im);
+  const brandTone = toneMatch ? toneMatch[1].trim().slice(0, 250) : 'Warm, lifestyle-focused, aspirational. No hard sell.';
+
+  const captionPrompt = `Write a short Instagram carousel caption for this product:
+Product: ${product.name}
+Description: ${(product.description || '').slice(0, 200)}
+USPs: ${(product.usps || product.pain_points || []).slice(0, 4).join(', ')}
+Brand tone: ${brandTone}
+
+Requirements:
+- 2–3 sentences max
+- 3–4 relevant hashtags at the end
+- Do NOT mention price
+- Use "Discover" or "Explore" — not "Buy now"
+- Under 200 characters before hashtags
+
+Return ONLY the caption text. No quotes, no JSON, no commentary.`;
+
+  const apiBody = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 300,
+    messages: [{ role: 'user', content: captionPrompt }],
+  });
+
+  let caption = '';
+  try {
+    const apiRes = await new Promise((resolve, reject) => {
+      const opts = {
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'x-api-key': config.anthropicApiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(apiBody),
+        },
+      };
+      let data = '';
+      const req2 = https.request(opts, r => {
+        r.on('data', c => { data += c; });
+        r.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Bad JSON from Anthropic')); } });
+      });
+      req2.on('error', reject);
+      req2.write(apiBody);
+      req2.end();
+    });
+    if (apiRes.error) throw new Error(apiRes.error.message || JSON.stringify(apiRes.error));
+    caption = apiRes.content?.[0]?.text?.trim() || '';
+  } catch (e) {
+    return res.status(500).json({ error: `Caption generation failed: ${e.message}` });
+  }
+
+  const briefId = 'product-carousel-' + Date.now();
+  const newBrief = {
+    brief_id: briefId,
+    brief_type: 'product_carousel',
+    cluster_topic: product.name,
+    format: 'carousel',
+    caption,
+    image_url: productImages[0].url,
+    product_carousel_images: productImages,
+    product_name: product.name,
+    product_image_url: productImages[0].url,
+    leads: [],
+    dm_template: null,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+    generated_images: [],
+    posted_url: null,
+    posted_at: null,
+    amplification_done: false,
+  };
+
+  const existing = loadPrecisionBriefs(cDir);
+  savePrecisionBriefs(cDir, [...existing, newBrief]);
+
+  res.json({ ok: true, brief: newBrief });
 });
 
 // POST /api/clients/:id/precision/post/:briefId — fire-and-forget run to post brief + DMs
