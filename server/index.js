@@ -676,9 +676,15 @@ ${brief2.format === 'dm_only' ? 'Format is DM ONLY — skip Instagram posting, g
    - IMPORTANT: use page.locator() — avoid stale DOM handles from page.$()
    - Type caption using page.keyboard.type() with realistic delays (not page.fill())
    - Caption: ${brief2.caption || brief2.key_message}
-6. Share the post
-7. Screenshot after posting → ${screenshotsDir}/posted-${brief2.brief_id}-{timestamp}.png
-8. Capture the post URL from the page`}
+6. Share the post — click the final "Share" button and wait for the success confirmation dialog
+7. VERIFY the post was created — CRITICAL:
+   a. After the success dialog appears, navigate to: https://www.instagram.com/${instagramHandle}/
+   b. Wait for the profile grid to load (wait for 'article' elements or the grid)
+   c. The FIRST post in the grid (top-left) should be the one you just created
+   d. Click on it — the URL in the browser will change to https://www.instagram.com/p/XXXXXXXX/
+   e. THAT is the real post URL — use page.url() to capture it
+   f. Do NOT use any URL from the feed/explore/home page — only the URL from your OWN profile grid
+8. Screenshot the posted content on your profile → ${screenshotsDir}/posted-${brief2.brief_id}-{timestamp}.png`}
 
 ━━━ DM STEP ━━━
 ${eligibleForDM.length === 0 ? 'No eligible leads for DM (none at stage ≥ 3). Skip DM step.' : `
@@ -697,12 +703,21 @@ After each DM:
 After all steps are done:
 1. Read: ${lgDir2}/precision-briefs.json
 2. Find brief_id "${brief2.brief_id}"
-3. Set: status="posted", posted_at=ISO timestamp${brief2.format !== 'dm_only' ? ', post_url=URL of Instagram post' : ''}, amplification_done=true
+3. Set fields:
+   - status = "posted" (ONLY if you verified the post appeared in ${instagramHandle}'s profile grid)
+   - status = "failed" (if posting failed or could not be verified)
+   ${brief2.format !== 'dm_only' ? '- post_url = the URL you got from page.url() after clicking the post in YOUR OWN profile grid (must start with https://www.instagram.com/p/)' : ''}
+   - posted_at = ISO timestamp
+   - amplification_done = true
 4. Write the updated JSON back to the file
+IMPORTANT: If you are not 100% certain the post was created and you have its real URL from the profile grid, set status="failed" — do not guess.
 
 ━━━ SAFETY RULES ━━━
 - If Instagram shows "action blocked" or CAPTCHA: STOP, screenshot, log error
 - If session asks for login / QR code: STOP and log "session expired — manual login needed"
+- NEVER use a URL from the home feed or explore page as the post_url — those are OTHER people's posts
+- ONLY set post_url after navigating to ${instagramHandle}'s own profile and clicking the new post
+- If you cannot verify the post appeared in the profile grid: set status="failed" not "posted"
 - Never DM the same person twice
 - Never include a URL in a first DM
 - SingletonLock conflict: delete ${sessionDir}/SingletonLock and retry once
@@ -4705,11 +4720,9 @@ app.post('/api/clients/:id/precision/post/:briefId', requireLicense, (req, res) 
       command,
       () => {}, // output goes to run log file only
       (runId, code, signal, startedAt, status) => {
-        if (status === 'completed') {
-          const freshBriefs = loadPrecisionBriefs(cDir);
-          const idx = freshBriefs.findIndex(b => b.brief_id === briefIdCapture);
-          if (idx !== -1) { freshBriefs[idx].status = 'posted'; freshBriefs[idx].posted_at = new Date().toISOString(); savePrecisionBriefs(cDir, freshBriefs); }
-        }
+        // Claude updates precision-briefs.json directly with status+post_url in the prompt.
+        // We do NOT override here — a successful exit code does NOT mean the post succeeded.
+        console.log(`[precision-post ${briefIdCapture}] run ${runId} finished: ${status} (exit ${code})`);
       }
     );
   } catch (e) {
