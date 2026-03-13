@@ -322,6 +322,8 @@ function getVersion() {
 }
 
 function getGitCommit() {
+  // Railway sets RAILWAY_GIT_COMMIT_SHA at build time (.git is not in the container)
+  if (process.env.RAILWAY_GIT_COMMIT_SHA) return process.env.RAILWAY_GIT_COMMIT_SHA.slice(0, 7);
   try {
     const headPath = path.join(__dirname, '../.git/HEAD');
     const head = fs.readFileSync(headPath, 'utf8').trim();
