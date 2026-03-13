@@ -143,8 +143,7 @@ To add a new platform as a lead source:
 - facebook → `browser-sessions/facebook/`
 - linkedin → `browser-sessions/linkedin/`
 - tiktok → `browser-sessions/tiktok/`
-- google → no session needed (public)
-- google_maps → no session needed (public)
+- google → `browser-sessions/google/` (covers YouTube, Google Maps, Google Search — optional, public scraping works without login)
 - dubizzle → no session needed (public)
 
 **4. New platforms need:**

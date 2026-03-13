@@ -241,7 +241,7 @@ data/clients/{clientId}/
 | Google Search | organic | 🔧 TODO | "bamboo bedding UAE" searchers via ads |
 | Quora | question_answerers | 🔧 TODO | Sleep/bedding questions |
 | Pinterest | pin_savers | 🔧 TODO | Home decor intent |
-| YouTube | video_commenters | 🔧 TODO | Sleep/wellness channels |
+| YouTube | youtube_video_commenter, youtube_channel_commenter | ✅ Working | keyword search + channel scraping, discovery only (no engagement on YT) |
 
 **To add a new source:**
 1. Add entry to client's `hot-sources.json` (or via admin UI → Lead Gen → Sources)

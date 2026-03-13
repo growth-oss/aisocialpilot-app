@@ -1,5 +1,5 @@
 # AI Social Pilot — Current Project State
-**Last updated: 2026-03-11**
+**Last updated: 2026-03-13**
 
 > Read this at the start of any new session to understand where we are.
 > For full technical details: `.claude/MEMORY.md`
@@ -58,7 +58,7 @@ A self-hosted social media automation + lead generation platform with a full web
 | TikTok | 🔧 TODO | Session required, high bot detection |
 | Dubizzle | 🔧 TODO | Furnished apartment listings |
 | Pinterest | 🔧 TODO | Home decor board savers |
-| YouTube | 🔧 TODO | Sleep/wellness video commenters |
+| YouTube | ✅ Working | Keyword search + channel scraping → commenters. Discovery only, no YT engagement. Google session shared with Maps/Search. |
 | Quora | 🔧 TODO | Sleep quality question askers |
 
 ## Architecture Gotchas (read before coding)
