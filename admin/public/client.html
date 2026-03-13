@@ -2396,6 +2396,7 @@ function renderBriefCard(b) {
       ` : ''}
       ${(b.status === 'queued' || b.status === 'approved') ? `<button class="btn btn-sm" style="background:var(--green);color:#fff;border:none" onclick="postBrief('${bid}', this)">📤 Post to Instagram</button>` : ''}
       ${b.status === 'queued' ? `<button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" onclick="rejectBrief('${bid}')">Remove from Queue</button>` : ''}
+      ${b.status === 'failed' ? `<button class="btn btn-ghost btn-sm" style="color:var(--amber)" onclick="requeueBrief('${bid}')">🔄 Re-queue</button>` : ''}
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${bid}')">🗑</button>
     </div>
   </div>`;
@@ -2643,6 +2644,12 @@ async function rejectBrief(briefId) {
   await loadBriefs();
 }
 
+async function requeueBrief(briefId) {
+  await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { status: 'queued', error: null });
+  chatNotify('Brief re-queued — use "Post to Instagram" to trigger it now, or it will post during the next Run.', 'ok');
+  await loadBriefs();
+}
+
 async function deleteBrief(briefId) {
   if (!confirm('Delete this brief?')) return;
   await api('DELETE', `/clients/${clientId}/precision/briefs/${briefId}`);
@@ -2707,6 +2714,7 @@ async function openBriefModal(briefId) {
         ${b.status==='queued'?`<div style="font-size:12px;color:var(--amber);padding:8px 12px;background:rgba(245,158,11,.08);border-radius:6px">⏳ In queue — will post during next Run</div>`:''}
         ${b.status!=='posted'?(!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🔄 Re-generate Image</button>`):''}
         ${b.status==='queued'?`<button class="btn btn-ghost" style="color:var(--muted)" onclick="rejectBrief('${bid}');closeBriefModal()">Remove from Queue</button>`:''}
+        ${b.status==='failed'?`<button class="btn btn-ghost" style="color:var(--amber)" onclick="requeueBrief('${bid}');closeBriefModal()">🔄 Re-queue</button>`:''}
       </div>`;
   } catch(e) {
     body.innerHTML = `<div style="color:var(--red)">${e.message}</div>`;

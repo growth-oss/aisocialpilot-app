@@ -178,8 +178,8 @@ if (PROXY_URL && EXPECTED_GEO) {
       log('post', 'Format is dm_only — skipping Instagram post, going straight to DMs');
     } else {
       // ── 3. Warmup scroll ────────────────────────────────────────────────
-      log('warmup', 'Scrolling feed for 30s…');
-      for (let i = 0; i < 6; i++) {
+      log('warmup', 'Scrolling feed for 15s…');
+      for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Space');
         await page.waitForTimeout(5000);
       }
@@ -213,72 +213,138 @@ if (PROXY_URL && EXPECTED_GEO) {
 
       // ── 5. Open Create → Post ────────────────────────────────────────────
       log('post', 'Opening Create dropdown…');
-      await page.locator('svg[aria-label="New post"], a[href="#"][role="link"] svg').first().click();
+
+      // Click the Create/+ button in the left nav
+      const createBtn = page.locator([
+        'svg[aria-label="New post"]',
+        'a[aria-label="New post"]',
+        'div[aria-label="New post"]',
+        'svg[aria-label="Create"]',
+        'a[aria-label="Create"]',
+        'div[aria-label="Create"]',
+      ].join(', ')).first();
+      await createBtn.click({ timeout: 10000 });
       await page.waitForTimeout(1500);
 
-      await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[role="link"]'));
-        const post  = links.find(l => l.textContent.trim() === 'Post');
-        if (post) post.click();
-      });
+      // Click "Post" from the dropdown menu
+      const postMenuItem = page.locator([
+        'a[role="link"]:has-text("Post")',
+        'div[role="menuitem"]:has-text("Post")',
+        'span:has-text("Post")',
+      ].join(', ')).first();
+      const postMenuVisible = await postMenuItem.isVisible({ timeout: 5000 }).catch(() => false);
+      if (postMenuVisible) {
+        await postMenuItem.click();
+      } else {
+        // Fallback: evaluate to find and click
+        await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a[role="link"], div[role="menuitem"]'));
+          const post  = links.find(l => l.textContent.trim() === 'Post');
+          if (post) post.click();
+        });
+      }
       await page.waitForSelector('div[role="dialog"]', { timeout: 10000 });
       log('post', 'Create dialog open');
 
       // ── 6. Upload image(s) ───────────────────────────────────────────────
-      // Use waitForEvent('filechooser') — intercepts the native OS file picker
-      // regardless of how/where Instagram triggers it. Much more reliable than
-      // hunting for hidden input[type="file"] which Instagram may hide or move.
-      log('post', 'Waiting for file chooser — clicking Select from computer…');
+      // Screenshot the dialog so we can diagnose any upload issues from run logs
+      await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `create-dialog-${BRIEF_ID}-${Date.now()}.png`) });
 
-      const [fileChooser] = await Promise.all([
-        page.waitForEvent('filechooser', { timeout: 15000 }),
-        page.evaluate(() => {
-          // Click "Select from computer" or any visible upload trigger button
-          const all = [...document.querySelectorAll('button, div[role="button"], input[type="file"]')];
-          const btn = all.find(el => {
-            const t = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase();
-            return t.includes('computer') || t.includes('select') || t.includes('upload') ||
-                   t.includes('choose') || el.tagName === 'INPUT';
+      // Set up the filechooser listener BEFORE clicking (must be registered first)
+      const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 20000 });
+
+      // Try to click the "Select from computer" button using Playwright's locator
+      // (case-insensitive, handles Arabic variant too; falls back to clicking the dialog area)
+      const uploadBtn = page.locator([
+        'button:has-text("Select from computer")',
+        'button:has-text("اختر من الكمبيوتر")',
+        'button:has-text("Select From Computer")',
+        'div[role="button"]:has-text("Select from computer")',
+        '[aria-label="Upload photo or video"]',
+        '[aria-label="Upload"]',
+      ].join(', ')).first();
+
+      const btnVisible = await uploadBtn.isVisible({ timeout: 8000 }).catch(() => false);
+      if (btnVisible) {
+        log('post', 'Clicking "Select from computer" button…');
+        await uploadBtn.click();
+      } else {
+        // Fallback: click the drag-drop area in the center of the dialog
+        log('post', '"Select from computer" not found by text — clicking dialog drop zone…');
+        const dialogBox = await page.locator('div[role="dialog"]').boundingBox();
+        if (dialogBox) {
+          await page.mouse.click(
+            dialogBox.x + dialogBox.width / 2,
+            dialogBox.y + dialogBox.height / 2,
+          );
+        } else {
+          // Last resort: look for any input[type="file"] and trigger a click via JS
+          await page.evaluate(() => {
+            const inp = document.querySelector('input[type="file"]');
+            if (inp) inp.click();
           });
-          if (btn) { btn.click(); return btn.tagName; }
-          return null;
-        }),
-      ]).catch(async (err) => {
-        // Fallback: file input may already be accessible — try direct setInputFiles
-        log('post', 'filechooser event not fired, trying direct input fallback…');
-        const fi = page.locator('input[type="file"]').first();
-        await fi.setInputFiles(imageFiles, { timeout: 15000 });
-        return null; // signal we used fallback
-      });
+        }
+      }
 
-      if (fileChooser) {
+      // Wait for file chooser; if it times out try direct setInputFiles on the hidden input
+      let uploadedViaChooser = false;
+      try {
+        const fileChooser = await fileChooserPromise;
+        // Pass ALL files at once — Instagram handles multi-file as carousel automatically
         await fileChooser.setFiles(imageFiles);
+        uploadedViaChooser = true;
         log('post', `Uploaded ${imageFiles.length} file(s) via file chooser`);
+      } catch (chooserErr) {
+        log('post', `filechooser timed out (${chooserErr.message}), trying direct setInputFiles…`);
+        const fi = page.locator('input[type="file"]').first();
+        try {
+          await fi.setInputFiles(imageFiles, { timeout: 15000 });
+          log('post', `Uploaded ${imageFiles.length} file(s) via direct setInputFiles`);
+        } catch (inputErr) {
+          // Log the dialog HTML for debugging, then throw so the run fails clearly
+          const dialogHtml = await page.evaluate(() => {
+            const d = document.querySelector('div[role="dialog"]');
+            return d ? d.innerHTML.substring(0, 2000) : 'dialog not found';
+          });
+          log('post', 'Dialog HTML snapshot:', dialogHtml);
+          throw new Error(`Image upload failed — filechooser: ${chooserErr.message} / setInputFiles: ${inputErr.message}`);
+        }
       }
       await page.waitForTimeout(3000);
 
-      // For multi-image carousel: if only first loaded, use "Add more" button + new chooser
-      if (imageFiles.length > 1) {
+      // For product carousels: Instagram accepts multiple files from the chooser in one go.
+      // If only 1 image loaded (Instagram picked only the first), use the "Add photos" button.
+      if (imageFiles.length > 1 && uploadedViaChooser) {
+        // Check if Instagram is showing a "select multiple" / carousel indicator
+        // If not, click "Add photos" button for each additional image
         for (let i = 1; i < imageFiles.length; i++) {
-          const [moreChooser] = await Promise.all([
-            page.waitForEvent('filechooser', { timeout: 8000 }),
-            page.evaluate(() => {
-              const btns = [...document.querySelectorAll('button, div[role="button"], span[role="button"]')];
-              const btn  = btns.find(b =>
-                (b.getAttribute('aria-label') || '').toLowerCase().includes('add') ||
-                b.textContent.trim() === '+'
-              );
-              if (btn) { btn.click(); return true; }
-              return false;
-            }),
-          ]).catch(() => [null]);
+          const addBtnVisible = await page.locator([
+            'button[aria-label="Add photos or videos"]',
+            'button[aria-label="Add"]',
+            'div[role="button"][aria-label="Add"]',
+            'svg[aria-label="Select multiple"]',
+          ].join(', ')).first().isVisible({ timeout: 3000 }).catch(() => false);
 
-          if (moreChooser) {
+          if (!addBtnVisible) {
+            log('post', `  No "Add" button found for image ${i + 1} — Instagram may have loaded all files already`);
+            break;
+          }
+
+          const moreChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 });
+          await page.locator([
+            'button[aria-label="Add photos or videos"]',
+            'button[aria-label="Add"]',
+            'div[role="button"][aria-label="Add"]',
+          ].join(', ')).first().click().catch(() => {});
+
+          try {
+            const moreChooser = await moreChooserPromise;
             await moreChooser.setFiles(imageFiles[i]);
             await page.waitForTimeout(2000);
             log('post', `  Added carousel image ${i + 1}`);
-          } else {
-            log('post', `  Could not add carousel image ${i + 1} — Add button not found`);
+          } catch {
+            log('post', `  Could not add carousel image ${i + 1} — skipping`);
+            break;
           }
         }
       }
