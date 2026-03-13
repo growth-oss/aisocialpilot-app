@@ -2426,8 +2426,8 @@ async function openProductCarouselPicker() {
     return;
   }
 
-  // Store products by index so onclick can reference by index (avoids quoting issues with product names)
   window._carouselProducts = withImages;
+  const selected = new Set();
 
   const existing = document.getElementById('carousel-picker-modal');
   if (existing) existing.remove();
@@ -2436,60 +2436,91 @@ async function openProductCarouselPicker() {
   picker.id = 'carousel-picker-modal';
   picker.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2000;display:flex;align-items:center;justify-content:center';
   picker.innerHTML = `
-    <div style="background:var(--card);border-radius:14px;width:580px;max-height:82vh;overflow-y:auto;padding:24px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div>
-          <div style="font-size:15px;font-weight:600">📦 Product Carousel</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">Pick a product — we'll create a carousel brief with its images + an AI caption. No Gemini needed.</div>
-        </div>
+    <div style="background:var(--card);border-radius:14px;width:580px;max-height:82vh;display:flex;flex-direction:column;padding:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:15px;font-weight:600">📦 Product Carousel</div>
         <button onclick="document.getElementById('carousel-picker-modal').remove()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;flex-shrink:0">✕</button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Select one or more products — a brief will be created for each.</div>
+      <div id="carousel-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;overflow-y:auto;flex:1;padding-bottom:2px">
         ${withImages.map((p, idx) => {
           const imgs = (p.images || []).filter(img => img.local_url || img.url);
           const thumbSrc = imgs[0] ? (imgs[0].local_url || imgs[0].url) : '';
           return `<div data-product-idx="${idx}"
-            style="cursor:pointer;border:2px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s"
-            onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+            style="cursor:pointer;border:2px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .15s;position:relative">
             <div style="position:relative">
               <img src="${escapeHtml(thumbSrc)}" style="width:100%;height:90px;object-fit:cover;display:block;pointer-events:none" onerror="this.style.display='none'">
               ${imgs.length > 1 ? `<span style="position:absolute;bottom:4px;right:5px;background:rgba(0,0,0,.65);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;pointer-events:none">${imgs.length} imgs</span>` : ''}
+              <div class="check-badge" style="display:none;position:absolute;top:5px;left:5px;background:var(--accent);color:#fff;border-radius:50%;width:20px;height:20px;align-items:center;justify-content:center;font-size:12px;pointer-events:none">✓</div>
             </div>
             <div style="padding:7px 8px;font-size:11px;color:var(--text);line-height:1.3;pointer-events:none">${escapeHtml((p.name || '').slice(0, 45))}</div>
           </div>`;
         }).join('')}
       </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+        <span id="carousel-sel-count" style="font-size:12px;color:var(--muted);flex:1">No products selected</span>
+        <button id="carousel-cancel-btn" class="btn btn-ghost" onclick="document.getElementById('carousel-picker-modal').remove()">Cancel</button>
+        <button id="carousel-generate-btn" class="btn btn-primary" disabled>Generate Briefs</button>
+      </div>
     </div>`;
   document.body.appendChild(picker);
 
-  // Use event delegation on the grid — avoids all onclick quoting issues
-  picker.querySelector('[style*="grid"]').addEventListener('click', e => {
+  const countEl = picker.querySelector('#carousel-sel-count');
+  const genBtn = picker.querySelector('#carousel-generate-btn');
+
+  function updateFooter() {
+    const n = selected.size;
+    countEl.textContent = n === 0 ? 'No products selected' : `${n} product${n > 1 ? 's' : ''} selected`;
+    genBtn.disabled = n === 0;
+    genBtn.textContent = n > 1 ? `Generate ${n} Briefs` : 'Generate Brief';
+  }
+
+  picker.querySelector('#carousel-grid').addEventListener('click', e => {
     const card = e.target.closest('[data-product-idx]');
     if (!card) return;
     const idx = parseInt(card.dataset.productIdx, 10);
-    const p = window._carouselProducts[idx];
-    if (p) generateProductCarousel(p.name);
+    if (selected.has(idx)) {
+      selected.delete(idx);
+      card.style.borderColor = 'var(--border)';
+      card.querySelector('.check-badge').style.display = 'none';
+    } else {
+      selected.add(idx);
+      card.style.borderColor = 'var(--accent)';
+      card.querySelector('.check-badge').style.display = 'flex';
+    }
+    updateFooter();
+  });
+
+  genBtn.addEventListener('click', () => {
+    const names = [...selected].map(idx => window._carouselProducts[idx].name);
+    generateProductCarousels(names);
   });
 
   picker.addEventListener('click', e => { if (e.target === picker) picker.remove(); });
 }
 
-async function generateProductCarousel(productName) {
+async function generateProductCarousels(productNames) {
   document.getElementById('carousel-picker-modal')?.remove();
   const btn = document.getElementById('gen-carousel-btn');
-  btn.disabled = true; btn.textContent = '⏳ Generating…';
-  chatNotify(`Creating product carousel brief for "${productName}"…`, 'info');
-  try {
-    const result = await api('POST', `/clients/${clientId}/precision/generate-product-carousel`, { productName });
-    if (result.error) throw new Error(result.error);
-    toast('Product carousel brief created');
-    chatNotify(`Product carousel brief created for "${productName}" — review and queue it in the Content tab.`, 'ok');
+  btn.disabled = true;
+  chatNotify(`Creating ${productNames.length} product carousel brief${productNames.length > 1 ? 's' : ''}…`, 'info');
+  let created = 0, failed = 0;
+  for (const productName of productNames) {
+    btn.textContent = `⏳ ${created + failed + 1}/${productNames.length}`;
+    try {
+      const result = await api('POST', `/clients/${clientId}/precision/generate-product-carousel`, { productName });
+      if (result.error) throw new Error(result.error);
+      created++;
+    } catch(e) {
+      failed++;
+      chatNotify(`Failed for "${productName}": ${e.message}`, 'error');
+    }
+  }
+  btn.disabled = false; btn.textContent = '📦 Product Carousel';
+  if (created > 0) {
+    toast(`${created} carousel brief${created > 1 ? 's' : ''} created`);
+    chatNotify(`Created ${created} product carousel brief${created > 1 ? 's' : ''}${failed ? ` (${failed} failed)` : ''} — review and queue them in the Content tab.`, 'ok');
     await loadBriefs();
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-    chatNotify(`Product carousel generation failed: ${e.message}`, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = '📦 Product Carousel';
   }
 }
 
