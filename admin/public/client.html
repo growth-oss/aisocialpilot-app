@@ -2378,7 +2378,8 @@ function renderBriefCard(b) {
         <button class="btn btn-primary btn-sm" onclick="approveBrief('${bid}')">✓ Queue to Post</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${bid}')">✕ Reject</button>
       ` : ''}
-      ${b.status === 'queued' ? `<button class="btn btn-ghost btn-sm" style="color:var(--muted)" onclick="rejectBrief('${bid}')">Remove from Queue</button>` : ''}
+      ${(b.status === 'queued' || b.status === 'approved') ? `<button class="btn btn-sm" style="background:var(--green);color:#fff;border:none" onclick="postBrief('${bid}', this)">📤 Post to Instagram</button>` : ''}
+      ${b.status === 'queued' ? `<button class="btn btn-ghost btn-sm" style="color:var(--text-muted)" onclick="rejectBrief('${bid}')">Remove from Queue</button>` : ''}
       <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="deleteBrief('${bid}')">🗑</button>
     </div>
   </div>`;
@@ -2527,18 +2528,18 @@ async function deleteBrief(briefId) {
 }
 
 async function postBrief(briefId, btn) {
-  btn.disabled = true; btn.textContent = '⏳ Posting…';
-  chatNotify('Starting post run — ambassador will post and DM targeted leads…', 'info');
+  btn.disabled = true; btn.textContent = '⏳ Starting…';
+  chatNotify(`Triggering dedicated post run for brief ${briefId}…`, 'info');
   try {
     const result = await api('POST', `/clients/${clientId}/precision/post/${briefId}`, {});
     if (result.error) throw new Error(result.error);
-    toast('Post run started — check Runs tab for progress');
-    chatNotify('Post run started! Switch to the Runs tab to follow the live output.', 'ok');
-    await loadBriefs();
+    toast(`Post run ${result.runId} started — monitoring in Runs tab`);
+    chatNotify(`Post run started (${result.runId}). Switching to Runs tab to monitor live output…`, 'ok');
+    setTimeout(() => switchTab('runs'), 800);
   } catch(e) {
     toast('Error: ' + e.message, 'error');
     chatNotify(`Post run failed: ${e.message}`, 'error');
-    btn.disabled = false; btn.textContent = '🚀 Post Now';
+    btn.disabled = false; btn.textContent = '📤 Post to Instagram';
   }
 }
 

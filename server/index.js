@@ -598,6 +598,126 @@ Always read config/brand-voice.md before drafting any reply.
 Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
 
 `;
+
+  // ── Dedicated precision-post handler ──────────────────────────────────────
+  if (command.startsWith('precision-post:')) {
+    const briefId = command.slice('precision-post:'.length);
+    const clientId2 = clientConfig.clientId;
+    const clientDir2 = path.join(CLIENTS_DIR, clientId2);
+    const lgDir2 = path.join(clientDir2, 'leadgen');
+    const assetsDir2 = path.join(clientDir2, 'assets', 'precision');
+    const briefs2 = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'precision-briefs.json'), 'utf8')); } catch { return []; } })();
+    const brief2 = briefs2.find(b => b.brief_id === briefId);
+    const leads2 = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'leads.json'), 'utf8')); } catch { return []; } })();
+    const proxyUrl = clientConfig.proxy?.url || '';
+    const expectedGeo = clientConfig.proxy?.geo || '';
+    const instagramHandle = clientConfig.platforms?.instagram?.handle || 'the brand account';
+    const sessionDir = path.join(clientDir2, 'browser-sessions', 'instagram');
+    const screenshotsDir = path.join(clientDir2, 'logs', 'screenshots');
+
+    if (!brief2) {
+      return `Brief ${briefId} not found in precision-briefs.json. Nothing to do.`;
+    }
+
+    const briefLeads = (brief2.leads || []).map(bl => {
+      const username = typeof bl === 'string' ? bl : (bl.username || bl.id || '');
+      const lead = leads2.find(l => l.username === username.replace(/^@/, '') || '@' + l.username === username);
+      return { username, stage: lead?.engagement_stage ?? 0 };
+    });
+    const eligibleForDM = briefLeads.filter(l => l.stage >= 3);
+
+    let brandVoice = '';
+    try { brandVoice = fs.readFileSync(path.join(clientDir2, 'config', 'brand-voice.md'), 'utf8').slice(0, 600); } catch {}
+
+    return `You are running a PRECISION CONTENT POST session for "${clientConfig.name}".
+This is a FOCUSED run — ONE brief to post. No scraping. No pipeline work. Just post this brief to Instagram + DMs.
+
+━━━ PROXY / GEO CHECK (MANDATORY FIRST STEP) ━━━
+${proxyUrl ? `Run this EXACT command before opening any browser:
+  curl -s -x '${proxyUrl}' --max-time 20 --connect-timeout 15 https://ipinfo.io/json
+Verify "country" = "${expectedGeo}". If geo mismatch: STOP and log error.` : 'No proxy configured — proceed without geo check.'}
+
+━━━ BRIEF TO POST ━━━
+Brief ID: ${brief2.brief_id}
+Topic: ${brief2.cluster_topic}
+Format: ${brief2.format}
+Caption: ${brief2.caption || brief2.key_message}
+Image path: ${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : 'none — post caption only'}
+DM template: ${brief2.dm_template || '(none)'}
+Target leads: ${briefLeads.map(l => `${l.username} (stage ${l.stage})`).join(', ') || 'none'}
+Eligible for DM (stage ≥ 3): ${eligibleForDM.map(l => l.username).join(', ') || 'none — skip DM step'}
+
+━━━ BRAND VOICE ━━━
+${brandVoice || '(not configured)'}
+
+━━━ INSTAGRAM SESSION ━━━
+Session dir: ${sessionDir}
+Account: ${instagramHandle}
+
+Standard launch pattern:
+const { chromium } = require('playwright');
+(async () => {
+  const opts = { headless: false, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'] };
+  ${proxyUrl ? `const pu = new URL('${proxyUrl}'.includes('://') ? '${proxyUrl}' : 'http://${proxyUrl}'); opts.proxy = { server: pu.protocol+'//'+pu.host, username: decodeURIComponent(pu.username||''), password: decodeURIComponent(pu.password||'') };` : ''}
+  const context = await chromium.launchPersistentContext('${sessionDir}', opts);
+  const page = context.pages()[0] || await context.newPage();
+  // ... post logic
+})();
+
+━━━ POSTING STEPS ━━━
+${brief2.format === 'dm_only' ? 'Format is DM ONLY — skip Instagram posting, go straight to the DM step below.' : `
+1. Write script to /tmp/run-precision-${brief2.brief_id}.js and run it with node
+2. Open Instagram (https://www.instagram.com) in the browser session above
+3. Verify you are logged in as ${instagramHandle} — if login prompt appears: STOP and log "session expired"
+4. Human-like warmup: scroll feed for 2-4 min, like 2-3 posts
+5. Create new post:
+   - Click the + (new post) button
+   - Upload image from: ${brief2.image_url ? assetsDir2 + '/' + (brief2.image_url.split('/').pop()) : '(no image — post caption only, use the text option)'}
+   - IMPORTANT: use page.locator() — avoid stale DOM handles from page.$()
+   - Type caption using page.keyboard.type() with realistic delays (not page.fill())
+   - Caption: ${brief2.caption || brief2.key_message}
+6. Share the post
+7. Screenshot after posting → ${screenshotsDir}/posted-${brief2.brief_id}-{timestamp}.png
+8. Capture the post URL from the page`}
+
+━━━ DM STEP ━━━
+${eligibleForDM.length === 0 ? 'No eligible leads for DM (none at stage ≥ 3). Skip DM step.' : `
+Wait 5-10 min after posting (or immediately if dm_only).
+For each eligible lead, navigate to their profile and send DM:
+${eligibleForDM.map(l => `  - ${l.username}: "${brief2.dm_template || 'Hello! Thought you might love our bamboo bedding.'}"`).join('\n')}
+
+After each DM:
+- Update lead engagement_stage to 6 in: ${lgDir2}/leads.json
+  (Read the file, find the lead by username, set engagement_stage=6, updated_at=ISO timestamp, write back)
+- Append to outreach log: ${path.join(clientDir2, 'logs', 'outreach-log.ndjson')}
+  {"timestamp":"ISO","action_type":"dm","platform":"instagram","username":"@handle","content_used":"message sent","brief_id":"${brief2.brief_id}"}
+`}
+
+━━━ UPDATE BRIEF STATUS ━━━
+After all steps are done:
+1. Read: ${lgDir2}/precision-briefs.json
+2. Find brief_id "${brief2.brief_id}"
+3. Set: status="posted", posted_at=ISO timestamp${brief2.format !== 'dm_only' ? ', post_url=URL of Instagram post' : ''}, amplification_done=true
+4. Write the updated JSON back to the file
+
+━━━ SAFETY RULES ━━━
+- If Instagram shows "action blocked" or CAPTCHA: STOP, screenshot, log error
+- If session asks for login / QR code: STOP and log "session expired — manual login needed"
+- Never DM the same person twice
+- Never include a URL in a first DM
+- SingletonLock conflict: delete ${sessionDir}/SingletonLock and retry once
+
+━━━ SUMMARY OUTPUT ━━━
+Print at the end:
+  Brief: ${brief2.brief_id}
+  Post status: [posted / failed / dm_only]
+  Post URL: [url or N/A]
+  DMs sent: [count]
+  Brief status updated: [yes/no]
+`;
+  }
+  // ── End precision-post ────────────────────────────────────────────────────
+
   const commands = {
     'check-all': ctx + `Check ALL enabled platforms for new activity. Order: Instagram → TikTok → X → WhatsApp.
 IMPORTANT: You are running autonomously — do not ask for approval, post replies directly.
@@ -1518,7 +1638,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     ...process.env,
     ANTHROPIC_API_KEY: config.anthropicApiKey,
     // Browser-heavy commands need a stronger model; text-only can use the configured (cheaper) model
-    ANTHROPIC_MODEL: ['leadgen', 'outreach', 'reply-instagram', 'reply-tiktok'].includes(command)
+    ANTHROPIC_MODEL: ['leadgen', 'outreach', 'reply-instagram', 'reply-tiktok'].includes(command) || command.startsWith('precision-post')
       ? 'claude-sonnet-4-6'
       : (config.anthropicModel || 'claude-haiku-4-5-20251001'),
     SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
@@ -4565,7 +4685,7 @@ app.get('/api/clients/:id/assets/precision/:filename', requireLicense, (req, res
   res.sendFile(filePath);
 });
 
-// POST /api/clients/:id/precision/post/:briefId — SSE run to post + amplify
+// POST /api/clients/:id/precision/post/:briefId — fire-and-forget run to post brief + DMs
 app.post('/api/clients/:id/precision/post/:briefId', requireLicense, (req, res) => {
   const cDir = clientDir(req.params.id);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
@@ -4573,38 +4693,30 @@ app.post('/api/clients/:id/precision/post/:briefId', requireLicense, (req, res) 
   const briefs = loadPrecisionBriefs(cDir);
   const brief = briefs.find(b => b.brief_id === req.params.briefId);
   if (!brief) return res.status(404).json({ error: 'Brief not found' });
-  if (brief.status !== 'approved') return res.status(400).json({ error: 'Brief must be approved before posting' });
+  if (brief.status !== 'approved' && brief.status !== 'queued') return res.status(400).json({ error: 'Brief must be approved or queued before posting' });
 
-  // Inject the brief into the run as a special command
-  req.body = { command: 'precision-post', precisionBriefId: req.params.briefId };
+  const command = `precision-post:${req.params.briefId}`;
+  const briefIdCapture = req.params.briefId;
 
-  // Delegate to the standard run endpoint logic (re-use SSE infrastructure)
-  // Forward to existing run handler
-  const clientConfig = JSON.parse(fs.readFileSync(path.join(cDir, 'config.json'), 'utf8'));
-  const config = loadConfig();
-
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`); } catch {} };
-
-  runClaude(
-    req.params.id,
-    `precision-post:${req.params.briefId}`,
-    config,
-    clientConfig,
-    (type, text) => send(type, { text }),
-    (runId, code, signal, startedAt, status) => {
-      if (status === 'completed') {
-        const idx = briefs.findIndex(b => b.brief_id === req.params.briefId);
-        if (idx !== -1) { briefs[idx].status = 'posted'; briefs[idx].posted_at = new Date().toISOString(); savePrecisionBriefs(cDir, briefs); }
+  let runResult;
+  try {
+    runResult = spawnRun(
+      req.params.id,
+      command,
+      () => {}, // output goes to run log file only
+      (runId, code, signal, startedAt, status) => {
+        if (status === 'completed') {
+          const freshBriefs = loadPrecisionBriefs(cDir);
+          const idx = freshBriefs.findIndex(b => b.brief_id === briefIdCapture);
+          if (idx !== -1) { freshBriefs[idx].status = 'posted'; freshBriefs[idx].posted_at = new Date().toISOString(); savePrecisionBriefs(cDir, freshBriefs); }
+        }
       }
-      send('done', { code, runId, status });
-      res.end();
-    }
-  );
+    );
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  res.json({ ok: true, runId: runResult.runId, message: `Precision post run started — monitor in Runs tab` });
 });
 
 // ─── Client Chat (Claude Messages API streaming) ───
