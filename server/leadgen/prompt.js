@@ -387,7 +387,7 @@ Each lead object:
   "is_converted":       <0|1>,
   "converted_at":       "<ISO 8601 or null>",
   "is_do_not_engage":   <0|1>,
-  "source_type":        "<competitor_ad_commenter|tagged_competitor_in_post|location|competitor_commenter|competitor_liker|competitor_follower|hashtag|manual>",
+  "source_type":        "<competitor_ad_commenter|tagged_competitor_in_post|location|competitor_commenter|competitor_liker|competitor_follower|hashtag|youtube_video_commenter|youtube_channel_commenter|manual>",
   "source_handle":      "<@handle or #hashtag where discovered>",
   "notes":              "<any observations — purchase signals, influencer collab potential, etc.>",
   "created_at":         "<ISO 8601>",
@@ -552,6 +552,61 @@ Posts geotagged at competitor stores or relevant ${targetGeoCode || 'target mark
 ——— SOURCE TYPE: hashtag ———
 1. Navigate to the hashtag page.
 2. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
+
+——— SOURCE TYPE: youtube + type: keyword (YouTube Search → video commenters) ———
+YouTube comments are PUBLIC — no login required for reading. If a Google session exists (browser-sessions/google/), use it for better access. Otherwise launch a fresh browser context.
+
+1. Navigate to https://www.youtube.com/results?search_query=HANDLE_OR_URL (the keyword from the source config)
+   Example keywords: "bamboo bedding review", "best mattress UAE", "sleep tips"
+2. Wait for results to load (waitForSelector('ytd-video-renderer', { timeout: 10000 }))
+3. Collect the first 10 video links from results:
+   const videoLinks = await page.$$eval('ytd-video-renderer a#video-title', els => els.slice(0, 10).map(a => a.href));
+4. For each video URL:
+   a. Open the video page in a new tab
+   b. Scroll down to load the comments section (scroll 3-4 times with 2s pauses)
+   c. Wait for comments: waitForSelector('ytd-comment-thread-renderer', { timeout: 15000 })
+      If no comments load after 15s, skip this video
+   d. Extract top 20-30 commenters:
+      const commenters = await page.$$eval('ytd-comment-thread-renderer', els => els.slice(0, 30).map(el => ({
+        username: el.querySelector('#author-text')?.textContent?.trim() || '',
+        channelUrl: el.querySelector('#author-text')?.href || '',
+        commentText: el.querySelector('#content-text')?.textContent?.trim() || ''
+      })));
+   e. Close the tab, move to next video
+   f. Add 3-5s random delay between videos
+5. For each commenter:
+   - platform = "youtube"
+   - profile_url = channelUrl
+   - username = channel handle (extract from URL) or display name
+   - source_type = "youtube_video_commenter"
+   - source_handle = search keyword + " | " + video title or URL
+   - Score: +${cfg.scoring?.comment_on_youtube_video || 25} pts base
+   - Check commentText for purchase signals ("where to buy", "price", "link", "recommend", "worth it", "ordered"):
+     if found → +${cfg.scoring?.youtube_purchase_signal || 15} pts, add "PURCHASE_SIGNAL: [quote]" to notes
+   - Check commentText for UAE/Dubai/Abu Dhabi mentions → +15 geo bonus, add "UAE:yes (comment-geo)" to notes
+   - Do NOT visit YouTube channel profiles (wastes time, limited info) — score from comment text only
+6. Target: 50-100 commenters per keyword source. Move to next source after 10 videos or 100 commenters.
+
+——— SOURCE TYPE: youtube + type: account (YouTube Channel → video commenters) ———
+Scrape commenters from a specific YouTube channel's videos. No login needed.
+
+1. Navigate to the channel URL from handle_or_url (e.g. https://www.youtube.com/@channelname or channel ID URL)
+2. Click/navigate to the "Videos" tab: append /videos to the channel URL
+3. Wait for video grid: waitForSelector('ytd-rich-item-renderer', { timeout: 10000 })
+4. Collect the first 10 video links:
+   const videoLinks = await page.$$eval('ytd-rich-item-renderer a#video-title-link', els => els.slice(0, 10).map(a => a.href));
+5. For each video: follow the same comment extraction as keyword type above (step 4a-4f)
+6. For each commenter:
+   - source_type = "youtube_channel_commenter"
+   - source_handle = @channelname
+   - Score: +${cfg.scoring?.comment_on_youtube_channel || 30} pts (more targeted than search)
+   - Same purchase signal and geo checks as keyword type
+7. Target: 50-100 commenters per channel. Move to next source after 10 videos.
+
+NOTE: YouTube leads cannot be engaged on YouTube (no follow/like/DM via automation).
+These leads are DISCOVERY ONLY — they enter the pipeline at stage 0 and can only advance
+if they are also found on Instagram (cross-platform match → +20 multi-source bonus) or
+contacted externally via WhatsApp/email found in their YouTube channel description.
 
 ——— FOR ALL SOURCE TYPES — Lead Processing ———
 For each discovered username (regardless of source type):

@@ -32,7 +32,10 @@
     "follower_count_5k_50k": 20,
     "follower_count_50k_plus": 30,
     "bio_keyword_match":     15,
-    "niche_hashtag_match":   10
+    "niche_hashtag_match":   10,
+    "comment_on_youtube_video":   25,
+    "comment_on_youtube_channel": 30,
+    "youtube_purchase_signal":    15
   },
 
   "thresholds": {

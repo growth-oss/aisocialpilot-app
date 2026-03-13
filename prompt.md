@@ -80,6 +80,10 @@ The 6-step engagement ladder: Story View → Like → Follow → Comment → Rep
 - `account` — Competitor profile → followers list, post commenters, likers. Score: +20-30 pts.
 - `hashtag` — Hashtag feed authors. Score: +10-15 pts.
 
+**Tier 3 — Cross-platform discovery**:
+- `youtube` (keyword) — YouTube search → video commenters. Score: +25 pts. Purchase signal bonus: +15 pts.
+- `youtube` (account) — Specific channel → video commenters. Score: +30 pts. Discovery only — no engagement on YouTube.
+
 Multi-competitor stacking: leads found across multiple competitors get +20 pts per additional source.
 
 ## Active Clients

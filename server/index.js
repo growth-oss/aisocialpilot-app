@@ -207,6 +207,7 @@ const PLATFORM_URLS = {
   tiktok:    'https://www.tiktok.com',
   x:         'https://www.x.com',
   whatsapp:  'https://web.whatsapp.com',
+  google:    'https://accounts.google.com',
 };
 
 const app = express();

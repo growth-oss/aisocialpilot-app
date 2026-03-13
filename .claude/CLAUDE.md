@@ -201,10 +201,14 @@ To add a new platform as a lead source:
 - Sources: search boards/pins for "bamboo bedding", "luxury bedroom UAE"
 - Extract: pinner profiles who save bedding content
 
-### YouTube (TODO 🔧)
-- Session: none needed for scraping
-- Sources: sleep/wellness channels, "bamboo review" videos → commenters
-- Score: commenters who mention sleep issues or buying intent
+### YouTube (Working ✅)
+- Session: none needed (public comments, no login required)
+- Source types: `keyword` (YouTube search → video commenters), `account` (specific channel → video commenters)
+- Scrapes top 10 videos per source, extracts 20-30 commenters per video
+- Scoring: keyword commenter +25, channel commenter +30, purchase signal in comment +15
+- source_types: `youtube_video_commenter`, `youtube_channel_commenter`
+- Discovery only — leads enter at stage 0, advance via cross-platform match (Instagram) or external DM
+- No proxy/geo required (public content)
 
 ### Quora (TODO 🔧)
 - Session: none needed for public content

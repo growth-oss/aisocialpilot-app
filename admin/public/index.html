@@ -745,6 +745,11 @@
         <div class="cmd-item-text"><strong>WhatsApp</strong><span id="session-status-whatsapp">Checking...</span></div>
         <span id="session-indicator-whatsapp" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
       </button>
+      <button class="cmd-item" onclick="startSession('google')">
+        <span class="cmd-item-icon">🔍</span>
+        <div class="cmd-item-text"><strong>Google</strong><div style="font-size:10px;color:var(--text-dim);margin-top:2px">YouTube, Google Maps, Search</div><span id="session-status-google">Checking...</span></div>
+        <span id="session-indicator-google" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
     </div>
     <div class="cmd-cancel" style="display:flex;gap:8px;align-items:center;">
       <button class="btn btn-ghost btn-sm" id="session-done-btn" onclick="stopSession()" style="display:none">✓ Done — Close Browser</button>
@@ -4014,7 +4019,7 @@ function closeSessionPicker() {
 
 async function refreshSessionStatus(clientId) {
   const status = await api('GET', `/clients/${clientId}/sessions`);
-  const platforms = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬' };
+  const platforms = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬', google: '🔍' };
   for (const [platform] of Object.entries(platforms)) {
     const dot = document.getElementById(`session-indicator-${platform}`);
     const label = document.getElementById(`session-status-${platform}`);
