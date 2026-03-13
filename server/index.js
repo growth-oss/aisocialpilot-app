@@ -591,6 +591,21 @@ app.get('/api/clients/:id/logs', requireLicense, (req, res) => {
   }
 });
 
+// ─── Run log file access ───
+app.get('/api/clients/:id/run/:runId/log', requireLicense, (req, res) => {
+  const logFile = path.join(CLIENTS_DIR, req.params.id, 'logs', 'runs', `${req.params.runId}.log`);
+  if (!fs.existsSync(logFile)) return res.status(404).json({ error: 'Log not found' });
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(fs.readFileSync(logFile, 'utf8'));
+});
+
+app.get('/api/clients/:id/run/scheduled/log', requireLicense, (req, res) => {
+  const logFile = path.join(CLIENTS_DIR, req.params.id, 'logs', 'scheduled.log');
+  if (!fs.existsSync(logFile)) return res.status(404).json({ error: 'No scheduled log yet' });
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(fs.readFileSync(logFile, 'utf8').slice(-8000)); // last 8KB
+});
+
 // ─── Build Claude prompt per command ───
 function buildPrompt(command, clientConfig) {
   const platforms = Object.entries(clientConfig.platforms || {})

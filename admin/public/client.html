@@ -2007,10 +2007,10 @@ async function loadRuns() {
     const cmdLabels = { leadgen: '🎯 Lead Gen', reply: '💬 Reply', intercept: '🕵 Intercept', 'pipeline-health-report': '📊 Pipeline Report', 'sources-discover': '🔍 Sources Discover' };
 
     const activeRow = active ? `
-      <tr style="background:rgba(34,197,94,.06);cursor:pointer" onclick="showRunLog('${active.runId}','Live Run','running','${new Date(active.startedAt).toLocaleString()}')">
+      <tr style="background:rgba(34,197,94,.06);cursor:pointer" onclick="showRunLog('${active.runId}','Live Run','running','${fmtDubai(active.startedAt)}')">
         <td style="font-weight:500">🎯 Lead Gen <span style="font-size:10px;color:var(--green);animation:pulse 1.5s infinite">● LIVE</span></td>
         <td><span class="run-status running" style="background:rgba(34,197,94,.15);color:var(--green)">running</span></td>
-        <td style="color:var(--muted)">${new Date(active.startedAt).toLocaleString()}</td>
+        <td style="color:var(--muted)">${fmtDubai(active.startedAt)}</td>
         <td id="live-run-elapsed" style="color:var(--green)" data-started="${active.startedAt}">—</td>
         <td style="color:var(--muted)">—</td>
       </tr>` : '';
@@ -2023,7 +2023,7 @@ async function loadRuns() {
       <thead><tr><th>Command</th><th>Status</th><th>Started</th><th>Duration</th><th>Cost</th></tr></thead>
       <tbody>${activeRow}${runs.map(r => {
         const label = r.command ? (cmdLabels[r.command] || r.command) : 'unknown';
-        const started = r.startedAt ? new Date(r.startedAt).toLocaleString() : '—';
+        const started = r.startedAt ? fmtDubai(r.startedAt) : '—';
         const dur = r.startedAt && r.completedAt ? formatDuration(new Date(r.startedAt), new Date(r.completedAt)) : '—';
         const cost = r.cost_usd ? `$${r.cost_usd.toFixed(4)}` : '—';
         const st = r.status || 'unknown';
@@ -2594,6 +2594,15 @@ function closeBriefModal() { document.getElementById('brief-modal').style.displa
 // ── Helpers ──
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtDubai(isoStr) {
+  if (!isoStr) return '—';
+  return new Date(isoStr).toLocaleString('en-GB', {
+    timeZone: 'Asia/Dubai',
+    day: '2-digit', month: 'short', year: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: true
+  });
 }
 
 function timeAgo(isoStr) {
