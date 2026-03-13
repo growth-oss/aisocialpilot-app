@@ -4831,18 +4831,28 @@ app.post('/api/clients/:id/precision/generate-product-carousel', requireLicense,
   const toneMatch = brandVoiceMd.match(/(?:Tone|Voice|Personality)([\s\S]{0,400}?)(?=^##|\Z)/im);
   const brandTone = toneMatch ? toneMatch[1].trim().slice(0, 250) : 'Warm, lifestyle-focused, aspirational. No hard sell.';
 
-  const captionPrompt = `Write a short Instagram carousel caption for this product:
+  // 90% Arabic-only, 10% bilingual (Arabic main + one English line)
+  const rand = Math.random();
+  const langMode = rand < 0.9 ? 'arabic' : 'bilingual';
+  const langInstruction = langMode === 'arabic'
+    ? `LANGUAGE: Write entirely in Arabic (Modern Standard or Gulf dialect). Hashtags can mix Arabic and English.`
+    : `LANGUAGE: Bilingual — write the caption body in Arabic, then add ONE short punchy English line at the end (e.g. "Sleep better. Live better."). Hashtags can mix both languages.`;
+
+  const captionPrompt = `Write a short Instagram carousel caption for this product.
+
+${langInstruction}
+
 Product: ${product.name}
 Description: ${(product.description || '').slice(0, 200)}
 USPs: ${(product.usps || product.pain_points || []).slice(0, 4).join(', ')}
 Brand tone: ${brandTone}
 
 Requirements:
-- 2–3 sentences max
-- 3–4 relevant hashtags at the end
+- 2–3 sentences max (not counting hashtags)
+- 3–4 relevant hashtags at the end (mix Arabic + English hashtags)
 - Do NOT mention price
-- Use "Discover" or "Explore" — not "Buy now"
-- Under 200 characters before hashtags
+- Use تصفح / اكتشف in Arabic, "Discover" or "Explore" in English — never "Buy now"
+- Under 220 characters before hashtags
 
 Return ONLY the caption text. No quotes, no JSON, no commentary.`;
 
