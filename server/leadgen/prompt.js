@@ -553,69 +553,26 @@ Posts geotagged at competitor stores or relevant ${targetGeoCode || 'target mark
 1. Navigate to the hashtag page.
 2. Collect the last 20 post authors from the hashtag feed → source_type = hashtag
 
-——— SOURCE TYPE: youtube + type: keyword (YouTube Search → video commenters) ———
-IMPORTANT: The social media proxy BLOCKS YouTube/Google. You MUST launch a SEPARATE browser
-context WITHOUT proxy for all YouTube sources. Use the Google session dir for cookies:
+——— SOURCE TYPE: youtube (keyword or account) — STATIC SCRIPT ———
+YouTube sources are handled by a pre-built static script. Do NOT write any Playwright code for YouTube.
+Simply run the script — all config is already injected via environment variables by the server:
 
-\`\`\`javascript
-// YouTube — NO PROXY, use Google session
-const ytContext = await chromium.launchPersistentContext(
-  '${path.join(dataDir, 'clients', clientId, 'browser-sessions', 'google')}',
-  { headless: false, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'] }
-);
-const ytPage = ytContext.pages()[0] || await ytContext.newPage();
+\`\`\`bash
+node /app/server/scripts/scrape-youtube.js
 \`\`\`
-After finishing all YouTube sources, close ytContext and continue with the Instagram proxy context for other sources.
 
-1. Navigate to https://www.youtube.com/results?search_query=HANDLE_OR_URL (the keyword from the source config)
-   Example keywords: "bamboo bedding review", "best mattress UAE", "sleep tips"
-2. Wait for results to load (waitForSelector('ytd-video-renderer', { timeout: 10000 }))
-3. Collect the first 10 video links from results:
-   const videoLinks = await page.$$eval('ytd-video-renderer a#video-title', els => els.slice(0, 10).map(a => a.href));
-4. For each video URL:
-   a. Open the video page in a new tab
-   b. Scroll down to load the comments section (scroll 3-4 times with 2s pauses)
-   c. Wait for comments: waitForSelector('ytd-comment-thread-renderer', { timeout: 15000 })
-      If no comments load after 15s, skip this video
-   d. Extract top 20-30 commenters:
-      const commenters = await page.$$eval('ytd-comment-thread-renderer', els => els.slice(0, 30).map(el => ({
-        username: el.querySelector('#author-text')?.textContent?.trim() || '',
-        channelUrl: el.querySelector('#author-text')?.href || '',
-        commentText: el.querySelector('#content-text')?.textContent?.trim() || ''
-      })));
-   e. Close the tab, move to next video
-   f. Add 3-5s random delay between videos
-5. For each commenter:
-   - platform = "youtube"
-   - profile_url = channelUrl
-   - username = channel handle (extract from URL) or display name
-   - source_type = "youtube_video_commenter"
-   - source_handle = search keyword + " | " + video title or URL
-   - Score: +${cfg.scoring?.comment_on_youtube_video || 25} pts base
-   - Check commentText for purchase signals ("where to buy", "price", "link", "recommend", "worth it", "ordered"):
-     if found → +${cfg.scoring?.youtube_purchase_signal || 15} pts, add "PURCHASE_SIGNAL: [quote]" to notes
-   - Check commentText for UAE/Dubai/Abu Dhabi mentions → +15 geo bonus, add "UAE:yes (comment-geo)" to notes
-   - Do NOT visit YouTube channel profiles (wastes time, limited info) — score from comment text only
-6. Target: 50-100 commenters per keyword source. Move to next source after 10 videos or 100 commenters.
+The script will:
+- Launch a NO-PROXY browser with the Google session (proxy blocks YouTube)
+- Process all YouTube sources (keyword search → video commenters, channel → video commenters)
+- Score leads: +${cfg.scoring?.comment_on_youtube_video || 25} per video commenter, +${cfg.scoring?.comment_on_youtube_channel || 30} per channel commenter
+- Detect purchase signals (+${cfg.scoring?.youtube_purchase_signal || 15}) and UAE geo mentions (+15)
+- Write results directly to leads.json and outreach-log.ndjson
+- Print a summary at the end
 
-——— SOURCE TYPE: youtube + type: account (YouTube Channel → video commenters) ———
-Use the same NO-PROXY YouTube browser context described above (ytContext/ytPage).
+Run this BEFORE the Instagram browser session (it uses a separate browser context).
+After it finishes, read the summary output and continue with Instagram sources.
 
-1. Navigate to the channel URL from handle_or_url (e.g. https://www.youtube.com/@channelname or channel ID URL)
-2. Click/navigate to the "Videos" tab: append /videos to the channel URL
-3. Wait for video grid: waitForSelector('ytd-rich-item-renderer', { timeout: 10000 })
-4. Collect the first 10 video links:
-   const videoLinks = await page.$$eval('ytd-rich-item-renderer a#video-title-link', els => els.slice(0, 10).map(a => a.href));
-5. For each video: follow the same comment extraction as keyword type above (step 4a-4f)
-6. For each commenter:
-   - source_type = "youtube_channel_commenter"
-   - source_handle = @channelname
-   - Score: +${cfg.scoring?.comment_on_youtube_channel || 30} pts (more targeted than search)
-   - Same purchase signal and geo checks as keyword type
-7. Target: 50-100 commenters per channel. Move to next source after 10 videos.
-
-NOTE: YouTube leads cannot be engaged on YouTube (no follow/like/DM via automation).
-These leads are DISCOVERY ONLY — they enter the pipeline at stage 0 and can only advance
+NOTE: YouTube leads are DISCOVERY ONLY — they enter the pipeline at stage 0 and can only advance
 if they are also found on Instagram (cross-platform match → +20 multi-source bonus) or
 contacted externally via WhatsApp/email found in their YouTube channel description.
 

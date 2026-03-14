@@ -107,6 +107,37 @@ Posts a tweet/thread with optional image to X (Twitter).
 
 ---
 
+### `scrape-youtube.js` ✅ DONE
+
+Scrapes YouTube video commenters for lead discovery. Handles:
+- No-proxy browser launch (social media proxy blocks YouTube)
+- Google session reuse for cookies
+- Keyword search → video results → comment extraction
+- Channel → videos tab → comment extraction
+- Purchase signal detection (English + Arabic)
+- UAE/Gulf geo mention detection
+- Deduplication against existing leads
+- Direct writes to leads.json + outreach-log.ndjson
+
+**Env vars:**
+| Var | Required | Description |
+|-----|----------|-------------|
+| `GOOGLE_SESSION_DIR` | ✅ | Path to Google browser session dir |
+| `LEADS_FILE` | ✅ | Absolute path to leads.json |
+| `SOURCES` | ✅ | JSON array of `{type, handle_or_url, why}` |
+| `CLIENT_ID` | ✅ | Client identifier |
+| `MAX_VIDEOS_PER_SOURCE` | — | Max videos per source (default: 10) |
+| `MAX_COMMENTERS_PER_VIDEO` | — | Max commenters per video (default: 30) |
+| `MAX_LEADS_PER_SOURCE` | — | Stop after N leads per source (default: 100) |
+| `SCREENSHOTS_DIR` | — | Where to save screenshots |
+| `OUTREACH_LOG` | — | Path to outreach-log.ndjson |
+| `SCORE_VIDEO_COMMENTER` | — | Base score for keyword commenters (default: 25) |
+| `SCORE_CHANNEL_COMMENTER` | — | Base score for channel commenters (default: 30) |
+| `SCORE_PURCHASE_SIGNAL` | — | Bonus for purchase intent (default: 15) |
+| `SCORE_GEO_BONUS` | — | Bonus for UAE mentions (default: 15) |
+
+---
+
 ### `scrape-google-maps.js` 🔧 TODO
 
 Scrapes business listings from Google Maps by keyword + location.
