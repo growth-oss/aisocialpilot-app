@@ -647,7 +647,8 @@ Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
     let brandVoice = '';
     try { brandVoice = fs.readFileSync(path.join(clientDir2, 'config', 'brand-voice.md'), 'utf8').slice(0, 600); } catch {}
 
-    const useBlotato = !!(clientConfig.blotato?.api_key && clientConfig.blotato?.account_id);
+    const blaIgId = clientConfig.blotato?.accounts?.instagram || clientConfig.blotato?.account_id || '';
+    const useBlotato = !!(clientConfig.blotato?.api_key && blaIgId);
     const postScript = useBlotato
       ? '/app/server/scripts/post-via-blotato.js'
       : '/app/server/scripts/post-to-instagram.js';
@@ -1608,6 +1609,8 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // Build extra env exports — injected so static scripts can run without
   // Claude having to write any Playwright code itself
   const extraEnvExports = [];
+  // directCmd: if set, bypass Claude entirely and run this command directly
+  let directCmd = null;
 
   // YouTube scraping env vars for leadgen runs
   if (command === 'leadgen') {
@@ -1639,9 +1642,13 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const pHandle   = (clientConfig.platforms?.instagram?.handle || '').replace(/^@/, '');
     const pAssetsDir = path.join(clientDir, 'assets', 'precision');
     const pCarouselImages = (pBrief.product_carousel_images || []).map(i => i.url);
-    // For standard briefs, build a public image URL (served via /public/precision/:clientId/:file)
+    // For standard briefs, build a public image URL Blotato can fetch.
+    // If image_url is already absolute (https://...), use it directly.
+    // Otherwise wrap it via the local /public/precision/ endpoint.
     const pImagePublicUrl = pBrief.image_url
-      ? `${process.env.APP_URL || 'https://aisocialpilot-app-production.up.railway.app'}/public/precision/${clientConfig.clientId}/${pBrief.image_url.split('/').pop()}`
+      ? (pBrief.image_url.startsWith('http://') || pBrief.image_url.startsWith('https://')
+          ? pBrief.image_url
+          : `${process.env.APP_URL || 'https://aisocialpilot-app-production.up.railway.app'}/public/precision/${clientConfig.clientId}/${pBrief.image_url.split('/').pop()}`)
       : '';
     const pImageLocalPath = pBrief.image_url
       ? path.join(pAssetsDir, pBrief.image_url.split('/').pop())
@@ -1656,10 +1663,11 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
       .map(l => ({ username: l.username, message: l.dmTemplate }));
 
     const blaKey = clientConfig.blotato?.api_key || '';
-    const blaAcc = clientConfig.blotato?.account_id || '';
+    const blaAcc = clientConfig.blotato?.accounts?.instagram || clientConfig.blotato?.account_id || '';
 
     if (blaKey && blaAcc) {
-      // ── Blotato path — no browser needed for posting ──
+      // ── Blotato path — run node script directly, no Claude needed ──
+      directCmd = `node /app/server/scripts/post-via-blotato.js`;
       extraEnvExports.push(
         `export BLOTATO_API_KEY=${se(blaKey)}`,
         `export BLOTATO_ACCOUNT_ID=${se(blaAcc)}`,
@@ -1700,6 +1708,10 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   }
 
   const tmpScript = `/tmp/claude-run-${runId}.sh`;
+  // directCmd: if set by a branch above, run the command directly instead of piping through Claude
+  const runCmd = directCmd
+    ? `${directCmd} 2>&1`
+    : `cat ${se(tmpPromptFile)} | claude --output-format stream-json --verbose --dangerously-skip-permissions 2>&1`;
   fs.writeFileSync(tmpScript, [
     '#!/bin/bash',
     `export PATH=${se(process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}`,
@@ -1716,7 +1728,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     ...extraEnvExports,
     `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
-    `cat ${se(tmpPromptFile)} | claude --output-format stream-json --verbose --dangerously-skip-permissions 2>&1`,
+    runCmd,
   ].join('\n') + '\n', { mode: 0o755 });
 
   const proc = spawn('/bin/su', ['-s', '/bin/bash', 'claude_runner', '-c', tmpScript], {
@@ -1725,8 +1737,8 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
 
   runningProcesses.set(runId, { proc, clientId, command, startedAt, recentLines: [], lastActivity: '' });
 
-  const model = env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
-  const inputTokens = charsToTokens(prompt.length);
+  const model = directCmd ? 'direct' : (env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001');
+  const inputTokens = directCmd ? 0 : charsToTokens(prompt.length);
   let outputChars = 0;
   // Accumulate full run output for later review
   const runLogsDir = path.join(clientDir, 'logs', 'runs');
@@ -4886,6 +4898,75 @@ Return ONLY the caption text. No quotes, no JSON, no commentary.`;
   savePrecisionBriefs(cDir, [...existing, newBrief]);
 
   res.json({ ok: true, brief: newBrief });
+});
+
+// ── Blotato API helper ─────────────────────────────────────────────────────────
+function blotatoApiRequest(method, path, apiKey, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const opts = {
+      hostname: 'backend.blotato.com', port: 443, path, method,
+      headers: {
+        'blotato-api-key': apiKey,
+        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
+    };
+    const req = require('https').request(opts, res => {
+      let data = '';
+      res.on('data', d => { data += d; });
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function getBlotatoKey(cDir) {
+  const cfg = loadClientConfig(cDir);
+  return cfg?.blotato?.api_key || null;
+}
+
+// GET /api/clients/:id/blotato/templates — list user's Blotato templates
+app.get('/api/clients/:id/blotato/templates', requireLicense, async (req, res) => {
+  const apiKey = getBlotatoKey(clientDir(req.params.id));
+  if (!apiKey) return res.status(400).json({ error: 'No Blotato API key configured in Settings' });
+  try {
+    const r = await blotatoApiRequest('GET', '/v2/users/me/templates', apiKey);
+    const templates = Array.isArray(r.body) ? r.body : (r.body?.templates || r.body?.data || r.body?.items || []);
+    res.json({ ok: true, templates });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/clients/:id/blotato/generate — start image/video generation
+app.post('/api/clients/:id/blotato/generate', requireLicense, async (req, res) => {
+  const { prompt, templateId } = req.body;
+  if (!templateId) return res.status(400).json({ error: 'templateId required' });
+  const apiKey = getBlotatoKey(clientDir(req.params.id));
+  if (!apiKey) return res.status(400).json({ error: 'No Blotato API key configured in Settings' });
+  try {
+    const r = await blotatoApiRequest('POST', '/v2/videos/from-templates', apiKey, {
+      templateId, prompt: prompt || '', inputs: {}, render: true, isDraft: false,
+    });
+    if (r.status >= 400) return res.status(r.status).json({ error: r.body?.message || r.body?.error || `Blotato error ${r.status}` });
+    const creationId = r.body?.item?.id || r.body?.id;
+    res.json({ ok: true, creationId, status: r.body?.item?.status || r.body?.status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/clients/:id/blotato/creations/:creationId — poll generation status
+app.get('/api/clients/:id/blotato/creations/:creationId', requireLicense, async (req, res) => {
+  const apiKey = getBlotatoKey(clientDir(req.params.id));
+  if (!apiKey) return res.status(400).json({ error: 'No Blotato API key configured' });
+  try {
+    const r = await blotatoApiRequest('GET', `/v2/videos/creations/${req.params.creationId}`, apiKey);
+    const b = r.body;
+    const mediaUrl = b.mediaUrl || (b.imageUrls && b.imageUrls[0]) || b.url || null;
+    res.json({ ok: true, status: b.status, done: b.status === 'done', mediaUrl, imageUrls: b.imageUrls || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/clients/:id/blotato/test — test Blotato API key + list accounts

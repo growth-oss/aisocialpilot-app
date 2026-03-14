@@ -918,10 +918,10 @@
         </div>
 
         <div class="card" style="margin-bottom:16px">
-          <div class="card-title"><span class="card-title-text">🚀 Blotato — Instagram Posting API</span></div>
+          <div class="card-title"><span class="card-title-text">🚀 Blotato — Multi-Platform Posting API</span></div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
             When configured, posts go via Blotato's API instead of browser automation — faster, more reliable, no UI selectors to break.
-            Get your API key from <strong>blotato.com → Settings → API</strong>. Get the Account ID from Settings → Accounts → Instagram.
+            Get your API key from <strong>blotato.com → Settings → API</strong>. Find each Account ID from <strong>Blotato → Settings → Accounts</strong>.
           </div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <div>
@@ -929,12 +929,50 @@
               <input id="s-blotato-key" type="password" placeholder="blt_xxxxxxxxxxxxxxxx"
                 style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
             </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Instagram Account ID (from Blotato)</label>
-              <input id="s-blotato-account" type="text" placeholder="123456789"
-                style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Account IDs</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">📸 Instagram</label>
+                <input id="s-blotato-instagram" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">𝕏 X / Twitter</label>
+                <input id="s-blotato-x" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">💼 LinkedIn</label>
+                <input id="s-blotato-linkedin" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">📘 Facebook</label>
+                <input id="s-blotato-facebook" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">🎵 TikTok</label>
+                <input id="s-blotato-tiktok" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">🧵 Threads</label>
+                <input id="s-blotato-threads" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">📌 Pinterest</label>
+                <input id="s-blotato-pinterest" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">🦋 Bluesky</label>
+                <input id="s-blotato-bluesky" type="text" placeholder="Account ID"
+                  style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+              </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
               <button class="btn btn-primary" onclick="saveBlotatoSettings()">Save</button>
               <button class="btn btn-ghost" onclick="testBlotatoConnection()">Test Connection</button>
               <span id="s-blotato-status" style="font-size:12px;color:var(--green);display:none"></span>
@@ -2128,8 +2166,14 @@ async function loadSettings() {
     const cc = clients.find(c => c.clientId === clientId);
     if (cc?.dailyReportEmail)    document.getElementById('s-report-email').value    = cc.dailyReportEmail;
     if (cc?.dailyReportFrom)     document.getElementById('s-report-from').value     = cc.dailyReportFrom;
-    if (cc?.blotato?.api_key)    document.getElementById('s-blotato-key').value     = cc.blotato.api_key;
-    if (cc?.blotato?.account_id) document.getElementById('s-blotato-account').value = cc.blotato.account_id;
+    if (cc?.blotato?.api_key) document.getElementById('s-blotato-key').value = cc.blotato.api_key;
+    const bAccts = cc?.blotato?.accounts || {};
+    // legacy: account_id was stored flat, migrate to accounts.instagram
+    const igId = bAccts.instagram || cc?.blotato?.account_id || '';
+    ['instagram','x','linkedin','facebook','tiktok','threads','pinterest','bluesky'].forEach(p => {
+      const el = document.getElementById('s-blotato-' + p);
+      if (el) el.value = (p === 'instagram' ? igId : bAccts[p]) || '';
+    });
   } catch {}
   try {
     const cfg = await api('GET', `/clients/${clientId}/leadgen/config`);
@@ -2160,11 +2204,16 @@ async function saveReportEmail() {
 
 async function saveBlotatoSettings() {
   const key = document.getElementById('s-blotato-key').value.trim();
-  const acc = document.getElementById('s-blotato-account').value.trim();
+  const accounts = {};
+  ['instagram','x','linkedin','facebook','tiktok','threads','pinterest','bluesky'].forEach(p => {
+    const v = (document.getElementById('s-blotato-' + p)?.value || '').trim();
+    if (v) accounts[p] = v;
+  });
   try {
-    await api('PUT', `/clients/${clientId}`, { blotato: { api_key: key, account_id: acc } });
+    await api('PUT', `/clients/${clientId}`, { blotato: { api_key: key, accounts } });
     const st = document.getElementById('s-blotato-status');
-    st.textContent = key ? '✓ Saved — Blotato posting enabled' : '✓ Saved — fallback to Playwright';
+    const linked = Object.keys(accounts).join(', ');
+    st.textContent = key ? `✓ Saved${linked ? ' — ' + linked : ''}` : '✓ Saved — fallback to Playwright';
     st.style.color = 'var(--green)';
     st.style.display = 'block';
     setTimeout(() => { st.style.display = 'none'; }, 3000);
@@ -2174,12 +2223,11 @@ async function saveBlotatoSettings() {
 
 async function testBlotatoConnection() {
   const key = document.getElementById('s-blotato-key').value.trim();
-  const acc = document.getElementById('s-blotato-account').value.trim();
   const st = document.getElementById('s-blotato-status');
   if (!key) { toast('Enter API key first', 'error'); return; }
   st.textContent = 'Testing…'; st.style.color = 'var(--muted)'; st.style.display = 'block';
   try {
-    const r = await api('POST', `/clients/${clientId}/blotato/test`, { api_key: key, account_id: acc });
+    const r = await api('POST', `/clients/${clientId}/blotato/test`, { api_key: key });
     if (r.ok) {
       st.textContent = `✓ Connected — accounts found: ${r.accounts?.map(a => a.name || a.id).join(', ') || 'ok'}`;
       st.style.color = 'var(--green)';
@@ -2485,6 +2533,7 @@ function renderBriefCard(b) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="openBriefModal('${bid}')">View Brief</button>
       ${b.status !== 'posted' && b.brief_type !== 'product_carousel' ? (!b.image_url ? `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🎨 Generate Image</button>` : `<button class="btn btn-ghost btn-sm" onclick="generateImage('${bid}', this)">🔄 Re-generate</button>`) : ''}
+      ${b.status !== 'posted' && b.brief_type !== 'product_carousel' && clientConfig?.blotato?.api_key ? `<button class="btn btn-ghost btn-sm" onclick="generateViaBlotato('${bid}', this)" title="Generate image or video using Blotato AI templates">🎬 Blotato</button>` : ''}
       ${canApprove ? `
         <button class="btn btn-primary btn-sm" onclick="approveBrief('${bid}')">✓ Queue to Post</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="rejectBrief('${bid}')">✕ Reject</button>
@@ -2672,6 +2721,124 @@ function generateImage(briefId, btn) {
   });
 }
 
+async function generateViaBlotato(briefId, btn) {
+  // Load the brief to get its image_prompt
+  const brief = currentBriefs.find(b => (b.brief_id || b.id) === briefId);
+  const defaultPrompt = brief?.image_prompt || brief?.content_brief || '';
+
+  // Fetch templates from server
+  let templates = [];
+  try {
+    const r = await api('GET', `/clients/${clientId}/blotato/templates`);
+    templates = r.templates || [];
+  } catch {}
+
+  const existing = document.getElementById('blotato-gen-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'blotato-gen-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:var(--card);border-radius:14px;padding:24px;width:480px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">🎬 Blotato Image / Video</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Generate artwork using a Blotato template. Find template IDs in <a href="https://app.blotato.com" target="_blank" style="color:var(--accent)">Blotato → Templates</a>.</div>
+
+      ${templates.length ? `<div style="margin-bottom:12px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Select Template</label>
+        <select id="blotato-gen-template" style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px">
+          ${templates.map(t => `<option value="${t.id}">${t.name || t.id}</option>`).join('')}
+        </select>
+      </div>` : `<div style="margin-bottom:12px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Template ID <span style="color:var(--muted);font-weight:normal">(paste from Blotato → Templates)</span></label>
+        <input id="blotato-gen-template" type="text" placeholder="77f65d2b-48cc-4adb-bfbb-5bc86f8c01bd"
+          style="width:100%;padding:8px 10px;background:var(--card2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>`}
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Prompt <span style="color:var(--muted);font-weight:normal">(describe the desired output)</span></label>
+        <textarea id="blotato-gen-prompt" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:10px;resize:vertical;min-height:90px;box-sizing:border-box">${escapeHtml(defaultPrompt)}</textarea>
+      </div>
+
+      <div id="blotato-gen-status" style="display:none;font-size:12px;color:var(--muted);margin-bottom:12px;padding:8px 12px;background:var(--bg);border-radius:7px">
+        <span id="blotato-gen-status-text">Starting…</span>
+      </div>
+
+      <div id="blotato-gen-preview" style="display:none;margin-bottom:14px">
+        <img id="blotato-gen-img" style="width:100%;border-radius:8px;max-height:260px;object-fit:cover">
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="document.getElementById('blotato-gen-modal').remove()">Cancel</button>
+        <button id="blotato-gen-use" class="btn btn-primary" style="display:none" onclick="blotatoUseResult('${briefId}')">✓ Use this image</button>
+        <button id="blotato-gen-go" class="btn btn-primary" onclick="blotatoStartGenerate('${briefId}')">Generate ✨</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('blotato-gen-prompt').focus();
+}
+
+let _blotatoResultUrl = null;
+
+async function blotatoStartGenerate(briefId) {
+  const templateEl = document.getElementById('blotato-gen-template');
+  const templateId = templateEl?.value?.trim();
+  const prompt = document.getElementById('blotato-gen-prompt').value.trim();
+  if (!templateId) { toast('Enter a template ID', 'error'); return; }
+
+  const goBtn = document.getElementById('blotato-gen-go');
+  const statusEl = document.getElementById('blotato-gen-status');
+  const statusText = document.getElementById('blotato-gen-status-text');
+  goBtn.disabled = true; goBtn.textContent = '⏳ Generating…';
+  statusEl.style.display = 'block'; statusText.textContent = 'Starting generation…';
+
+  try {
+    const r = await api('POST', `/clients/${clientId}/blotato/generate`, { templateId, prompt });
+    if (!r.ok || !r.creationId) throw new Error(r.error || 'No creation ID returned');
+
+    const creationId = r.creationId;
+    statusText.textContent = `Queued (${creationId.slice(0,8)}…) — polling for result…`;
+
+    // Poll every 4 seconds, up to 3 minutes
+    let attempts = 0;
+    const poll = async () => {
+      if (attempts++ > 45) { statusText.textContent = 'Timed out waiting for Blotato. Check their dashboard.'; goBtn.disabled = false; goBtn.textContent = 'Retry'; return; }
+      try {
+        const p = await api('GET', `/clients/${clientId}/blotato/creations/${creationId}`);
+        statusText.textContent = `Status: ${p.status}`;
+        if (p.done && p.mediaUrl) {
+          _blotatoResultUrl = p.mediaUrl;
+          statusText.textContent = '✓ Done! Preview below.';
+          const preview = document.getElementById('blotato-gen-preview');
+          document.getElementById('blotato-gen-img').src = p.mediaUrl;
+          preview.style.display = 'block';
+          document.getElementById('blotato-gen-use').style.display = 'inline-flex';
+          goBtn.style.display = 'none';
+        } else if (p.status === 'failed' || p.status === 'error') {
+          statusText.textContent = '✕ Generation failed — try a different template or prompt';
+          goBtn.disabled = false; goBtn.textContent = 'Retry';
+        } else {
+          setTimeout(poll, 4000);
+        }
+      } catch (e) { statusText.textContent = 'Poll error: ' + e.message; setTimeout(poll, 6000); }
+    };
+    setTimeout(poll, 4000);
+  } catch (e) {
+    statusText.textContent = '✕ ' + e.message;
+    goBtn.disabled = false; goBtn.textContent = 'Generate ✨';
+  }
+}
+
+async function blotatoUseResult(briefId) {
+  if (!_blotatoResultUrl) return;
+  try {
+    await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { image_url: _blotatoResultUrl });
+    document.getElementById('blotato-gen-modal').remove();
+    toast('Image saved to brief ✓');
+    loadBriefsDebounced();
+  } catch (e) { toast('Failed to save: ' + e.message, 'error'); }
+}
+
 async function clearProductRef(briefId) {
   await api('PATCH', `/clients/${clientId}/precision/briefs/${briefId}`, { product_image_url: null, product_name: null });
   chatNotify('Product reference removed', 'info');
@@ -2808,6 +2975,7 @@ async function openBriefModal(briefId) {
         ${canApprove?`<button class="btn btn-primary" onclick="approveBrief('${bid}');closeBriefModal()">✓ Queue to Post</button><button class="btn btn-ghost" style="color:var(--red)" onclick="rejectBrief('${bid}');closeBriefModal()">✕ Reject</button>`:''}
         ${b.status==='queued'?`<div style="font-size:12px;color:var(--amber);padding:8px 12px;background:rgba(245,158,11,.08);border-radius:6px">⏳ In queue — will post during next Run</div>`:''}
         ${b.status!=='posted'?(!b.image_url?`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🎨 Generate Image</button>`:`<button class="btn btn-ghost" onclick="generateImage('${bid}',this)">🔄 Re-generate Image</button>`):''}
+        ${b.status!=='posted'&&clientConfig?.blotato?.api_key?`<button class="btn btn-ghost" onclick="generateViaBlotato('${bid}',this)" title="Generate image or video using Blotato AI templates">🎬 Blotato Generate</button>`:''}
         ${b.status==='queued'?`<button class="btn btn-ghost" style="color:var(--muted)" onclick="rejectBrief('${bid}');closeBriefModal()">Remove from Queue</button>`:''}
         ${b.status==='failed'?`<button class="btn btn-ghost" style="color:var(--amber)" onclick="requeueBrief('${bid}');closeBriefModal()">🔄 Re-queue</button>`:''}
       </div>`;
