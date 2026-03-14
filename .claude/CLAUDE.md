@@ -26,7 +26,7 @@ If this is a new chat session, read this first.
 **Current client:** Bamboo Sleep Professor / DrSleeep bamboo bedding UAE. Ambassador: Nada Ali (@bamboo_sleep_professor). ~36 leads in pipeline at stages 3–4.
 
 **ALWAYS read these at the start of a new session (in order):**
-1. `PROJECT_STATE.md` — current state, what's working, gotchas, next priorities
+1. `.claude/PROJECT_STATE.md` — current state, what's working, gotchas, next priorities
 2. `.claude/MEMORY.md` — full technical reference (architecture, API routes, data schemas)
 
 ---
