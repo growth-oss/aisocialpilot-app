@@ -647,25 +647,25 @@ Proxy geo: ${clientConfig.proxy?.geo || 'not set'}.
     let brandVoice = '';
     try { brandVoice = fs.readFileSync(path.join(clientDir2, 'config', 'brand-voice.md'), 'utf8').slice(0, 600); } catch {}
 
+    const useBlotato = !!(clientConfig.blotato?.api_key && clientConfig.blotato?.account_id);
+    const postScript = useBlotato
+      ? '/app/server/scripts/post-via-blotato.js'
+      : '/app/server/scripts/post-to-instagram.js';
+
     return `You are running a PRECISION CONTENT POST for "${clientConfig.name}".
 Brief: ${brief2.brief_id} | Topic: ${brief2.cluster_topic} | Format: ${brief2.format}
+Posting method: ${useBlotato ? 'Blotato API (no browser needed for posting)' : 'Playwright browser automation'}
 ${eligibleForDM.length > 0 ? `DM targets (stage ≥ 3): ${eligibleForDM.map(l => l.username).join(', ')}` : 'No DM targets for this brief.'}
 
 All posting config is already injected into your environment.
-Run the static posting script — do NOT write any Playwright code:
+Run the static posting script — do NOT write any code:
 
-  node /app/server/scripts/post-to-instagram.js
+  node ${postScript}
 
-The script handles everything: geo check, session verification, warmup, image upload,
-caption, share, profile verification, DMs, brief status update, and screenshots.
-It will print a SUMMARY at the end showing post status and URL.
+The script handles everything and will print a SUMMARY at the end.
+Report the summary output when done.
 
-If the script exits with an error:
-- SingletonLock / profile lock → run these two commands then stop (the next run will be clean):
-    rm -f '${sessionDir}/SingletonLock' '${sessionDir}/SingletonCookie' '${sessionDir}/SingletonSocket'
-    node /app/server/scripts/post-to-instagram.js
-- session_expired / login prompt → STOP, do not retry, report to user
-- Any other error → report what went wrong, do not retry
+If the script exits with a non-zero code, report the error. Do not retry automatically.
 `;
   }
   // ── End precision-post ────────────────────────────────────────────────────
@@ -1638,10 +1638,14 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const pLeads    = (() => { try { return JSON.parse(fs.readFileSync(path.join(pLgDir, 'leads.json'), 'utf8')); } catch { return []; } })();
     const pHandle   = (clientConfig.platforms?.instagram?.handle || '').replace(/^@/, '');
     const pAssetsDir = path.join(clientDir, 'assets', 'precision');
-    const pImagePath = pBrief.image_url
+    const pCarouselImages = (pBrief.product_carousel_images || []).map(i => i.url);
+    // For standard briefs, build a public image URL (served via /public/precision/:clientId/:file)
+    const pImagePublicUrl = pBrief.image_url
+      ? `${process.env.APP_URL || 'https://aisocialpilot-app-production.up.railway.app'}/public/precision/${clientConfig.clientId}/${pBrief.image_url.split('/').pop()}`
+      : '';
+    const pImageLocalPath = pBrief.image_url
       ? path.join(pAssetsDir, pBrief.image_url.split('/').pop())
       : '';
-    const pCarouselImages = (pBrief.product_carousel_images || []).map(i => i.url);
     const pBriefLeads = (pBrief.leads || []).map(bl => {
       const uname = typeof bl === 'string' ? bl : (bl.username || '');
       const lead  = pLeads.find(l => l.username === uname.replace(/^@/, '') || '@' + l.username === uname);
@@ -1651,22 +1655,48 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
       .filter(l => l.stage >= 3)
       .map(l => ({ username: l.username, message: l.dmTemplate }));
 
-    extraEnvExports.push(
-      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
-      `export INSTAGRAM_HANDLE=${se(pHandle)}`,
-      `export BRIEF_ID=${se(pBriefId)}`,
-      `export BRIEF_TYPE=${se(pBrief.brief_type || 'standard')}`,
-      `export FORMAT=${se(pBrief.format || 'carousel')}`,
-      `export CAPTION=${se(pBrief.caption || pBrief.key_message || '')}`,
-      `export IMAGE_PATH=${se(pImagePath)}`,
-      `export CAROUSEL_IMAGES=${se(JSON.stringify(pCarouselImages))}`,
-      `export BRIEFS_FILE=${se(path.join(pLgDir, 'precision-briefs.json'))}`,
-      `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
-      `export DM_LEADS=${se(JSON.stringify(pDmLeads))}`,
-      `export LEADS_FILE=${se(path.join(pLgDir, 'leads.json'))}`,
-      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
-      `export PROXY_URL=${se(clientConfig.proxy?.url || '')}`,
-    );
+    const blaKey = clientConfig.blotato?.api_key || '';
+    const blaAcc = clientConfig.blotato?.account_id || '';
+
+    if (blaKey && blaAcc) {
+      // ── Blotato path — no browser needed for posting ──
+      extraEnvExports.push(
+        `export BLOTATO_API_KEY=${se(blaKey)}`,
+        `export BLOTATO_ACCOUNT_ID=${se(blaAcc)}`,
+        `export BRIEF_ID=${se(pBriefId)}`,
+        `export FORMAT=${se(pBrief.format || 'carousel')}`,
+        `export CAPTION=${se(pBrief.caption || pBrief.key_message || '')}`,
+        `export CAROUSEL_IMAGES=${se(JSON.stringify(pCarouselImages))}`,
+        `export IMAGE_URL=${se(pImagePublicUrl)}`,
+        `export BRIEFS_FILE=${se(path.join(pLgDir, 'precision-briefs.json'))}`,
+        `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export DM_LEADS=${se(JSON.stringify(pDmLeads))}`,
+        `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+        `export INSTAGRAM_HANDLE=${se(pHandle)}`,
+        `export LEADS_FILE=${se(path.join(pLgDir, 'leads.json'))}`,
+        `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+        `export PROXY_URL=${se(clientConfig.proxy?.url || '')}`,
+        `export EXPECTED_GEO=${se(clientConfig.proxy?.geo || '')}`,
+      );
+    } else {
+      // ── Playwright fallback ──
+      extraEnvExports.push(
+        `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+        `export INSTAGRAM_HANDLE=${se(pHandle)}`,
+        `export BRIEF_ID=${se(pBriefId)}`,
+        `export BRIEF_TYPE=${se(pBrief.brief_type || 'standard')}`,
+        `export FORMAT=${se(pBrief.format || 'carousel')}`,
+        `export CAPTION=${se(pBrief.caption || pBrief.key_message || '')}`,
+        `export IMAGE_PATH=${se(pImageLocalPath)}`,
+        `export CAROUSEL_IMAGES=${se(JSON.stringify(pCarouselImages))}`,
+        `export BRIEFS_FILE=${se(path.join(pLgDir, 'precision-briefs.json'))}`,
+        `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export DM_LEADS=${se(JSON.stringify(pDmLeads))}`,
+        `export LEADS_FILE=${se(path.join(pLgDir, 'leads.json'))}`,
+        `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+        `export PROXY_URL=${se(clientConfig.proxy?.url || '')}`,
+      );
+    }
   }
 
   const tmpScript = `/tmp/claude-run-${runId}.sh`;
@@ -4719,10 +4749,19 @@ app.post('/api/clients/:id/precision/generate-image/:briefId', requireLicense, a
   }
 });
 
-// Serve precision-generated images
+// Serve precision-generated images (auth required for dashboard)
 app.get('/api/clients/:id/assets/precision/:filename', requireLicense, (req, res) => {
   const filePath = path.join(CLIENTS_DIR, req.params.id, 'assets', 'precision', req.params.filename);
   if (!filePath.startsWith(CLIENTS_DIR)) return res.status(403).send('Forbidden');
+  if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
+  res.sendFile(filePath);
+});
+
+// Public (no auth) precision image endpoint — needed so Blotato can fetch images by URL
+app.get('/public/precision/:clientId/:filename', (req, res) => {
+  const fname = req.params.filename;
+  if (!fname.match(/^[\w.-]+\.(?:png|jpg|jpeg|webp)$/i)) return res.status(400).send('Invalid filename');
+  const filePath = path.join(CLIENTS_DIR, req.params.clientId, 'assets', 'precision', fname);
   if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
   res.sendFile(filePath);
 });
@@ -4847,6 +4886,34 @@ Return ONLY the caption text. No quotes, no JSON, no commentary.`;
   savePrecisionBriefs(cDir, [...existing, newBrief]);
 
   res.json({ ok: true, brief: newBrief });
+});
+
+// POST /api/clients/:id/blotato/test — test Blotato API key + list accounts
+app.post('/api/clients/:id/blotato/test', requireLicense, (req, res) => {
+  const { api_key } = req.body;
+  if (!api_key) return res.status(400).json({ error: 'api_key required' });
+  const options = {
+    hostname: 'backend.blotato.com', port: 443,
+    path: '/v2/users/me/accounts', method: 'GET',
+    headers: { 'blotato-api-key': api_key },
+  };
+  const r = require('https').request(options, resp => {
+    let data = '';
+    resp.on('data', d => { data += d; });
+    resp.on('end', () => {
+      try {
+        const body = JSON.parse(data);
+        if (resp.statusCode === 200) {
+          const accounts = Array.isArray(body) ? body : (body.accounts || body.data || []);
+          res.json({ ok: true, accounts });
+        } else {
+          res.json({ ok: false, error: body?.message || `HTTP ${resp.statusCode}` });
+        }
+      } catch { res.json({ ok: false, error: data }); }
+    });
+  });
+  r.on('error', e => res.json({ ok: false, error: e.message }));
+  r.end();
 });
 
 // POST /api/clients/:id/precision/post/:briefId — fire-and-forget run to post brief + DMs
