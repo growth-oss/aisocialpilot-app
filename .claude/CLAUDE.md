@@ -275,59 +275,93 @@ After each reply/action, append to the platform's log file in logs/:
 
 ---
 
+## Blotato — Posting & Media Generation (ACTIVE)
+
+**Blotato replaces Playwright for all posting.** Playwright is kept only for DMs, engagement, and scraping.
+
+### Config (per client, in `config.json`)
+```json
+{
+  "blotato": {
+    "api_key": "blt_xxxx",
+    "accounts": {
+      "instagram": "35051",
+      "x": "",
+      "linkedin": "",
+      "facebook": "",
+      "tiktok": "",
+      "threads": "",
+      "pinterest": "",
+      "bluesky": ""
+    }
+  }
+}
+```
+Legacy flat field `blotato.account_id` also supported (falls back).
+
+### Posting Script
+`server/scripts/post-via-blotato.js` — **do NOT use Playwright for posting**.
+- Reads env vars injected by `spawnRun`: `BLOTATO_API_KEY`, `BLOTATO_ACCOUNT_ID`, `IMAGE_URL`, `CAPTION`, `FORMAT`, `CAROUSEL_IMAGES`, `BRIEF_ID`, `BRIEFS_FILE`
+- Posts via `POST https://backend.blotato.com/v2/posts`
+- If `DM_LEADS` + `SESSION_DIR` are also set: sends DMs via Playwright after posting
+- Marks brief `status: 'posted'` in `precision-briefs.json` on success
+- **Runs directly (no Claude)** — `spawnRun` detects Blotato and sets `directCmd = "node post-via-blotato.js"` instead of piping through Claude CLI
+
+### Image/Video Generation
+Blotato also generates artwork via templates:
+- `POST /v2/videos/from-templates` → `{ templateId, prompt, inputs:{}, render:true }` → returns `{ item: { id, status } }`
+- Poll: `GET /v2/videos/creations/{id}` until `status === 'done'`
+- Result: `{ mediaUrl, imageUrls[] }` — use URL directly as `image_url` in brief
+- Template IDs are found in Blotato → Templates dashboard
+
+Server API routes for Blotato generation:
+- `GET /api/clients/:id/blotato/templates`
+- `POST /api/clients/:id/blotato/generate` — `{ templateId, prompt }`
+- `GET /api/clients/:id/blotato/creations/:creationId` — poll
+
+### Image URL Handling
+- If `brief.image_url` is an absolute URL (`https://...`): passed directly to Blotato
+- If it's a local filename: served via `/public/precision/{clientId}/{file}` (no auth, Blotato can fetch it)
+
+---
+
 ## Precision Content Engine
 
 Triggered when `command = 'precision-post:{briefId}'` is passed to the automation run.
 
 ### What it is
-Reverse marketing: instead of posting and hoping the right people see it, we cluster existing pipeline leads by pain point → generate a targeted brief → create Gemini images → post via the brand ambassador → amplify by tagging and DMing specific leads.
+Reverse marketing: cluster pipeline leads by pain point → generate targeted brief → generate image (Gemini or Blotato) → post via brand ambassador → amplify by DM-ing specific leads.
 
 ### Data
 - Briefs stored in `{DATA_DIR}/clients/{CLIENT_ID}/leadgen/precision-briefs.json`
-- Generated images stored in `{DATA_DIR}/clients/{CLIENT_ID}/assets/precision/{briefId}.png`
-- Brief schema fields: `id`, `cluster_topic`, `format` (carousel/reel/post/story/dm_only), `content_brief`, `image_prompt`, `tagging_instructions`, `dm_sequence[]`, `leads[]`, `image_url`, `status` (draft/approved/rejected/posted)
+- Images stored at `{DATA_DIR}/clients/{CLIENT_ID}/assets/precision/{briefId}.png` (local) OR as absolute URL in `brief.image_url` (Blotato CDN)
+- Brief schema: `brief_id`, `cluster_topic`, `format` (carousel/reel/post/story/dm_only), `content_brief`, `image_prompt`, `image_url`, `caption`, `leads[]`, `dm_template`, `status` (draft/approved/queued/posted/failed)
 
 ### When command = `precision-post:{briefId}`
 
-1. **Read the brief**
-   - Load `precision-briefs.json`, find the brief by `briefId`
-   - Verify `status === 'approved'` — if not, log error and stop
-   - Read `config/brand-voice.md` for tone and visual identity
+**This runs as a direct node script — NOT through Claude.** The server spawns `post-via-blotato.js` directly when `blotato.api_key` + `blotato.accounts.instagram` are set.
 
-2. **Check image**
-   - If `image_url` is set: the image file exists at `{DATA_DIR}/clients/{CLIENT_ID}/assets/precision/{briefId}.png`
-   - If no image: proceed anyway (post caption only, or story without image)
+1. **If Blotato configured** (check `clientConfig.blotato.api_key` + `blotato.accounts.instagram`):
+   - Script: `server/scripts/post-via-blotato.js`
+   - Posts via REST API — no browser needed
+   - `IMAGE_URL` = brief's `image_url` (absolute) or constructed from `/public/precision/` endpoint
+   - DMs still via Playwright if `DM_LEADS` is populated
+   - Run terminates in ~5 seconds after API call
 
-3. **Post the content**
-   - Open the ambassador Instagram account (`browser-sessions/instagram/`)
-   - Verify proxy geo (AE) before opening session
-   - Based on `format`:
-     - `carousel`: create multi-image post (use the generated image as first frame, add text overlays for subsequent frames)
-     - `reel`: note in log that reel upload requires manual — post as carousel instead
-     - `post`: single image post
-     - `story`: story upload
-     - `dm_only`: skip posting, go straight to DM step
-   - Caption: use `content_brief` as the full caption (it already includes hashtags and CTA from brief generation)
-   - Apply tagging from `tagging_instructions`:
-     - `reply_tag`: after posting, comment on recent posts by the tagged accounts mentioning them
-     - `caption_ref`: already included in caption
+2. **If Blotato NOT configured** (fallback):
+   - Script: `server/scripts/post-to-instagram.js`
+   - Posts via Playwright browser automation (headed, proxy required)
+   - Slower, more fragile — avoid if possible
 
-4. **Amplification — DM sequence**
-   - For each lead in `brief.leads[]`:
-     - Check the lead's `engagement_stage` — only DM if stage >= 3 (followed)
-     - Send DM step 1 from `dm_sequence[0]`
-     - Update lead's `engagement_stage` to 5 (DM sent) in `leads.json`
-     - Log to `outreach-log.ndjson`
-   - Respect cooldown: `cooldown_between_engagements_hours` from `leadgen-config.json`
-   - Apply daily DM rate limit from `rate-limits.json`
+3. **Amplification — DM sequence**
+   - Only leads with `engagement_stage >= 3` (followed) get DMs
+   - Uses `brief.dm_template` as the message
+   - Updates `engagement_stage = 5` in `leads.json` after DM
+   - Logs to `outreach-log.ndjson`
+   - Respects `cooldown_between_engagements_hours` from `leadgen-config.json`
 
-5. **Update brief status**
-   - Set `status = 'posted'`, `posted_at = ISO timestamp`, `post_url = URL of post`
-   - Save back to `precision-briefs.json`
-
-6. **Log**
-   - Append to `logs/outreach-log.json` for each action taken
-   - Write summary to run log
+4. **Brief status update** (done by the script, not Claude)
+   - Sets `status = 'posted'`, `posted_at`, `post_url` in `precision-briefs.json`
 
 ### Visual Identity Rules (apply to all image prompts)
 - Person in bed/bedroom: Emirati woman, hair wrapped in white towel, plush white bathrobe

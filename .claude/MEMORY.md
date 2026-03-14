@@ -24,11 +24,13 @@
 - `AI_Dashboard_Features_Spec2.html` — APPROVED design spec — use as reference for UI work
 
 ## Key Source Files (REAL ones)
-- `server/index.js` — main Express server (~3900 lines): all API routes, automation engine, scheduler, SSE streaming, chat endpoint
+- `server/index.js` — main Express server (~5000+ lines): all API routes, automation engine, scheduler, SSE streaming, chat endpoint
+- `server/scripts/post-via-blotato.js` — **ACTIVE posting script** — posts via Blotato REST API, DMs via Playwright
+- `server/scripts/post-to-instagram.js` — legacy Playwright posting (fallback only, not used if Blotato configured)
 - `server/leadgen/db.js` — lead gen JSON data store (leads, sources, stats, log)
 - `server/leadgen/prompt.js` — builds the Claude prompt for each automation run
 - `admin/public/index.html` — all-clients dashboard SPA (~5000 lines)
-- `admin/public/client.html` — **NEW** client detail page (sidebar nav + Claude chat panel)
+- `admin/public/client.html` — client detail page (sidebar nav + Claude chat panel + Content tab)
 - `Dockerfile` — builds from `mcr.microsoft.com/playwright:v1.58.2-noble`
 - `scripts/start.sh` — startup: Xvfb → VNC → noVNC → Node
 - `scripts/open-session.js` — opens headed Playwright browser for manual login
@@ -162,6 +164,36 @@ data/clients/{clientId}/
 
 ---
 
+## Blotato Integration (ACTIVE — use this for all posting)
+
+**Blotato = the posting layer. Playwright = engagement/scraping/DMs only.**
+
+### Client config structure
+```json
+{ "blotato": { "api_key": "blt_xxx", "accounts": { "instagram": "35051", "x": "", "linkedin": "", "facebook": "", "tiktok": "", "threads": "", "pinterest": "", "bluesky": "" } } }
+```
+Legacy flat `blotato.account_id` still works as fallback for Instagram.
+
+### How precision-post works with Blotato
+- `spawnRun()` detects `blotato.api_key` + `blotato.accounts.instagram` → sets `directCmd = "node /app/server/scripts/post-via-blotato.js"`
+- Shell script runs node directly — **no Claude CLI, no ToolSearch, finishes in ~5s**
+- POSTs to `https://backend.blotato.com/v2/posts` with `mediaUrls`, `text`, `accountId`
+- DMs (if `DM_LEADS` set) still use Playwright after posting
+
+### Blotato API (backend.blotato.com, header: `blotato-api-key: KEY`)
+- `POST /v2/posts` — publish. Body: `{ post: { accountId, content: { text, mediaUrls, platform }, target: { targetType } } }`
+- `GET /v2/users/me/accounts` — list connected accounts
+- `POST /v2/videos/from-templates` — generate media. Body: `{ templateId, prompt, inputs:{}, render:true }` → `{ item: { id, status } }`
+- `GET /v2/videos/creations/{id}` — poll. Returns `{ status:'done', mediaUrl, imageUrls[] }`
+
+### Server routes for Blotato
+- `POST /api/clients/:id/blotato/test`
+- `GET /api/clients/:id/blotato/templates`
+- `POST /api/clients/:id/blotato/generate` — `{ templateId, prompt }`
+- `GET /api/clients/:id/blotato/creations/:creationId`
+
+---
+
 ## API Routes (complete list)
 
 ### Core
@@ -274,4 +306,4 @@ data/clients/{clientId}/
 - Lead gen log: `GET /api/clients/:id/leadgen/log`
 
 ## currentDate
-Today's date is 2026-03-11.
+Today's date is 2026-03-14.
