@@ -166,13 +166,37 @@ Do not use the standard coupon with influencers — flag them in notes for manua
 `;
 
   const couponPhaseBlock = isAmbassador
-    ? `**PHASE C — COUPON + DM PIVOT (AMBASSADOR STYLE)**
-After Phase B, loop through leads at stage 6 (DM sent) who haven't received a coupon.
-IMPORTANT: Coupons are ONLY shared after genuine conversation where the lead has shown real interest.
-Frame it as "I have a code from the brand I work with" — like a friend sharing a deal, NOT a sales pitch.`
-    : `**PHASE C — COUPON + DM PIVOT**
-After Phase B, loop through leads at stage 6 (DM sent) who haven't received a coupon.
-Share coupons with qualifying leads as a special offer from the brand.`;
+    ? `**PHASE C — COUPON FOLLOW-UP (AMBASSADOR STYLE) — PRIORITY: GET ORDERS**
+After Phase B, send coupon follow-ups to convert pipeline leads. This is the revenue phase — do it every session.
+
+TARGETS (process ALL of these, in this order):
+1. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_coupon || 70} — send coupon NOW
+2. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_dm || 60} — send lower-tier coupon
+3. Stage 5 leads with score ≥ 80 — send opening DM + coupon together (skip waiting)
+4. Stage 3 leads stuck > 3 days (last_engaged_at < 3 days ago) with score ≥ 70 — DM them directly,
+   skip the stuck comment step entirely (send ambassador opener + coupon in same message)
+
+AMBASSADOR COUPON DM STYLE — casual, personal, like a friend texting a deal:
+  English low-pressure: "hey! so I ended up getting a code from the brand I work with... [code] for [X]% off if you ever want to try. no pressure at all, just thought I'd pass it along 🙂"
+  Arabic (Emirati dialect): "هلا! حصلت كود من البراند اللي أشتغل معه... [code] خصم [X]% لو تبين تجربين. بس شاركتك ياها وين 😊"
+
+COUPON TIER SELECTION — pick based on lead score:
+  - Score ≥ 85: use VIP tier (highest discount) — "you've been on my radar for a while"
+  - Score ≥ 70: use mid tier — casual share
+  - Score ≥ 60: use entry tier — lightest touch
+
+DO NOT wait for a reply before sending the coupon. One message is enough.
+Set coupon_referenced = 1, coupon_code = the code used, updated_at = now immediately after sending.`
+    : `**PHASE C — COUPON + DM PIVOT — PRIORITY: GET ORDERS**
+After Phase B, send coupon follow-ups to ALL qualifying leads. This is the revenue phase — do it every session.
+
+TARGETS:
+1. Stage 6 leads with coupon_referenced = 0 — send coupon immediately
+2. Stage 5 leads with score ≥ 75 — send opening DM + coupon together
+3. Stage 3 leads stuck > 3 days with score ≥ 70 — DM directly, skip stuck comment step
+
+Send the coupon as a special offer. Match their language. Keep it short and warm.
+Set coupon_referenced = 1, coupon_code = the code, updated_at = now.`;
 
   const safetyBrandRule = isAmbassador
     ? `- NEVER mention "${clientConfig.name}" or any brand/store name in a public comment — you are an individual, not a brand
@@ -318,18 +342,72 @@ STEP 4 — Comment → stage 4  (only if score ≥ ${cfg.thresholds?.min_score_f
   Select a comment opener from the active persona. Write naturally in that persona's voice.
   ${isAmbassador ? 'NEVER mention any brand or product.' : 'You may reference your product if relevant, but keep it natural.'} Under 15 words. Sound like a real person texting on their phone.
 
-  KNOWN BUG — comment textarea stale element (MUST use this pattern):
-  // WRONG — causes "element detached" error:
-  //   const box = await page.$('textarea[placeholder*="comment"]');
-  //   await box.click(); await box.type(text);
-  // CORRECT — use locator, click to open the field, then keyboard.type:
-  //   await page.locator('article').last().locator('svg[aria-label="Comment"]').click();
-  //   await page.waitForTimeout(800);
-  //   await page.locator('textarea[placeholder*="comment"], textarea[placeholder*="Add a comment"]').last().click();
-  //   await page.waitForTimeout(400);
-  //   await page.keyboard.type(text, { delay: 60 });
-  //   await page.keyboard.press('Enter');
-  //   await page.waitForTimeout(2000);
+  COMMENT PATTERN — navigate to post URL directly, then use multi-fallback selector:
+  // Step 1: Navigate to the post URL directly (MUCH more reliable than inline commenting):
+  //   await page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  //   await page.waitForTimeout(2000 + Math.random() * 1000);
+  //
+  // Step 2: Try to find the comment area using multiple fallback selectors:
+  //   const commentIconSelectors = [
+  //     'svg[aria-label="Comment"]',
+  //     'span[aria-label="Comment"]',
+  //     '[aria-label="Comment"]',
+  //     '[data-testid="comment-button"]',
+  //   ];
+  //   let activated = false;
+  //   for (const sel of commentIconSelectors) {
+  //     try {
+  //       const el = page.locator(sel).first();
+  //       if (await el.isVisible({ timeout: 3000 })) {
+  //         await el.click(); activated = true; break;
+  //       }
+  //     } catch {}
+  //   }
+  //
+  // Step 3: If icon click failed, try clicking the textarea directly (Instagram shows it on post pages):
+  //   if (!activated) {
+  //     const taSelectors = [
+  //       'textarea[placeholder*="Add a comment"]',
+  //       'textarea[placeholder*="comment"]',
+  //       'textarea[placeholder*="اضف تعليق"]',
+  //       'form textarea',
+  //     ];
+  //     for (const sel of taSelectors) {
+  //       try {
+  //         const ta = page.locator(sel).first();
+  //         if (await ta.isVisible({ timeout: 4000 })) {
+  //           await ta.click(); activated = true; break;
+  //         }
+  //       } catch {}
+  //     }
+  //   }
+  //
+  // Step 4: If still not found, scroll down to trigger lazy-load, then retry once:
+  //   if (!activated) {
+  //     await page.keyboard.press('End');
+  //     await page.waitForTimeout(1500);
+  //     try {
+  //       const ta = page.locator('form textarea, textarea[placeholder*="comment"]').first();
+  //       if (await ta.isVisible({ timeout: 3000 })) { await ta.click(); activated = true; }
+  //     } catch {}
+  //   }
+  //
+  // Step 5: Type and submit:
+  //   if (activated) {
+  //     await page.waitForTimeout(500 + Math.random() * 400);
+  //     await page.keyboard.type(commentText, { delay: 55 + Math.random() * 45 });
+  //     await page.waitForTimeout(500 + Math.random() * 500);
+  //     await page.keyboard.press('Enter');
+  //     await page.waitForTimeout(2000);
+  //     // Fallback submit button if Enter didn't work:
+  //     try {
+  //       const postBtn = page.locator('[type="submit"]:visible, button:has-text("Post"):visible, button:has-text("نشر"):visible').first();
+  //       if (await postBtn.isVisible({ timeout: 2000 })) await postBtn.click();
+  //     } catch {}
+  //   } else {
+  //     // Log failure — DO NOT fabricate a comment
+  //     console.log('COMMENT FAILED: could not find comment area for ' + postUrl);
+  //   }
 
   WRITING RULES — apply to every comment and DM:
   - Write like a real person typing on their phone
