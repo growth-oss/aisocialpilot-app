@@ -2511,7 +2511,7 @@ const SCHEDULE_COMMAND_MAP = {
 const scheduledRunsTriggered = new Set();
 let _scheduleLastClearDate = '';
 
-setInterval(() => {
+setInterval(async () => {
   const now = new Date();
   const todayUTC = now.toISOString().slice(0, 10); // YYYY-MM-DD
   const currentHHMM = now.toISOString().slice(11, 16); // HH:MM
