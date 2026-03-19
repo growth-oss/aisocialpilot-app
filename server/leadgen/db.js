@@ -155,7 +155,7 @@ function deleteLead(clientDir, leadId) {
   saveLeads(clientDir, leads);
 }
 
-function getLeads(clientDir, { platform, stage, minScore, converted, source_handle, limit = 100, offset = 0 } = {}) {
+function getLeads(clientDir, { platform, stage, minScore, converted, source_handle, coupon_referenced, username, limit = 100, offset = 0 } = {}) {
   let leads = loadLeads(clientDir).filter(l => !l.is_do_not_engage);
 
   if (platform !== undefined && platform !== null && platform !== '')
@@ -166,6 +166,10 @@ function getLeads(clientDir, { platform, stage, minScore, converted, source_hand
     leads = leads.filter(l => l.total_score >= minScore);
   if (converted !== undefined)
     leads = leads.filter(l => (l.is_converted ? 1 : 0) === (converted ? 1 : 0));
+  if (coupon_referenced !== undefined)
+    leads = leads.filter(l => (l.coupon_referenced ? 1 : 0) === coupon_referenced);
+  if (username !== undefined && username !== null && username !== '')
+    leads = leads.filter(l => l.username === username);
   if (source_handle !== undefined && source_handle !== null && source_handle !== '') {
     const h = source_handle.replace(/^@/, '').toLowerCase();
     leads = leads.filter(l => l.source_handle && l.source_handle.replace(/^@/, '').toLowerCase() === h);

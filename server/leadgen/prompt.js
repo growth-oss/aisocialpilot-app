@@ -438,39 +438,55 @@ STEP 5 — Reply to question → stage 5
 
 ${step6Block}
 
-━━━ DATA SCHEMAS ━━━
+━━━ DATA API (use these — NEVER read/write leads.json directly) ━━━
 
-leads.json — read the full array first, upsert/add entries, write the complete array back atomically.
-To generate a new ID: use (current max ID in array) + 1, then +1 again for each subsequent new lead.
+IMPORTANT: Do NOT use the Read or Write tools on leads.json. It can have thousands of entries.
+Instead use these curl calls to the local server — each call touches only the data you need.
 
-Each lead object:
-{
-  "id":                 <integer — max existing id + 1 for new leads>,
-  "platform":           "<instagram|tiktok|x|whatsapp>",
-  "username":           "<handle without @>",
-  "profile_url":        "<full URL to their profile>",
-  "display_name":       "<their name or null>",
-  "follower_count":     <integer>,
-  "following_count":    <integer>,
-  "bio_snippet":        "<first 100 chars of their bio or null>",
-  "total_score":        <integer>,
-  "is_influencer":      <0|1>,
-  "engagement_stage":   <0-6>,
-  "last_engaged_at":    "<ISO 8601 timestamp or null>",
-  "dm_pivot_attempted": <0|1>,
-  "dm_channel":         "<whatsapp|ig_dm|null>",
-  "coupon_referenced":  <0|1>,
-  "coupon_code":        "<code string or null>",
-  "urgency_used":       <0|1>,
-  "is_converted":       <0|1>,
-  "converted_at":       "<ISO 8601 or null>",
-  "is_do_not_engage":   <0|1>,
-  "source_type":        "<competitor_ad_commenter|tagged_competitor_in_post|location|competitor_commenter|competitor_liker|competitor_follower|hashtag|youtube_video_commenter|youtube_channel_commenter|manual>",
-  "source_handle":      "<@handle or #hashtag where discovered>",
-  "notes":              "<any observations — purchase signals, influencer collab potential, etc.>",
-  "created_at":         "<ISO 8601>",
-  "updated_at":         "<ISO 8601 — update on every change>"
-}
+BASE_URL = http://localhost:3000
+CLIENT_ID = ${clientId}
+
+── PHASE A (scraping) — add or update one lead at a time ──
+POST ${leadsJsonPath.replace(/\/leadgen\/leads\.json$/, '')}  ← DO NOT USE
+Use API instead:
+  curl -s -X POST "http://localhost:3000/api/clients/${clientId}/leadgen/leads" \\
+       -H "Content-Type: application/json" \\
+       -d '{"platform":"instagram","username":"handle","display_name":"Name",
+            "follower_count":5000,"following_count":800,"bio_snippet":"...",
+            "total_score":75,"is_influencer":0,"source_type":"competitor_commenter",
+            "source_handle":"@competitor","notes":"UAE:yes","profile_url":"https://..."}'
+  → returns {"ok":true,"lead":{...with id assigned...}}
+  The server upserts by (platform+username) — no duplicate check needed.
+  Call this immediately after scraping each profile. No batching.
+
+── PHASE B (pipeline) — get only the leads you need ──
+  # Get stage-3 Instagram leads with score≥60, top 20 by score:
+  curl -s "http://localhost:3000/api/clients/${clientId}/leadgen/leads?platform=instagram&stage=3&minScore=60&limit=20"
+
+  # Get all hot leads not yet DM'd:
+  curl -s "http://localhost:3000/api/clients/${clientId}/leadgen/leads?stage=0&minScore=70&limit=20"
+
+  # Get pipeline overview (counts by stage, maxId, hot leads):
+  curl -s "http://localhost:3000/api/clients/${clientId}/leadgen/stats"
+
+  # After each engagement action — update just that one lead:
+  curl -s -X PATCH "http://localhost:3000/api/clients/${clientId}/leadgen/leads/by-username" \\
+       -H "Content-Type: application/json" \\
+       -d '{"platform":"instagram","username":"handle","engagement_stage":4,
+            "last_engaged_at":"2026-03-18T10:00:00.000Z","notes":"commented on beach post"}'
+
+── PHASE C (coupons) — get only uncouponed leads ──
+  # Stage-6 leads with no coupon yet, score≥60:
+  curl -s "http://localhost:3000/api/clients/${clientId}/leadgen/leads?stage=6&coupon_referenced=0&minScore=60&limit=20"
+
+  # After sending coupon DM:
+  curl -s -X PATCH "http://localhost:3000/api/clients/${clientId}/leadgen/leads/by-username" \\
+       -H "Content-Type: application/json" \\
+       -d '{"platform":"instagram","username":"handle","coupon_referenced":1,"coupon_code":"MyCode30",
+            "engagement_stage":6}'
+
+  # Check if a username already exists before scraping their profile (optional — upsert handles it):
+  curl -s "http://localhost:3000/api/clients/${clientId}/leadgen/leads?platform=instagram&username=handle&limit=1"
 
 outreach-log.ndjson — APPEND only. One JSON object per line. Never rewrite this file.
 Write one line immediately after each action (success or failure):
@@ -657,7 +673,7 @@ contacted externally via WhatsApp/email found in their YouTube channel descripti
 ——— FOR ALL SOURCE TYPES — Lead Processing ———
 For each discovered username (regardless of source type):
    a. Check do_not_engage list — if username matches: skip entirely
-   b. Check leads.json — if username+platform already exists:
+   b. Check via API: GET ?platform=X&username=Y&limit=1 — if lead exists:
       → If found from a DIFFERENT source (e.g. already from @togasofficial.mideast, now seen on @linenobsession):
         • ADD +${cfg.scoring?.follows_competitor || 20} pts to their total_score (multi-competitor bonus)
         • Append the new source to source_handle (comma-separated: "@togasofficial.mideast, @linenobsession")
@@ -673,11 +689,11 @@ For each discovered username (regardless of source type):
    g. Note any purchase intent signals in their bio or recent post captions
    h. Add geo tags to notes: "UAE:yes" or "UAE:no" based on bio/location signals
    i. If score < ${cfg.thresholds?.min_score_to_engage || 20}: skip (do not add to leads.json)
-   j. Add to leads.json with engagement_stage = 0, all timestamps = now
-Write the full updated leads.json back to disk after each batch of 10 new leads.
+   j. POST to the leads API immediately — one curl call per lead (no batching, no file writes).
 
 **PHASE B — WORK THE PIPELINE**
-Load all leads from leads.json. Process in this priority order:
+Use the API to fetch leads — never read leads.json. Fetch each priority group separately with filters.
+Process in this priority order:
 Priority 0: Ad-sourced UAE leads (source_type = "competitor_ad_commenter") → advance as far as possible. These are geo-confirmed buyers.
 Priority 0b: Other UAE-based leads (notes contain "UAE:yes") at ANY stage → advance as far as possible.
 Priority 1: Influencers at stage 0-3 → skip to stage 4 (comment) immediately
@@ -689,12 +705,11 @@ For each lead being processed:
 - Check last_engaged_at: skip if within ${cfg.pipeline?.cooldown_between_engagements_hours ?? 48}h
 - Check rate limit counters — stop category if limit hit (e.g., max follows reached → skip all follow steps)
 - Execute the appropriate ladder step
-- Update engagement_stage, last_engaged_at, updated_at in leads.json
+- PATCH /by-username to update engagement_stage, last_engaged_at, notes
 - Append to outreach-log.ndjson
 - Random delay ${delayMin}-${delayMax}ms between actions, 30-90s between profiles
 
 Stop after processing ${maxLeads} leads total.
-Write leads.json back to disk every 5 leads processed.
 
 ${couponPhaseBlock}
 

@@ -3532,14 +3532,45 @@ app.get('/api/clients/:id/leadgen/leads', requireLicense, (req, res) => {
   const q = req.query;
   try {
     const leads = lgDb.getLeads(cDir, {
-      platform:  q.platform || undefined,
-      stage:     q.stage !== undefined ? parseInt(q.stage) : undefined,
-      minScore:  q.minScore !== undefined ? parseInt(q.minScore) : undefined,
-      converted: q.converted !== undefined ? q.converted === '1' || q.converted === 'true' : undefined,
-      limit:     parseInt(q.limit)  || 100,
-      offset:    parseInt(q.offset) || 0,
+      platform:          q.platform || undefined,
+      stage:             q.stage !== undefined ? parseInt(q.stage) : undefined,
+      minScore:          q.minScore !== undefined ? parseInt(q.minScore) : undefined,
+      converted:         q.converted !== undefined ? q.converted === '1' || q.converted === 'true' : undefined,
+      coupon_referenced: q.coupon_referenced !== undefined ? parseInt(q.coupon_referenced) : undefined,
+      username:          q.username || undefined,
+      limit:             parseInt(q.limit)  || 100,
+      offset:            parseInt(q.offset) || 0,
     });
     res.json(leads);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/clients/:id/leadgen/leads — upsert a lead by (platform, username)
+// Claude uses this during runs instead of reading/writing the full leads.json
+app.post('/api/clients/:id/leadgen/leads', (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  try {
+    const lead = lgDb.upsertLead(cDir, req.body);
+    res.json({ ok: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/clients/:id/leadgen/leads/by-username — update lead by platform+username (no ID needed)
+app.patch('/api/clients/:id/leadgen/leads/by-username', (req, res) => {
+  const cDir = clientDir(req.params.id);
+  if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
+  const { platform, username, ...fields } = req.body;
+  if (!platform || !username) return res.status(400).json({ error: 'platform and username required' });
+  try {
+    const leads = lgDb.getLeads(cDir, { platform, username, limit: 1 });
+    if (!leads.length) return res.status(404).json({ error: 'Lead not found' });
+    const updated = lgDb.patchLead(cDir, leads[0].id, fields);
+    res.json({ ok: true, lead: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
