@@ -185,7 +185,8 @@ async function sendEmail(config, { to, subject, text }) {
 async function checkAndSendBudgetAlert(config, clientConfig) {
   const budget = parseFloat(clientConfig.daily_budget_usd);
   const alertEmail = clientConfig.budget_alert_email;
-  if (!budget || budget <= 0 || !alertEmail) return;
+  const resendApiKey = process.env.RESEND_API_KEY || config.resendApiKey;
+  if (!budget || budget <= 0 || !alertEmail || !resendApiKey) return;
   const today = new Date().toISOString().slice(0, 10);
   const spent = getTodayCost(clientConfig.clientId);
   const pct = spent / budget;
@@ -194,25 +195,27 @@ async function checkAndSendBudgetAlert(config, clientConfig) {
       const key = `${clientConfig.clientId}:${threshold}:${today}`;
       if (sentAlerts.has(key)) continue;
       sentAlerts.add(key);
+      const exceeded = threshold >= 1.0;
+      const from = config.dailyReportFrom || `AI Social Pilot <reports@adsbackup.com>`;
+      const subject = exceeded
+        ? `[AI Social Pilot] 🛑 Budget Exceeded — ${clientConfig.name}`
+        : `[AI Social Pilot] ⚠️ Budget 80% Warning — ${clientConfig.name}`;
+      const html = `<div style="font-family:sans-serif;max-width:480px">
+<h2 style="color:${exceeded ? '#e74c3c' : '#f39c12'}">${exceeded ? '🛑 Budget Exceeded' : '⚠️ Budget Warning (80%)'}</h2>
+<p style="color:#666">Client: <strong>${clientConfig.name}</strong></p>
+<table style="width:100%;border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:6px 0;color:#666">Daily budget</td><td style="font-weight:bold">$${budget.toFixed(2)}</td></tr>
+<tr><td style="padding:6px 0;color:#666">Spent today</td><td style="font-weight:bold;color:${exceeded ? '#e74c3c' : '#f39c12'}">$${spent.toFixed(3)} (${Math.round(pct * 100)}%)</td></tr>
+<tr><td style="padding:6px 0;color:#666">Remaining</td><td style="font-weight:bold">$${Math.max(0, budget - spent).toFixed(3)}</td></tr>
+</table>
+<p>${exceeded ? 'Further runs for this client are blocked until midnight UTC.' : `$${(budget - spent).toFixed(3)} remaining before the daily budget is reached.`}</p>
+<a href="https://aisocialpilot-app-production.up.railway.app/" style="display:inline-block;margin-top:8px;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px">Open Dashboard</a>
+</div>`;
       try {
-        await sendEmail(config, {
-          to: alertEmail,
-          subject: `[AI Social Pilot] Budget ${threshold >= 1 ? 'Exceeded' : 'Warning (80%)'} — ${clientConfig.name}`,
-          text: [
-            `Budget alert for: ${clientConfig.name}`,
-            ``,
-            `Daily budget:  $${budget.toFixed(4)}`,
-            `Spent today:   $${spent.toFixed(4)} (${Math.round(pct * 100)}%)`,
-            threshold >= 1
-              ? `\nYour daily budget has been EXCEEDED. Further runs are blocked until midnight UTC.`
-              : `\n${((budget - spent)).toFixed(4)} remaining before your daily budget is reached.`,
-            ``,
-            `Tip: To increase the budget or change alert settings, edit the client in your AI Social Pilot admin panel.`,
-          ].join('\n'),
-        });
+        await sendResendEmail({ apiKey: resendApiKey, from, to: alertEmail, subject, html });
         console.log(`[budget] Alert sent to ${alertEmail} (${clientConfig.clientId} at ${Math.round(pct*100)}%)`);
       } catch (e) {
-        console.error(`[budget] Email failed:`, e.message);
+        console.error(`[budget] Resend failed:`, e.message);
       }
     }
   }

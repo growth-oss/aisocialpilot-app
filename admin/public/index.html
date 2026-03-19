@@ -1000,40 +1000,6 @@ function renderSettings() {
     </div>
 
     <div class="card" style="margin-top:16px">
-      <div class="card-title">✉️ Email Alerts (SMTP)</div>
-      <div class="card-desc">Used to send budget threshold alerts. Works with Gmail, Outlook, Postmark, or any SMTP provider.</div>
-      <div class="field-row">
-        <div class="field">
-          <label>SMTP Host</label>
-          <input type="text" id="s-smtp-host" placeholder="smtp.gmail.com" spellcheck="false">
-        </div>
-        <div class="field" style="max-width:120px">
-          <label>Port</label>
-          <input type="text" id="s-smtp-port" placeholder="587">
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label>SMTP Username</label>
-          <input type="text" id="s-smtp-user" placeholder="you@gmail.com" spellcheck="false" autocomplete="off">
-        </div>
-        <div class="field">
-          <label>SMTP Password</label>
-          <input type="password" id="s-smtp-pass" placeholder="App password or SMTP key" autocomplete="new-password">
-        </div>
-      </div>
-      <div class="field">
-        <label>From Address <span style="color:var(--text-muted);font-weight:400">(optional, defaults to SMTP user)</span></label>
-        <input type="text" id="s-smtp-from" placeholder="AI Social Pilot <alerts@yourdomain.com>" spellcheck="false">
-        <div class="field-hint" id="s-smtp-status"></div>
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
-        <button class="btn btn-ghost" onclick="testSmtp()">Send Test Email</button>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:16px">
       <div class="card-title">📬 Daily Report (Resend)</div>
       <div class="card-desc">Sends a daily digest at 6:00 AM GST with yesterday's leads, DMs, runs, and month-to-date totals. Set <code>RESEND_API_KEY</code> as a Railway environment variable, then configure the recipient below.</div>
       <div class="field">
