@@ -1795,6 +1795,8 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     `export SOCIALPILOT_PROXY=${se(env.SOCIALPILOT_PROXY || '')}`,
     `export EXPECTED_GEO=${se(env.EXPECTED_GEO || '')}`,
     `export CLIENT_ID=${se(env.CLIENT_ID || '')}`,
+    `export DATA_DIR=${se(process.env.DATA_DIR || '/app/data')}`,
+    `export PORT=${se(String(process.env.PORT || '3000'))}`,
     ...extraEnvExports,
     `rm -rf /home/claude_runner/.claude/projects/ 2>/dev/null || true`,
     `cd ${se(clientDir)}`,
