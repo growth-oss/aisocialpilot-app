@@ -315,10 +315,15 @@ ${activeCoupons.length ? activeCoupons.map(c =>
 ).join('\n') : 'No active coupons — skip coupon step.'}
 
 Coupon DM template (fill in placeholders before sending):
-"${coupons.dm_coupon_template || 'Hey {name}! Use code {code} for {label}: {website_url}'}"
-Placeholders: {name} = display_name or username, {code} = coupon code,
-              {label} = coupon label, {website_url} = ${cfg.brand?.product_store_url || cfg.brand?.website_url || 'website'}
-${coupons.attribution?.track_utm ? `Add UTM: ?utm_source=${coupons.attribution.utm_source}&utm_medium=${coupons.attribution.utm_medium}&utm_campaign=${coupons.attribution.utm_campaign}` : ''}
+"${coupons.dm_coupon_template || 'Hey {name}! I have a discount code you might like — {code} gets you {label} 🎋 just in case you ever decide to try it!'}"
+Placeholders: {name} = display_name or username, {code} = coupon code, {label} = coupon label
+CRITICAL RULES for coupon messages:
+- NEVER include a URL or website link in the DM — no drsleeep.ae, no links of any kind
+- NEVER mention "the brand I work with" or any ambassador/affiliate language
+- Drop the code naturally and casually, as if sharing a tip with a friend
+- Match their language (Arabic if they write in Arabic)
+- Keep it short — 1-2 sentences max
+- Let them ask where to use it — that's the reply hook
 
 ━━━ PURCHASE INTENT SIGNALS ━━━
 If a lead's public comments, replies, or bio contain ANY of these words/phrases, they have high purchase
@@ -719,6 +724,8 @@ ${activeCoupons.length ? activeCoupons.map(c =>
 ).join('\n') : '- No active coupons. Skip coupon step.'}
 
 ${activeCoupons.length ? `Send follow-up DM with coupon using the template from coupon config. Match their language.
+  NEVER include a URL or website link. NEVER use affiliate/ambassador language.
+  Just drop the code casually — no link, no pitch. Let them ask where to use it.
   Set coupon_referenced = 1, coupon_code = the code used, updated_at = now.
   Append coupon_sent to outreach log.` : ''}
 
