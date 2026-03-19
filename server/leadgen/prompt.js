@@ -314,16 +314,29 @@ ${activeCoupons.length ? activeCoupons.map(c =>
   `Code: ${c.code}  |  "${c.label}"  |  Min score: ${c.min_lead_score}  |  Platforms: ${(c.platforms || []).join(', ')}`
 ).join('\n') : 'No active coupons — skip coupon step.'}
 
-Coupon DM template (fill in placeholders before sending):
-"${coupons.dm_coupon_template || 'Hey {name}! I have a discount code you might like — {code} gets you {label} 🎋 just in case you ever decide to try it!'}"
-Placeholders: {name} = display_name or username, {code} = coupon code, {label} = coupon label
-CRITICAL RULES for coupon messages:
-- NEVER include a URL or website link in the DM — no drsleeep.ae, no links of any kind
-- NEVER mention "the brand I work with" or any ambassador/affiliate language
-- Drop the code naturally and casually, as if sharing a tip with a friend
-- Match their language (Arabic if they write in Arabic)
-- Keep it short — 1-2 sentences max
-- Let them ask where to use it — that's the reply hook
+Coupon DM — ROTATE through these variants every session. Never use the same one twice in a row.
+Replace {name} with display_name or username, {code} with the coupon code.
+Match lead language: Arabic bio/comments → Arabic variant. English → English variant.
+
+ENGLISH VARIANTS (pick one at random):
+1. "Hey {name}! random thing but I have a code — {code} — for drsleeep if you ever want to try bamboo bedding 🎋"
+2. "{name} just search 'drsleeep' on Google, and if you end up ordering use {code} at checkout — gets you a nice discount 😊"
+3. "Hey {name}! not sure if you've heard of drsleeep but I have a promo code {code} — would be a waste not to share it 🌿"
+4. "{name} have you tried drsleeep? bamboo bedding, really good quality — code {code} gets you a discount if you ever check them out"
+5. "Hey {name}! been meaning to share this — code {code} works on drsleeep, just in case you're ever thinking of new bedding 🎋"
+
+ARABIC VARIANTS (pick one at random):
+1. "هاي {name}! معي كود خصم لـ دكتور النووم — {code} — لو حابة تجربي مفارش البامبو 🎋"
+2. "{name} ابحثي عن دكتور النووم على قوقل، وإذا طلبتي استخدمي كود {code} عند الدفع 😊"
+3. "هاي {name}! مش عارفة إذا سمعتي عن دكتور النووم بس معي كود {code} ما أبي أضيعه 🌿"
+4. "{name} جربتي مفارش البامبو؟ دكتور النووم ممتازين — كود {code} يعطيكِ خصم لو طلبتي منهم"
+5. "هاي {name}! بس أشارك — كود {code} يشتغل على دكتور النووم لو يوم من الأيام فكرتي تجددي مفارشك 🎋"
+
+CRITICAL RULES:
+- NEVER include a URL or website link — no drsleeep.ae, no links at all
+- NEVER say "the brand I work with" or any ambassador/affiliate language
+- 1-2 sentences max — sound like a friend sharing a tip, not a promotion
+- If they reply asking where to find it, THEN you can say "drsleeep.ae" naturally in the reply
 
 ━━━ PURCHASE INTENT SIGNALS ━━━
 If a lead's public comments, replies, or bio contain ANY of these words/phrases, they have high purchase
