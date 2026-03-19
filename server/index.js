@@ -3378,6 +3378,45 @@ app.get('/api/debug-claude', (req, res) => {
   res.json(results);
 });
 
+// ─── Direct Anthropic API key test (bypasses Claude CLI) ─────────────────────
+app.get('/api/test-api-key', async (req, res) => {
+  const config = loadConfig();
+  const key = config.anthropicApiKey;
+  if (!key) return res.json({ error: 'No API key configured' });
+  try {
+    const https = require('https');
+    const body = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Say HELLO' }],
+    });
+    const result = await new Promise((resolve, reject) => {
+      const req2 = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+      }, (r) => {
+        let data = '';
+        r.on('data', c => data += c);
+        r.on('end', () => resolve({ status: r.statusCode, body: data }));
+      });
+      req2.on('error', reject);
+      req2.write(body);
+      req2.end();
+    });
+    const parsed = (() => { try { return JSON.parse(result.body); } catch { return result.body; } })();
+    res.json({ httpStatus: result.status, response: parsed });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
+
 // ─── Proxy test ──────────────────────────────────────────────────────────────
 app.get('/api/clients/:id/proxy-test', requireLicense, async (req, res) => {
   const cDir = path.join(CLIENTS_DIR, req.params.id);
