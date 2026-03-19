@@ -2382,7 +2382,7 @@ Rules:
 }
 
 // ─── Run automation (SSE streaming) ───
-app.post('/api/clients/:id/run', requireLicense, (req, res) => {
+app.post('/api/clients/:id/run', requireLicense, async (req, res) => {
   const { command } = req.body;
   const clientDir = path.join(CLIENTS_DIR, req.params.id);
   if (!fs.existsSync(clientDir)) return res.status(404).json({ error: 'Client not found' });
