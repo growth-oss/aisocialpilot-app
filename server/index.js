@@ -227,33 +227,36 @@ async function checkGlobalBudget(config) {
   const spent = getGlobalTodayCost();
   const pct   = spent / globalBudget;
 
-  // Send alerts at 80% and 100%
+  // Send alerts at 80% and 100% via Resend (same account as daily reports)
+  const resendApiKey = process.env.RESEND_API_KEY || config.resendApiKey;
   for (const threshold of [0.8, 1.0]) {
-    if (pct >= threshold && alertEmail) {
+    if (pct >= threshold && alertEmail && resendApiKey) {
       const key = `global:${threshold}:${today}`;
       if (!sentAlerts.has(key)) {
         sentAlerts.add(key);
         const exceeded = threshold >= 1.0;
+        const fromAddr = config.dailyReportFrom || `AI Social Pilot <reports@adsbackup.com>`;
+        const subject  = exceeded
+          ? `[AI Social Pilot] 🛑 API Hard Stop — $${spent.toFixed(2)} cap reached`
+          : `[AI Social Pilot] ⚠️ API Budget 80% Warning — $${spent.toFixed(2)} of $${globalBudget.toFixed(2)}`;
+        const html = `<div style="font-family:sans-serif;max-width:480px">
+<h2 style="color:${exceeded ? '#e74c3c' : '#f39c12'}">${exceeded ? '🛑 Hard Stop Active' : '⚠️ Budget Warning'}</h2>
+<table style="width:100%;border-collapse:collapse;margin:12px 0">
+<tr><td style="padding:6px 0;color:#666">Daily cap</td><td style="font-weight:bold">$${globalBudget.toFixed(2)}</td></tr>
+<tr><td style="padding:6px 0;color:#666">Spent today</td><td style="font-weight:bold;color:${exceeded ? '#e74c3c' : '#f39c12'}">$${spent.toFixed(3)} (${Math.round(pct * 100)}%)</td></tr>
+<tr><td style="padding:6px 0;color:#666">Remaining</td><td style="font-weight:bold">$${Math.max(0, globalBudget - spent).toFixed(3)}</td></tr>
+</table>
+<p style="color:#333">${exceeded
+  ? `<strong>All automation runs are blocked until midnight UTC.</strong><br>No further API spend will occur until the cap resets.<br><br>To resume immediately: increase the Global Daily Cap in Settings.`
+  : `Automation will hard-stop when cap is reached.<br>$${(globalBudget - spent).toFixed(3)} remaining today.`
+}</p>
+<a href="https://aisocialpilot-app-production.up.railway.app/" style="display:inline-block;margin-top:8px;padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px">Open Dashboard</a>
+</div>`;
         try {
-          await sendEmail(config, {
-            to: alertEmail,
-            subject: `[AI Social Pilot] Global API Budget ${exceeded ? 'HARD STOP' : 'Warning 80%'} — $${spent.toFixed(2)} of $${globalBudget.toFixed(2)} used`,
-            text: [
-              `Global API Cost Alert`,
-              ``,
-              `Daily cap:   $${globalBudget.toFixed(2)}`,
-              `Spent today: $${spent.toFixed(2)} (${Math.round(pct * 100)}%)`,
-              ``,
-              exceeded
-                ? `HARD STOP is now in effect. All automation runs are blocked until midnight UTC.\nNo further API spend will occur until the cap resets.\n\nTo resume immediately: increase the Global Daily Cap in Settings, or wait until midnight UTC.`
-                : `Warning: 80% of your daily cap consumed. Automation will hard-stop at 100%.\n$${(globalBudget - spent).toFixed(2)} remaining today.`,
-              ``,
-              `Manage at: https://aisocialpilot-app-production.up.railway.app/`,
-            ].join('\n'),
-          });
+          await sendResendEmail({ apiKey: resendApiKey, from: fromAddr, to: alertEmail, subject, html });
           console.log(`[global-budget] Alert sent to ${alertEmail} at ${Math.round(pct * 100)}% ($${spent.toFixed(3)}/$${globalBudget})`);
         } catch (e) {
-          console.error('[global-budget] Email failed:', e.message);
+          console.error('[global-budget] Resend failed:', e.message);
         }
       }
     }
