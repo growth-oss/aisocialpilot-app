@@ -981,6 +981,25 @@ function renderSettings() {
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="card-title">🔒 Global API Spend Cap</div>
+      <div class="card-desc">Hard stop across ALL clients and all runs. Sends email at 80% warning and 100% hard stop. Resets midnight UTC. Set to 0 to disable.</div>
+      <div class="field-row">
+        <div class="field" style="max-width:160px">
+          <label>Daily Cap (USD)</label>
+          <input type="number" id="s-global-budget" placeholder="5.00" min="0" step="0.50">
+        </div>
+        <div class="field">
+          <label>Alert Email</label>
+          <input type="email" id="s-global-email" placeholder="you@example.com" spellcheck="false">
+        </div>
+      </div>
+      <div id="s-global-status" style="font-size:13px;color:var(--text-muted);margin:4px 0 8px"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="card-title">✉️ Email Alerts (SMTP)</div>
       <div class="card-desc">Used to send budget threshold alerts. Works with Gmail, Outlook, Postmark, or any SMTP provider.</div>
       <div class="field-row">
@@ -1107,6 +1126,15 @@ async function populateSettings() {
   [...selOM.options].forEach(o => { if (o.value === s.openaiModel) o.selected = true; });
   const selProv = document.getElementById('s-ai-provider');
   [...selProv.options].forEach(o => { if (o.value === s.aiProvider) o.selected = true; });
+  // Global spend cap fields
+  if (s.global_daily_budget_usd) document.getElementById('s-global-budget').value = s.global_daily_budget_usd;
+  if (s.global_alert_email)      document.getElementById('s-global-email').value  = s.global_alert_email;
+  if (s.global_daily_budget_usd > 0) {
+    const pct = s.globalTodayCost / s.global_daily_budget_usd * 100;
+    const color = pct >= 100 ? '#e74c3c' : pct >= 80 ? '#f39c12' : '#27ae60';
+    document.getElementById('s-global-status').innerHTML =
+      `Today: <strong style="color:${color}">$${s.globalTodayCost.toFixed(3)}</strong> of $${s.global_daily_budget_usd.toFixed(2)} cap (${Math.round(pct)}%)${pct >= 100 ? ' — <strong style="color:#e74c3c">HARD STOP ACTIVE</strong>' : ''}`;
+  }
   // SMTP fields
   if (s.smtpHost)  document.getElementById('s-smtp-host').value = s.smtpHost;
   if (s.smtpPort)  document.getElementById('s-smtp-port').value = s.smtpPort;
@@ -1150,10 +1178,14 @@ async function saveSettings() {
   const dailyReportEmail = document.getElementById('s-report-email').value.trim();
   const dailyReportFrom  = document.getElementById('s-report-from').value.trim();
 
+  const globalBudget = parseFloat(document.getElementById('s-global-budget').value) || 0;
+  const globalEmail  = document.getElementById('s-global-email').value.trim();
+
   // POST to /setup — it requires anthropicApiKey, so send placeholder if keeping existing
   const body = { anthropicModel, openaiModel, aiProvider,
     smtpHost, smtpPort, smtpUser, smtpFrom,
-    dailyReportEmail, dailyReportFrom };
+    dailyReportEmail, dailyReportFrom,
+    global_daily_budget_usd: globalBudget, global_alert_email: globalEmail };
   if (smtpPass) body.smtpPass = smtpPass; // only send if changed (field is empty by default)
   if (anthropicKey) body.anthropicApiKey = anthropicKey;
   else body.keepAnthropicKey = true;

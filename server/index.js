@@ -146,6 +146,22 @@ function getTodayCost(clientId) {
     .reduce((s, r) => s + r.cost_usd, 0);
 }
 
+function getGlobalTodayCost() {
+  const today = new Date().toISOString().slice(0, 10);
+  let total = 0;
+  try {
+    const dirs = fs.readdirSync(CLIENTS_DIR);
+    for (const d of dirs) {
+      const runsFile = path.join(CLIENTS_DIR, d, 'logs', 'runs.json');
+      if (!fs.existsSync(runsFile)) continue;
+      const runs = JSON.parse(fs.readFileSync(runsFile, 'utf8') || '[]');
+      total += runs.filter(r => r.cost_usd > 0 && r.startedAt?.slice(0, 10) === today)
+                   .reduce((s, r) => s + r.cost_usd, 0);
+    }
+  } catch {}
+  return total;
+}
+
 // ─── Budget alerts ────────────────────────────────────────────────────────────
 const sentAlerts = new Set(); // "clientId:threshold:YYYY-MM-DD"
 
@@ -200,6 +216,50 @@ async function checkAndSendBudgetAlert(config, clientConfig) {
       }
     }
   }
+}
+
+async function checkGlobalBudget(config) {
+  const globalBudget = parseFloat(config.global_daily_budget_usd);
+  const alertEmail   = config.global_alert_email || config.dailyReportEmail;
+  if (!globalBudget || globalBudget <= 0) return { blocked: false };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const spent = getGlobalTodayCost();
+  const pct   = spent / globalBudget;
+
+  // Send alerts at 80% and 100%
+  for (const threshold of [0.8, 1.0]) {
+    if (pct >= threshold && alertEmail) {
+      const key = `global:${threshold}:${today}`;
+      if (!sentAlerts.has(key)) {
+        sentAlerts.add(key);
+        const exceeded = threshold >= 1.0;
+        try {
+          await sendEmail(config, {
+            to: alertEmail,
+            subject: `[AI Social Pilot] Global API Budget ${exceeded ? 'HARD STOP' : 'Warning 80%'} — $${spent.toFixed(2)} of $${globalBudget.toFixed(2)} used`,
+            text: [
+              `Global API Cost Alert`,
+              ``,
+              `Daily cap:   $${globalBudget.toFixed(2)}`,
+              `Spent today: $${spent.toFixed(2)} (${Math.round(pct * 100)}%)`,
+              ``,
+              exceeded
+                ? `HARD STOP is now in effect. All automation runs are blocked until midnight UTC.\nNo further API spend will occur until the cap resets.\n\nTo resume immediately: increase the Global Daily Cap in Settings, or wait until midnight UTC.`
+                : `Warning: 80% of your daily cap consumed. Automation will hard-stop at 100%.\n$${(globalBudget - spent).toFixed(2)} remaining today.`,
+              ``,
+              `Manage at: https://aisocialpilot-app-production.up.railway.app/`,
+            ].join('\n'),
+          });
+          console.log(`[global-budget] Alert sent to ${alertEmail} at ${Math.round(pct * 100)}% ($${spent.toFixed(3)}/$${globalBudget})`);
+        } catch (e) {
+          console.error('[global-budget] Email failed:', e.message);
+        }
+      }
+    }
+  }
+
+  return { blocked: pct >= 1.0, spent, globalBudget, pct };
 }
 
 const PLATFORM_URLS = {
@@ -407,7 +467,8 @@ app.post('/api/setup', async (req, res) => {
   const { anthropicApiKey, openaiApiKey, keepAnthropicKey, aiProvider, anthropicModel, openaiModel,
           geminiApiKey, keepGeminiKey,
           smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom,
-          resendApiKey, keepResendKey, dailyReportEmail, dailyReportFrom } = req.body;
+          resendApiKey, keepResendKey, dailyReportEmail, dailyReportFrom,
+          global_daily_budget_usd, global_alert_email } = req.body;
   const config = loadConfig();
 
   // Allow updating without re-entering existing key (Settings page flow)
@@ -435,6 +496,8 @@ app.post('/api/setup', async (req, res) => {
   if (resolvedResendKey) config.resendApiKey = resolvedResendKey;
   if (dailyReportEmail) config.dailyReportEmail = dailyReportEmail;
   if (dailyReportFrom)  config.dailyReportFrom  = dailyReportFrom;
+  if (global_daily_budget_usd !== undefined) config.global_daily_budget_usd = parseFloat(global_daily_budget_usd) || 0;
+  if (global_alert_email !== undefined)      config.global_alert_email      = global_alert_email;
 
   config.setupComplete = true;
   saveConfig(config);
@@ -469,6 +532,9 @@ app.get('/api/settings', requireLicense, (req, res) => {
     resendApiKeyMasked: mask(config.resendApiKey),
     dailyReportEmail: config.dailyReportEmail || process.env.DAILY_REPORT_EMAIL || '',
     dailyReportFrom:  config.dailyReportFrom  || process.env.DAILY_REPORT_FROM  || '',
+    global_daily_budget_usd: config.global_daily_budget_usd || 0,
+    global_alert_email:      config.global_alert_email      || '',
+    globalTodayCost: getGlobalTodayCost(),
   });
 });
 
@@ -1591,9 +1657,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     ...process.env,
     ANTHROPIC_API_KEY: config.anthropicApiKey,
     // Browser-heavy commands need a stronger model; text-only can use the configured (cheaper) model
-    ANTHROPIC_MODEL: ['leadgen', 'outreach', 'reply-instagram', 'reply-tiktok'].includes(command) || command.startsWith('precision-post')
-      ? 'claude-sonnet-4-6'
-      : (config.anthropicModel || 'claude-haiku-4-5-20251001'),
+    ANTHROPIC_MODEL: config.anthropicModel || 'claude-haiku-4-5-20251001',
     SOCIALPILOT_PROXY: clientConfig.proxy?.url || '',
     EXPECTED_GEO: clientConfig.proxy?.geo || '',
     CLIENT_ID: clientConfig.clientId,
@@ -2331,7 +2395,15 @@ app.post('/api/clients/:id/run', requireLicense, (req, res) => {
     return res.status(400).json({ error: 'Anthropic API key not configured. Complete setup first.' });
   }
 
-  // Budget check — block if daily budget exceeded
+  // Global hard cap check — blocks ALL runs when global daily budget is exceeded
+  const globalCheck = await checkGlobalBudget(config);
+  if (globalCheck.blocked) {
+    return res.status(429).json({
+      error: `Global daily API cap of $${globalCheck.globalBudget.toFixed(2)} reached ($${globalCheck.spent.toFixed(3)} spent today). Hard stop in effect — resets at midnight UTC.`,
+    });
+  }
+
+  // Per-client budget check — block if daily budget exceeded
   const budget = parseFloat(clientConfig.daily_budget_usd);
   if (budget > 0) {
     const spent = getTodayCost(clientConfig.clientId);
@@ -2480,6 +2552,13 @@ setInterval(() => {
         const alreadyRunning = [...runningProcesses.values()].some(e => e.clientId === client.clientId);
         if (alreadyRunning) {
           console.log(`[scheduler] Skipping ${triggerKey} — run already in progress`);
+          continue;
+        }
+
+        // Global hard cap — skip scheduled run if daily budget exceeded
+        const globalCapCheck = await checkGlobalBudget(config);
+        if (globalCapCheck.blocked) {
+          console.log(`[scheduler] Skipping ${triggerKey} — global daily cap of $${globalCapCheck.globalBudget} reached ($${globalCapCheck.spent.toFixed(3)} spent)`);
           continue;
         }
 
