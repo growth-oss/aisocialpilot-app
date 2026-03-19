@@ -12,9 +12,10 @@ function readJson(filePath, fallback) {
 }
 
 function buildLeadGenPrompt(clientConfig, dataDir) {
-  const clientId  = clientConfig.clientId;
-  const clientDir = path.join(dataDir, 'clients', clientId);
-  const lgDir     = path.join(clientDir, 'leadgen');
+  const clientId   = clientConfig.clientId;
+  const clientDir  = path.join(dataDir, 'clients', clientId);
+  const lgDir      = path.join(clientDir, 'leadgen');
+  const serverPort = process.env.PORT || 3000;
 
   // Read all leadgen config
   const cfg      = readJson(path.join(lgDir, 'leadgen-config.json'), {});
@@ -464,13 +465,13 @@ Instead use these curl calls to the local server — each call touches only the 
 NODE.JS SCRIPTS: Never use fetch() — it is not available. Use curl via child_process.execSync() or
 the built-in https module. Curl is always available and is the preferred approach.
 
-BASE_URL = http://127.0.0.1:${PORT}   ← use the PORT env var, NOT hardcoded 3000
+BASE_URL = http://127.0.0.1:${serverPort}   ← use the PORT env var, NOT hardcoded 3000
 CLIENT_ID = ${clientId}
 
 ── PHASE A (scraping) — add or update one lead at a time ──
 POST ${leadsJsonPath.replace(/\/leadgen\/leads\.json$/, '')}  ← DO NOT USE
 Use API instead:
-  curl -s -X POST "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads" \\
+  curl -s -X POST "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads" \\
        -H "Content-Type: application/json" \\
        -d '{"platform":"instagram","username":"handle","display_name":"Name",
             "follower_count":5000,"following_count":800,"bio_snippet":"...",
@@ -482,32 +483,32 @@ Use API instead:
 
 ── PHASE B (pipeline) — get only the leads you need ──
   # Get stage-3 Instagram leads with score≥60, top 20 by score:
-  curl -s "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads?platform=instagram&stage=3&minScore=60&limit=20"
+  curl -s "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads?platform=instagram&stage=3&minScore=60&limit=20"
 
   # Get all hot leads not yet DM'd:
-  curl -s "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads?stage=0&minScore=70&limit=20"
+  curl -s "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads?stage=0&minScore=70&limit=20"
 
   # Get pipeline overview (counts by stage, maxId, hot leads):
-  curl -s "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/stats"
+  curl -s "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/stats"
 
   # After each engagement action — update just that one lead:
-  curl -s -X PATCH "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads/by-username" \\
+  curl -s -X PATCH "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads/by-username" \\
        -H "Content-Type: application/json" \\
        -d '{"platform":"instagram","username":"handle","engagement_stage":4,
             "last_engaged_at":"2026-03-18T10:00:00.000Z","notes":"commented on beach post"}'
 
 ── PHASE C (coupons) — get only uncouponed leads ──
   # Stage-6 leads with no coupon yet, score≥60:
-  curl -s "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads?stage=6&coupon_referenced=0&minScore=60&limit=20"
+  curl -s "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads?stage=6&coupon_referenced=0&minScore=60&limit=20"
 
   # After sending coupon DM:
-  curl -s -X PATCH "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads/by-username" \\
+  curl -s -X PATCH "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads/by-username" \\
        -H "Content-Type: application/json" \\
        -d '{"platform":"instagram","username":"handle","coupon_referenced":1,"coupon_code":"MyCode30",
             "engagement_stage":6}'
 
   # Check if a username already exists before scraping their profile (optional — upsert handles it):
-  curl -s "http://127.0.0.1:${PORT}/api/clients/${clientId}/leadgen/leads?platform=instagram&username=handle&limit=1"
+  curl -s "http://127.0.0.1:${serverPort}/api/clients/${clientId}/leadgen/leads?platform=instagram&username=handle&limit=1"
 
 outreach-log.ndjson — APPEND only. One JSON object per line. Never rewrite this file.
 Write one line immediately after each action (success or failure):
