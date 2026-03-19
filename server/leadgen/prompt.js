@@ -560,6 +560,20 @@ If that times out, try without the proxy to confirm internet works:
 
 Do NOT use whatismyip.com or any browser-based geo check — they are slow and unreliable in headless mode.` : 'No proxy configured — skip geo check.'}
 
+━━━ CRITICAL: SEQUENTIAL EXECUTION ONLY ━━━
+NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
+The Instagram session directory is a singleton — concurrent access causes ProfileSingleton lock errors that block all subsequent tasks.
+
+Correct order:
+1. Run YouTube scraper (separate browser, no lock conflict) → wait for it to finish completely
+2. Run Instagram scraping → wait to finish completely
+3. Run Phase B pipeline → wait to finish completely
+4. Run Phase C coupons → wait to finish completely
+
+If you see "SingletonLock" or "ProfileSingleton" error:
+  rm -f ${clientDir}/browser-sessions/instagram/SingletonLock
+  Then retry ONCE. If it fails again, skip that task and move on.
+
 ━━━ WORKFLOW ━━━
 
 **PHASE A — SCRAPE NEW TARGETS (MULTI-SOURCE)**
