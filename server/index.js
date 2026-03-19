@@ -3556,7 +3556,7 @@ app.put('/api/clients/:id/leadgen/config', requireLicense, (req, res) => {
 });
 
 // GET /api/clients/:id/leadgen/stats
-app.get('/api/clients/:id/leadgen/stats', requireLicense, (req, res) => {
+app.get('/api/clients/:id/leadgen/stats', (req, res) => {
   const cDir = clientDir(req.params.id);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
   try {
@@ -3567,7 +3567,7 @@ app.get('/api/clients/:id/leadgen/stats', requireLicense, (req, res) => {
 });
 
 // GET /api/clients/:id/leadgen/leads?platform=&stage=&minScore=&converted=&limit=&offset=
-app.get('/api/clients/:id/leadgen/leads', requireLicense, (req, res) => {
+app.get('/api/clients/:id/leadgen/leads', (req, res) => {
   const cDir = clientDir(req.params.id);
   if (!fs.existsSync(cDir)) return res.status(404).json({ error: 'Client not found' });
 
