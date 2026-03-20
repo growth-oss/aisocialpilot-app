@@ -568,17 +568,23 @@ Do NOT use whatismyip.com or any browser-based geo check — they are slow and u
 NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
 The Instagram session directory is a singleton — concurrent access causes ProfileSingleton lock errors that block all subsequent tasks.
 
-Correct order:
-1. Run YouTube scraper (separate browser, no lock conflict) → wait for it to finish completely
-2. Run Instagram scraping → wait to finish completely
-3. Run Phase B pipeline → wait to finish completely
-4. Run Phase C coupons → wait to finish completely
+Correct order — PHASE B AND C MUST RUN FIRST:
+1. Run Phase B pipeline (DMs/comments to stage 3-4 leads) → wait to finish completely
+2. Run Phase C coupons (stage 6 leads) → wait to finish completely
+3. Run YouTube scraper (separate browser, no lock conflict) → wait for it to finish completely
+4. Run Instagram scraping → wait to finish completely
+
+**REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
+If time runs short, scraping is skipped — DMs/coupons are NEVER skipped.
 
 If you see "SingletonLock" or "ProfileSingleton" error:
   rm -f ${clientDir}/browser-sessions/instagram/SingletonLock
   Then retry ONCE. If it fails again, skip that task and move on.
 
 ━━━ WORKFLOW ━━━
+
+⚡ START HERE — RUN PHASE B AND C BEFORE ANY SCRAPING ⚡
+Jump to PHASE B section below. Only run PHASE A after B and C complete.
 
 **PHASE A — SCRAPE NEW TARGETS (MULTI-SOURCE)**
 Process sources in TIER ORDER — highest value first:
@@ -727,7 +733,7 @@ For each discovered username (regardless of source type):
    i. If score < ${cfg.thresholds?.min_score_to_engage || 20}: skip (do not add to leads.json)
    j. POST to the leads API immediately — one curl call per lead (no batching, no file writes).
 
-**PHASE B — WORK THE PIPELINE**
+**PHASE B — WORK THE PIPELINE** ← START HERE FIRST
 Use the API to fetch leads — never read leads.json. Fetch each priority group separately with filters.
 Process in this priority order:
 Priority 0: Ad-sourced UAE leads (source_type = "competitor_ad_commenter") → advance as far as possible. These are geo-confirmed buyers.
