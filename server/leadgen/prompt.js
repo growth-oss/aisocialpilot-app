@@ -578,18 +578,23 @@ PRE-BUILT SCRIPTS (call with node, inject env vars inline):
   YouTube scraping (already pre-built, call as before):
     node /app/server/scripts/scrape-youtube.js
 
+  YouTube commenting (pre-built — run this every session to build visibility):
+    GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} KEYWORDS='${JSON.stringify((cfg.niche_keywords || []).slice(0, 6))}' MAX_COMMENTS=8 MAX_VIDEOS_PER_KW=3 OUTREACH_LOG=${logNdjsonPath} COMMENT_LOG=${clientDir}/leadgen/youtube-comment-log.json IS_AMBASSADOR=${isAmbassador ? '1' : '0'} node /app/server/scripts/youtube-comment.js
+
 Only write a custom /tmp script if you need to do something these scripts cannot handle.
-NEVER write scripts for Phase B or C — they are handled above.
+NEVER write scripts for Phase B, C, or YouTube commenting — they are handled above.
 
 ━━━ CRITICAL: SEQUENTIAL EXECUTION ONLY ━━━
 NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
 The Instagram session directory is a singleton — concurrent access causes ProfileSingleton lock errors that block all subsequent tasks.
+YouTube scripts use the Google session dir (separate from Instagram — no conflict).
 
 Correct order — PHASE B AND C MUST RUN FIRST:
 1. Run phase-b-pipeline.js (DMs/comments to stage 3-4 leads) → wait to finish completely
 2. Run phase-c-coupons.js (stage 6 leads) → wait to finish completely
-3. Run scrape-youtube.js (separate browser, no lock conflict) → wait for it to finish completely
-4. Run Instagram scraping → wait to finish completely
+3. Run youtube-comment.js (Google session, no proxy needed) → wait to finish completely
+4. Run scrape-youtube.js (YouTube scraping) → wait for it to finish completely
+5. Run Instagram scraping → wait to finish completely
 
 **REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
 If time runs short, scraping is skipped — DMs/coupons are NEVER skipped.
