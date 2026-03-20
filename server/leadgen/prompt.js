@@ -564,14 +564,31 @@ If that times out, try without the proxy to confirm internet works:
 
 Do NOT use whatismyip.com or any browser-based geo check — they are slow and unreliable in headless mode.` : 'No proxy configured — skip geo check.'}
 
+━━━ CRITICAL: USE PRE-BUILT SCRIPTS — DO NOT WRITE NEW ONES ━━━
+The following scripts already exist and are version-controlled. NEVER write Phase B or C from scratch.
+Calling these scripts saves cost and time — just set the env vars and run them.
+
+PRE-BUILT SCRIPTS (call with node, inject env vars inline):
+  Phase B (pipeline DMs/comments):
+    BASE_URL=http://127.0.0.1:${serverPort} CLIENT_ID=${clientId} SESSION_DIR=${clientDir}/browser-sessions/instagram PROXY="$SOCIALPILOT_PROXY" MAX_DMS=${maxDMs} MAX_COMMENTS=${maxDMs} COOLDOWN_HOURS=${cfg.pipeline?.cooldown_between_engagements_hours ?? 48} DM_FOLLOWBACK_DAYS=${cfg.pipeline?.dm_followback_wait_days ?? 3} DM_SCORE_THRESHOLD=${cfg.thresholds?.min_score_for_dm || 60} COMMENT_SCORE_THRESHOLD=${cfg.thresholds?.min_score_for_comment || 40} OUTREACH_LOG=${logNdjsonPath} IS_AMBASSADOR=${isAmbassador ? '1' : '0'} WHATSAPP_LINK="${cfg.brand?.whatsapp_link || ''}" node /app/server/scripts/phase-b-pipeline.js
+
+  Phase C (coupon DMs):
+    BASE_URL=http://127.0.0.1:${serverPort} CLIENT_ID=${clientId} SESSION_DIR=${clientDir}/browser-sessions/instagram PROXY="$SOCIALPILOT_PROXY" MAX_DMS=${maxDMs} COOLDOWN_HOURS=${cfg.pipeline?.cooldown_between_engagements_hours ?? 48} MIN_SCORE=${cfg.thresholds?.min_score_for_coupon || 70} COUPONS='${JSON.stringify(activeCoupons)}' OUTREACH_LOG=${logNdjsonPath} IS_AMBASSADOR=${isAmbassador ? '1' : '0'} node /app/server/scripts/phase-c-coupons.js
+
+  YouTube scraping (already pre-built, call as before):
+    node /app/server/scripts/scrape-youtube.js
+
+Only write a custom /tmp script if you need to do something these scripts cannot handle.
+NEVER write scripts for Phase B or C — they are handled above.
+
 ━━━ CRITICAL: SEQUENTIAL EXECUTION ONLY ━━━
 NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
 The Instagram session directory is a singleton — concurrent access causes ProfileSingleton lock errors that block all subsequent tasks.
 
 Correct order — PHASE B AND C MUST RUN FIRST:
-1. Run Phase B pipeline (DMs/comments to stage 3-4 leads) → wait to finish completely
-2. Run Phase C coupons (stage 6 leads) → wait to finish completely
-3. Run YouTube scraper (separate browser, no lock conflict) → wait for it to finish completely
+1. Run phase-b-pipeline.js (DMs/comments to stage 3-4 leads) → wait to finish completely
+2. Run phase-c-coupons.js (stage 6 leads) → wait to finish completely
+3. Run scrape-youtube.js (separate browser, no lock conflict) → wait for it to finish completely
 4. Run Instagram scraping → wait to finish completely
 
 **REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
