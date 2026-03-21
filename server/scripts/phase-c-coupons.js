@@ -187,10 +187,10 @@ async function fetchLeads(params) {
       }
     }
 
-    const coupon = pickCoupon(lead.lead_score || 0);
+    const coupon = pickCoupon(lead.total_score || lead.lead_score || 0);
     if (!coupon) continue;
 
-    const name = lead.name?.split(' ')[0] || lead.username;
+    const name = (lead.display_name || lead.name || lead.username || '').split(' ')[0] || lead.username;
     const isAr = !!(lead.notes?.includes('Arabic') || lead.notes?.includes('arabic') || lead.bio_snippet?.match(/[ا-ي]/));
     const msg = getTemplate(isAr, name, coupon.code);
 

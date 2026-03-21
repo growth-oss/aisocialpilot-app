@@ -132,6 +132,21 @@ function markCommented(videoUrl, comment) {
   saveCommentLog();
 }
 
+// Videos to skip — music, ASMR, nature sounds, unrelated content
+const TITLE_BLACKLIST = [
+  'music video', 'official video', 'lyric video', 'lyrics', 'official audio',
+  'white noise', 'brown noise', 'rain sounds', 'nature sounds', 'asmr',
+  'water fountain', 'waterfall', 'ocean sounds', 'forest sounds', 'sleep sounds',
+  'relaxing music', 'meditation music', 'lo-fi', 'lofi', 'ambient music',
+  'sleep music', 'sleepcast', 'headspace', 'calm app',
+  'these days', 'much has been said', 'official music',
+];
+
+function isBadVideo(title) {
+  const t = title.toLowerCase();
+  return TITLE_BLACKLIST.some(b => t.includes(b));
+}
+
 // Detect if keyword/video context warrants Arabic comment
 function shouldUseArabic(keyword, title) {
   const arSignals = ['uae', 'dubai', 'saudi', 'arab', 'gulf', 'خليج', 'دبي', 'السعودية', 'إمارات', 'مرتبة', 'نوم'];
@@ -190,6 +205,10 @@ function shouldUseArabic(keyword, title) {
         if (posted >= MAX_COMMENTS || kwComments >= MAX_VIDEOS_PER_KW) break;
         if (alreadyCommented(video.url)) {
           console.log(`[yt-comment] Already commented on: ${video.title.slice(0, 50)}`);
+          continue;
+        }
+        if (isBadVideo(video.title)) {
+          console.log(`[yt-comment] Skip (music/ASMR/unrelated): ${video.title.slice(0, 60)}`);
           continue;
         }
 

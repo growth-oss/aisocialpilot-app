@@ -1,138 +1,188 @@
 #!/usr/bin/env node
 /**
- * phase-b-pipeline.js — Instagram pipeline advancement (follows, comments, DMs).
- *
+ * phase-b-pipeline.js — Instagram pipeline advancement (comments + DMs).
  * NEVER write this script from a Claude run — it is version-controlled.
- * Claude should call it with: node /app/server/scripts/phase-b-pipeline.js
+ * Call: node /app/server/scripts/phase-b-pipeline.js
  *
- * Required env vars:
- *   BASE_URL      — http://127.0.0.1:<PORT>
- *   CLIENT_ID     — client identifier
- *   SESSION_DIR   — Instagram browser session path
- *
- * Optional env vars:
- *   PROXY                — proxy URL (http://user:pass@host:port)
- *   MAX_LEADS            — max leads to process (default: 20)
- *   MAX_FOLLOWS          — max follows this session (default: 10)
- *   MAX_DMS              — max DMs this session (default: 8)
- *   MAX_COMMENTS         — max comments this session (default: 10)
- *   COOLDOWN_HOURS       — hours between touching same lead (default: 48)
- *   DM_FOLLOWBACK_DAYS   — days to wait after follow before DMing (default: 3)
- *   DELAY_MIN            — min ms between actions (default: 3000)
- *   DELAY_MAX            — max ms between actions (default: 8000)
- *   OUTREACH_LOG         — path to outreach-log.ndjson
- *   DM_SCORE_THRESHOLD   — min score to send DM (default: 60)
- *   COMMENT_SCORE_THRESHOLD — min score to comment (default: 40)
- *   BRAND_VOICE          — short brand voice string for DM opener style
- *   IS_AMBASSADOR        — "1" if ambassador account mode
- *   WHATSAPP_LINK        — WhatsApp link for pivot
+ * Required: BASE_URL, CLIENT_ID, SESSION_DIR
+ * Optional: PROXY, MAX_LEADS, MAX_DMS, MAX_COMMENTS, COOLDOWN_HOURS,
+ *           DM_FOLLOWBACK_DAYS, DELAY_MIN, DELAY_MAX, OUTREACH_LOG,
+ *           DM_SCORE_THRESHOLD, COMMENT_SCORE_THRESHOLD, IS_AMBASSADOR
  */
-
 'use strict';
 
 const { chromium } = require('playwright');
-const fs           = require('fs');
-const path         = require('path');
-const https        = require('https');
-const http         = require('http');
+const fs    = require('fs');
+const https = require('https');
+const http  = require('http');
 
-// ── Env vars ──────────────────────────────────────────────────────────────────
-const BASE_URL          = process.env.BASE_URL || 'http://127.0.0.1:3000';
-const CLIENT_ID         = process.env.CLIENT_ID || '';
-const SESSION_DIR       = process.env.SESSION_DIR || '';
-const PROXY             = process.env.PROXY || process.env.SOCIALPILOT_PROXY || '';
-const MAX_LEADS         = parseInt(process.env.MAX_LEADS || '20', 10);
-const MAX_FOLLOWS       = parseInt(process.env.MAX_FOLLOWS || '10', 10);
-const MAX_DMS           = parseInt(process.env.MAX_DMS || '8', 10);
-const MAX_COMMENTS      = parseInt(process.env.MAX_COMMENTS || '10', 10);
-const COOLDOWN_HOURS    = parseInt(process.env.COOLDOWN_HOURS || '48', 10);
-const DM_FOLLOWBACK_DAYS = parseInt(process.env.DM_FOLLOWBACK_DAYS || '3', 10);
-const DELAY_MIN         = parseInt(process.env.DELAY_MIN || '3000', 10);
-const DELAY_MAX         = parseInt(process.env.DELAY_MAX || '8000', 10);
-const OUTREACH_LOG      = process.env.OUTREACH_LOG || '';
-const DM_SCORE          = parseInt(process.env.DM_SCORE_THRESHOLD || '60', 10);
-const COMMENT_SCORE     = parseInt(process.env.COMMENT_SCORE_THRESHOLD || '40', 10);
-const IS_AMBASSADOR     = process.env.IS_AMBASSADOR === '1';
-const WHATSAPP_LINK     = process.env.WHATSAPP_LINK || '';
+const BASE_URL           = process.env.BASE_URL || 'http://127.0.0.1:3000';
+const CLIENT_ID          = process.env.CLIENT_ID || '';
+const SESSION_DIR        = process.env.SESSION_DIR || '';
+const PROXY              = process.env.PROXY || process.env.SOCIALPILOT_PROXY || '';
+const MAX_LEADS          = parseInt(process.env.MAX_LEADS  || '20', 10);
+const MAX_DMS            = parseInt(process.env.MAX_DMS    || '8',  10);
+const MAX_COMMENTS       = parseInt(process.env.MAX_COMMENTS || '10', 10);
+const COOLDOWN_HOURS     = parseInt(process.env.COOLDOWN_HOURS || '0', 10);
+const DM_FOLLOWBACK_DAYS = parseInt(process.env.DM_FOLLOWBACK_DAYS || '1', 10);
+const DELAY_MIN          = parseInt(process.env.DELAY_MIN  || '3000', 10);
+const DELAY_MAX          = parseInt(process.env.DELAY_MAX  || '8000', 10);
+const OUTREACH_LOG       = process.env.OUTREACH_LOG || '';
+const DM_SCORE           = parseInt(process.env.DM_SCORE_THRESHOLD     || '50', 10);
+const COMMENT_SCORE      = parseInt(process.env.COMMENT_SCORE_THRESHOLD || '40', 10);
+const IS_AMBASSADOR      = process.env.IS_AMBASSADOR === '1';
 
 if (!CLIENT_ID || !SESSION_DIR) {
-  console.error('[phase-b] ERROR: CLIENT_ID and SESSION_DIR are required');
-  process.exit(1);
+  console.error('[phase-b] ERROR: CLIENT_ID and SESSION_DIR required'); process.exit(1);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const delay = (ms) => new Promise(r => setTimeout(r, ms));
-const randDelay = () => delay(DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN));
-const profileDelay = () => delay(30000 + Math.random() * 60000);
+const delay       = ms => new Promise(r => setTimeout(r, ms));
+const randAction  = () => delay(DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN));
+const randProfile = () => delay(25000 + Math.random() * 35000);
 
-function apiCall(method, path, body) {
+function apiCall(method, urlPath, body) {
   return new Promise((resolve, reject) => {
-    const url = new URL(BASE_URL + path);
-    const opts = {
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname + url.search,
-      method,
-      headers: { 'Content-Type': 'application/json' }
-    };
+    const url = new URL(BASE_URL + urlPath);
     const lib = url.protocol === 'https:' ? https : http;
-    const req = lib.request(opts, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { resolve(data); }
-      });
-    });
+    const opts = { hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname + url.search, method, headers: { 'Content-Type': 'application/json' } };
+    const req = lib.request(opts, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(d); } }); });
     req.on('error', reject);
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
 }
 
-function logOutreach(entry) {
-  if (!OUTREACH_LOG) return;
-  try {
-    fs.appendFileSync(OUTREACH_LOG, JSON.stringify({ ...entry, timestamp: new Date().toISOString() }) + '\n');
-  } catch (e) { /* ignore */ }
-}
-
 function patchLead(username, updates) {
-  return apiCall('PATCH', `/api/clients/${CLIENT_ID}/leadgen/leads/by-username`, {
-    username,
-    ...updates,
-    updated_at: new Date().toISOString()
-  });
+  return apiCall('PATCH', `/api/clients/${CLIENT_ID}/leadgen/leads/by-username`, { username, ...updates, updated_at: new Date().toISOString() });
 }
 
 async function fetchLeads(params) {
   const qs = new URLSearchParams(params).toString();
-  const result = await apiCall('GET', `/api/clients/${CLIENT_ID}/leadgen/leads?${qs}`);
-  return Array.isArray(result) ? result : (result.leads || []);
+  const r = await apiCall('GET', `/api/clients/${CLIENT_ID}/leadgen/leads?${qs}`);
+  return Array.isArray(r) ? r : (r.leads || []);
 }
+
+function logOutreach(entry) {
+  if (!OUTREACH_LOG) return;
+  try { fs.appendFileSync(OUTREACH_LOG, JSON.stringify({ ...entry, timestamp: new Date().toISOString() }) + '\n'); } catch {}
+}
+
+function getScore(lead)  { return lead.total_score || lead.lead_score || 0; }
+function getName(lead)   { return (lead.display_name || lead.name || lead.username || '').split(' ')[0] || lead.username; }
+function isArabic(lead)  { return /[ا-ي]/.test(lead.bio_snippet || '') || (lead.notes || '').includes('arabic') || (lead.notes || '').includes('Arabic'); }
 
 function isOnCooldown(lead) {
-  if (!lead.last_engaged_at) return false;
-  const hours = (Date.now() - new Date(lead.last_engaged_at).getTime()) / 3600000;
-  return hours < COOLDOWN_HOURS;
+  if (!lead.last_engaged_at || COOLDOWN_HOURS === 0) return false;
+  return (Date.now() - new Date(lead.last_engaged_at).getTime()) / 3600000 < COOLDOWN_HOURS;
+}
+function followbackReady(lead) {
+  if (!lead.last_engaged_at) return true;
+  return (Date.now() - new Date(lead.last_engaged_at).getTime()) / 86400000 >= DM_FOLLOWBACK_DAYS;
 }
 
-function followbackWaitPassed(lead) {
-  if (!lead.last_engaged_at) return false;
-  const days = (Date.now() - new Date(lead.last_engaged_at).getTime()) / 86400000;
-  return days >= DM_FOLLOWBACK_DAYS;
+// ── Message / comment pools ───────────────────────────────────────────────────
+const EN_DM = [
+  (n, s) => `hey ${n}! saw you follow ${s} — thought we might have similar taste 😄 curious what you look for in bedding?`,
+  (n, s) => `hi ${n}! noticed you follow ${s} — are you into natural fabrics or just exploring?`,
+  (n)    => `hey ${n}! love that you follow sleep content. have you tried bamboo sheets yet?`,
+  (n)    => `hi ${n}! random but I follow a lot of the same accounts — are you based in UAE?`,
+  (n)    => `hey ${n}! just noticed we have similar taste in sleep stuff 😊 any bedding brands you've been loving?`,
+];
+const AR_DM = [
+  (n, s) => `هلا ${n}! شفت إنك تتابعين ${s} — يبدو عندنا نفس الذوق 😄 شو اللي تبحثين عنه في النوم الجيد؟`,
+  (n, s) => `هلا ${n}! لاحظت إنك تتابعين ${s} — هل تهتمين بالأقمشة الطبيعية؟`,
+  (n)    => `هلا ${n}! أحب إنك مهتمة بمحتوى النوم. جربتِ مفارش البامبو؟`,
+  (n)    => `هلا ${n}! بالصدفة — هل أنتِ بالإمارات؟ أحب أتواصل مع ناس عندها نفس الاهتمام`,
+  (n)    => `هلا ${n}! يبدو نتابع نفس الحسابات 😊 في ماركات مفارش تحبينها؟`,
+];
+
+const EN_COMMENTS = ['love this ✨','such a beautiful space 🌿','this is so inspiring 😍','obsessed with this aesthetic 💚','gorgeous 😍','so dreamy ✨','this is everything 🙏'];
+const AR_COMMENTS = ['محتوى رائع! 😍','أسلوبك يعجبني 🌿','مشاركة جميلة! ✨','هذا المحتوى مفيد جداً 🙏','واو، رائع جداً 😍','أحب هذا الستايل 💚'];
+
+function getDMMsg(lead) {
+  const n    = getName(lead);
+  const src  = lead.source_handle ? `@${lead.source_handle.replace('@','')}` : 'sleep content';
+  const pool = isArabic(lead) ? AR_DM : EN_DM;
+  const fn   = pool[Math.floor(Math.random() * pool.length)];
+  return fn(n, src);
+}
+function getCommentText(lead) {
+  const pool = isArabic(lead) ? AR_COMMENTS : EN_COMMENTS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ── Instagram actions ─────────────────────────────────────────────────────────
+async function sendDM(page, lead) {
+  const profileUrl = `https://www.instagram.com/${lead.username}/`;
+  await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(2000 + Math.random() * 2000);
+
+  // Use Message button on profile — more reliable than /direct/new/
+  const msgBtn = page.locator('div[role="button"]:has-text("Message"), button:has-text("Message")').first();
+  if (!await msgBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
+    console.log(`[phase-b] No Message button for @${lead.username} — not followed back`);
+    return false;
+  }
+  await msgBtn.click();
+  await delay(2500);
+
+  const input = page.locator('[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i]').last();
+  if (!await input.isVisible({ timeout: 6000 }).catch(() => false)) {
+    console.log(`[phase-b] Message input not visible for @${lead.username}`);
+    return false;
+  }
+
+  const msg = getDMMsg(lead);
+  await input.click();
+  await page.keyboard.type(msg, { delay: 55 + Math.random() * 75 });
+  await delay(800);
+  await page.keyboard.press('Enter');
+  await delay(2000);
+
+  console.log(`[phase-b] ✅ DM → @${lead.username}: "${msg.slice(0,70)}..."`);
+  await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  logOutreach({ action_type: 'dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
+  return true;
+}
+
+async function leaveComment(page, lead) {
+  const profileUrl = `https://www.instagram.com/${lead.username}/`;
+  await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(2000 + Math.random() * 2000);
+
+  const post = page.locator('a[href*="/p/"], a[href*="/reel/"]').first();
+  if (!await post.isVisible({ timeout: 5000 }).catch(() => false)) {
+    console.log(`[phase-b] No posts for @${lead.username}`);
+    return false;
+  }
+  await post.click();
+  await delay(2500);
+
+  const box = page.locator('[aria-label="Add a comment…"], [placeholder="Add a comment…"], textarea[placeholder*="comment" i]').first();
+  if (!await box.isVisible({ timeout: 7000 }).catch(() => false)) {
+    console.log(`[phase-b] Comment box not visible for @${lead.username}`);
+    return false;
+  }
+
+  const text = getCommentText(lead);
+  await box.click();
+  await page.keyboard.type(text, { delay: 60 + Math.random() * 80 });
+  await delay(700);
+  await page.keyboard.press('Enter');
+  await delay(2000);
+
+  console.log(`[phase-b] ✅ Comment → @${lead.username}: "${text}"`);
+  await patchLead(lead.username, { engagement_stage: 4, last_engaged_at: new Date().toISOString() });
+  logOutreach({ action_type: 'comment', platform: 'instagram', username: lead.username, content_used: text, result: 'posted' });
+  return true;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`[phase-b] Starting pipeline for client ${CLIENT_ID}`);
-  console.log(`[phase-b] Limits: ${MAX_LEADS} leads, ${MAX_FOLLOWS} follows, ${MAX_DMS} DMs, ${MAX_COMMENTS} comments`);
+  console.log(`[phase-b] Starting — DM threshold: ${DM_SCORE} | Comment threshold: ${COMMENT_SCORE}`);
 
-  // Launch browser
-  const launchOpts = {
-    headless: false,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
-  };
+  const launchOpts = { headless: false, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-blink-features=AutomationControlled'] };
   if (PROXY) {
     const u = new URL(PROXY.includes('://') ? PROXY : 'http://' + PROXY);
     launchOpts.proxy = { server: u.protocol + '//' + u.host };
@@ -145,154 +195,60 @@ function followbackWaitPassed(lead) {
     context = await chromium.launchPersistentContext(SESSION_DIR, launchOpts);
     page = context.pages()[0] || await context.newPage();
     await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8' });
-  } catch (e) {
-    console.error('[phase-b] Browser launch failed:', e.message);
-    process.exit(1);
+  } catch (e) { console.error('[phase-b] Launch failed:', e.message); process.exit(1); }
+
+  // Verify session
+  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(3000);
+  if (page.url().includes('accounts/login')) {
+    console.error('[phase-b] STOP: Instagram session expired — re-login via admin VNC');
+    await context.close(); process.exit(1);
   }
+  console.log('[phase-b] ✅ Session active');
 
-  let follows = 0, dms = 0, comments = 0, processed = 0;
+  let dms = 0, comments = 0, processed = 0;
 
-  // Priority groups to process in order
-  const priorityGroups = [
-    // Priority 0: Ad-sourced UAE leads at stage 3 (followed, needs DM)
-    { stage: 3, source_type: 'competitor_ad_commenter', limit: 5, label: 'P0-ad-UAE' },
-    // Priority 1: Influencers at stage 3
-    { stage: 3, is_influencer: 1, limit: 5, label: 'P1-influencer' },
-    // Priority 2: Hot leads (high score) at stage 3
-    { stage: 3, minScore: DM_SCORE, limit: 10, label: 'P2-hot' },
-    // Priority 3: Mid leads at stage 3
-    { stage: 3, minScore: COMMENT_SCORE, limit: 10, label: 'P3-mid' },
-    // Priority 4: Stage 4 leads (commented, need DM)
-    { stage: 4, minScore: DM_SCORE, limit: 10, label: 'P4-comment-done' },
-  ];
+  const stage3 = await fetchLeads({ platform: 'instagram', stage: 3, limit: MAX_LEADS });
+  const stage4 = await fetchLeads({ platform: 'instagram', stage: 4, minScore: DM_SCORE, limit: 10 });
+  const leads  = [...stage3, ...stage4];
+  console.log(`[phase-b] ${stage3.length} stage-3, ${stage4.length} stage-4 leads to process`);
 
-  for (const group of priorityGroups) {
-    if (processed >= MAX_LEADS || dms >= MAX_DMS) break;
+  for (const lead of leads) {
+    if (processed >= MAX_LEADS || (dms >= MAX_DMS && comments >= MAX_COMMENTS)) break;
+    if (isOnCooldown(lead)) { console.log(`[phase-b] Skip @${lead.username} cooldown`); continue; }
 
-    const params = {
-      platform: 'instagram',
-      stage: group.stage,
-      limit: group.limit,
-    };
-    if (group.minScore) params.minScore = group.minScore;
-    if (group.source_type) params.source_type = group.source_type;
-    if (group.is_influencer) params.is_influencer = 1;
+    const score = getScore(lead);
+    console.log(`[phase-b] @${lead.username} stage=${lead.engagement_stage} score=${score} followbackReady=${followbackReady(lead)}`);
 
-    const leads = await fetchLeads(params);
-    console.log(`[phase-b] ${group.label}: ${leads.length} leads`);
-
-    for (const lead of leads) {
-      if (processed >= MAX_LEADS || dms >= MAX_DMS) break;
-      if (isOnCooldown(lead)) {
-        console.log(`[phase-b] Skip @${lead.username} — on cooldown`);
-        continue;
+    try {
+      if (lead.engagement_stage >= 4 && dms < MAX_DMS && followbackReady(lead)) {
+        // Already commented — send DM
+        await sendDM(page, lead);
+        dms++;
+      } else if (lead.engagement_stage === 3 && score >= DM_SCORE && dms < MAX_DMS && followbackReady(lead)) {
+        // High score + followback ready → DM directly
+        const sent = await sendDM(page, lead);
+        if (sent) dms++;
+        else if (score >= COMMENT_SCORE && comments < MAX_COMMENTS) {
+          // Message button absent → comment instead
+          const done = await leaveComment(page, lead);
+          if (done) comments++;
+        }
+      } else if (lead.engagement_stage === 3 && score >= COMMENT_SCORE && comments < MAX_COMMENTS) {
+        // Mid score → comment to advance to stage 4
+        const done = await leaveComment(page, lead);
+        if (done) comments++;
+      } else {
+        console.log(`[phase-b] @${lead.username} score ${score} too low or limits hit — skip`);
       }
 
-      const profileUrl = `https://www.instagram.com/${lead.username}/`;
-      console.log(`[phase-b] Processing @${lead.username} (stage ${lead.engagement_stage}, score ${lead.lead_score})`);
-
-      try {
-        // Stage 3 (followed) → try to send DM if followback wait passed
-        if (lead.engagement_stage === 3 && lead.lead_score >= DM_SCORE && dms < MAX_DMS) {
-          if (followbackWaitPassed(lead)) {
-            // Send DM
-            await page.goto(`https://www.instagram.com/direct/new/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await delay(2000);
-
-            // Type username in search
-            const searchInput = page.locator('input[placeholder*="Search"]').first();
-            if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-              await searchInput.fill(lead.username);
-              await delay(1500);
-              // Click on the result
-              const result = page.locator(`text=${lead.username}`).first();
-              if (await result.isVisible({ timeout: 5000 }).catch(() => false)) {
-                await result.click();
-                await delay(1000);
-                // Click Next
-                const nextBtn = page.locator('button:has-text("Next"), button:has-text("Chat")').first();
-                if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-                  await nextBtn.click();
-                  await delay(1500);
-                }
-
-                // Build opener message
-                const name = lead.name?.split(' ')[0] || lead.username;
-                const lang = lead.notes?.includes('Arabic') || lead.username.match(/[ا-ي]/) ? 'ar' : 'en';
-                let msg;
-                if (IS_AMBASSADOR) {
-                  msg = lang === 'ar'
-                    ? `هلا ${name}! شفت إنك بتتابعين ${lead.source_handle || 'حساب النوم'}. أنا من فريق بامبو سليب بروفيسور — لو عندك أي سؤال عن مفارش البامبو أو جودة النوم يسعدني أساعدك 😊`
-                    : `Hey ${name}! Noticed you follow ${lead.source_handle || 'sleep content'}. I'm with Bamboo Sleep Professor — happy to chat about bamboo bedding or sleep quality if you have questions 😊`;
-                } else {
-                  msg = lang === 'ar'
-                    ? `هلا ${name}! شكراً لمتابعتك. لو عندك أي سؤال عن مفارشنا أو مواد البامبو يسعدنا نساعدك 😊`
-                    : `Hey ${name}! Thanks for the follow. Let me know if you have any questions about our bamboo bedding 😊`;
-                }
-
-                const msgInput = page.locator('[contenteditable="true"], textarea[placeholder*="message"]').last();
-                if (await msgInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-                  await msgInput.click();
-                  await page.keyboard.type(msg, { delay: 50 + Math.random() * 80 });
-                  await delay(800);
-                  await page.keyboard.press('Enter');
-                  await delay(1500);
-
-                  dms++;
-                  console.log(`[phase-b] ✅ DM sent to @${lead.username}`);
-                  await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
-                  logOutreach({ action_type: 'dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
-                }
-              }
-            }
-          } else {
-            console.log(`[phase-b] @${lead.username} — followback wait not passed yet`);
-          }
-        }
-
-        // Stage 3 with mid score → leave a comment on their recent post
-        else if (lead.engagement_stage === 3 && lead.lead_score >= COMMENT_SCORE && comments < MAX_COMMENTS) {
-          await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await delay(2000 + Math.random() * 2000);
-
-          // Click first post
-          const firstPost = page.locator('article a, div[style*="padding-bottom"] a').first();
-          if (await firstPost.isVisible({ timeout: 5000 }).catch(() => false)) {
-            await firstPost.click();
-            await delay(2000);
-
-            const commentBox = page.locator('[aria-label="Add a comment…"], [placeholder*="comment"]').first();
-            if (await commentBox.isVisible({ timeout: 5000 }).catch(() => false)) {
-              const lang = lead.notes?.includes('Arabic') ? 'ar' : 'en';
-              const comments_pool = lang === 'ar'
-                ? ['محتوى رائع! 😍', 'أسلوبك يعجبني 🌿', 'مشاركة جميلة! ✨', 'هذا المحتوى مفيد جداً 🙏']
-                : ['Love this! 🌿', 'Such a beautiful space ✨', 'This is so inspiring 😍', 'Great content! 💚'];
-              const comment = comments_pool[Math.floor(Math.random() * comments_pool.length)];
-
-              await commentBox.click();
-              await page.keyboard.type(comment, { delay: 60 + Math.random() * 80 });
-              await delay(600);
-              await page.keyboard.press('Enter');
-              await delay(1500);
-
-              comments++;
-              console.log(`[phase-b] ✅ Comment on @${lead.username}: "${comment}"`);
-              await patchLead(lead.username, { engagement_stage: 4, last_engaged_at: new Date().toISOString() });
-              logOutreach({ action_type: 'comment', platform: 'instagram', username: lead.username, content_used: comment, result: 'posted' });
-            }
-          }
-        }
-
-        processed++;
-        await profileDelay();
-
-      } catch (err) {
-        console.error(`[phase-b] Error processing @${lead.username}:`, err.message);
-        // Continue to next lead
-      }
+      processed++;
+      await randProfile();
+    } catch (err) {
+      console.error(`[phase-b] Error @${lead.username}:`, err.message);
     }
   }
 
   await context.close();
-  console.log(`[phase-b] Done. Processed ${processed} leads | DMs: ${dms} | Comments: ${comments} | Follows: ${follows}`);
+  console.log(`[phase-b] Done — processed: ${processed} | DMs: ${dms} | Comments: ${comments}`);
 })();
