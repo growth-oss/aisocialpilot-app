@@ -599,6 +599,9 @@ Correct order — PHASE B AND C MUST RUN FIRST:
 **REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
 If time runs short, scraping is skipped — DMs/coupons are NEVER skipped.
 
+⚠️ Phase B timing: script visits each profile with realistic delays — takes 3-8 minutes for 10 leads.
+NEVER use TaskStop on it. If TaskOutput is pending after 5 min, keep waiting — it is working.
+
 If you see "SingletonLock" or "ProfileSingleton" error:
   rm -f ${clientDir}/browser-sessions/instagram/SingletonLock
   Then retry ONCE. If it fails again, skip that task and move on.

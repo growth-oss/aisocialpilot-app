@@ -20,7 +20,7 @@ const BASE_URL           = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const CLIENT_ID          = process.env.CLIENT_ID || '';
 const SESSION_DIR        = process.env.SESSION_DIR || '';
 const PROXY              = process.env.PROXY || process.env.SOCIALPILOT_PROXY || '';
-const MAX_LEADS          = parseInt(process.env.MAX_LEADS  || '20', 10);
+const MAX_LEADS          = parseInt(process.env.MAX_LEADS  || '10', 10);
 const MAX_DMS            = parseInt(process.env.MAX_DMS    || '8',  10);
 const MAX_COMMENTS       = parseInt(process.env.MAX_COMMENTS || '10', 10);
 const COOLDOWN_HOURS     = parseInt(process.env.COOLDOWN_HOURS || '0', 10);
@@ -39,7 +39,7 @@ if (!CLIENT_ID || !SESSION_DIR) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const delay       = ms => new Promise(r => setTimeout(r, ms));
 const randAction  = () => delay(DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN));
-const randProfile = () => delay(25000 + Math.random() * 35000);
+const randProfile = () => delay(8000 + Math.random() * 12000);
 
 function apiCall(method, urlPath, body) {
   return new Promise((resolve, reject) => {
