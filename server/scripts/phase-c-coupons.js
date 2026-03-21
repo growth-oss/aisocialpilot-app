@@ -173,6 +173,15 @@ async function fetchLeads(params) {
     process.exit(1);
   }
 
+  // Verify session active
+  await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await new Promise(r => setTimeout(r, 3000));
+  if (page.url().includes('accounts/login')) {
+    console.error('[phase-c] STOP: Instagram session expired — re-login via admin VNC');
+    await context.close(); process.exit(1);
+  }
+  console.log('[phase-c] ✅ Session active');
+
   let sent = 0;
 
   for (const lead of leads) {
@@ -197,35 +206,21 @@ async function fetchLeads(params) {
     console.log(`[phase-c] Sending coupon to @${lead.username} (score ${lead.lead_score}) — ${coupon.code}`);
 
     try {
-      await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Use profile Message button — more reliable than /direct/new/
+      await page.goto(`https://www.instagram.com/${lead.username}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await delay(2000 + Math.random() * 1500);
 
-      const searchInput = page.locator('input[placeholder*="Search"]').first();
-      if (!await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log(`[phase-c] DM search not visible, skipping @${lead.username}`);
+      const msgBtn = page.locator('div[role="button"]:has-text("Message"), button:has-text("Message")').first();
+      if (!await msgBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
+        console.log(`[phase-c] No Message button for @${lead.username} — skipping`);
         continue;
       }
+      await msgBtn.click();
+      await delay(2500);
 
-      await searchInput.fill(lead.username);
-      await delay(1500);
-
-      const result = page.locator(`text=${lead.username}`).first();
-      if (!await result.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log(`[phase-c] User not found in search: @${lead.username}`);
-        continue;
-      }
-      await result.click();
-      await delay(1000);
-
-      const nextBtn = page.locator('button:has-text("Next"), button:has-text("Chat")').first();
-      if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await nextBtn.click();
-        await delay(1500);
-      }
-
-      const msgInput = page.locator('[contenteditable="true"], textarea[placeholder*="message"]').last();
-      if (!await msgInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log(`[phase-c] Message box not visible for @${lead.username}`);
+      const msgInput = page.locator('[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i]').last();
+      if (!await msgInput.isVisible({ timeout: 6000 }).catch(() => false)) {
+        console.log(`[phase-c] Message input not visible for @${lead.username}`);
         continue;
       }
 
