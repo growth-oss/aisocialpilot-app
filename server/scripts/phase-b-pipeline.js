@@ -118,17 +118,27 @@ async function sendDM(page, lead) {
   await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await delay(2000 + Math.random() * 2000);
 
-  // Use Message button on profile — more reliable than /direct/new/
-  const msgBtn = page.locator('div[role="button"]:has-text("Message"), button:has-text("Message")').first();
-  if (!await msgBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
-    console.log(`[phase-b] No Message button for @${lead.username} — not followed back`);
+  // Use Message button on profile
+  const msgBtnSelector = [
+    'div[role="button"]:has-text("Message")',
+    'button:has-text("Message")',
+    'a:has-text("Message")',
+    '[aria-label="Message"]',
+    'div[tabindex="0"]:has-text("Message")',
+  ].join(', ');
+  const msgBtn = page.locator(msgBtnSelector).first();
+
+  // Debug: log all buttons visible on the page if Message not found
+  if (!await msgBtn.isVisible({ timeout: 7000 }).catch(() => false)) {
+    const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
+    console.log(`[phase-b] No Message button for @${lead.username}. Visible buttons: ${btns.slice(0,8).join(' | ')}`);
     return false;
   }
   await msgBtn.click();
   await delay(2500);
 
-  const input = page.locator('[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i]').last();
-  if (!await input.isVisible({ timeout: 6000 }).catch(() => false)) {
+  const input = page.locator('[contenteditable="true"][role="textbox"], [contenteditable="true"], textarea[placeholder*="essage" i]').last();
+  if (!await input.isVisible({ timeout: 7000 }).catch(() => false)) {
     console.log(`[phase-b] Message input not visible for @${lead.username}`);
     return false;
   }
