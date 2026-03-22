@@ -57,7 +57,7 @@ function buildLeadGenPrompt(clientConfig, dataDir) {
     total:      active.length,
     maxId,
     byStage:    [0,1,2,3,4,5,6].map(s => ({ stage: s, count: active.filter(l => l.engagement_stage === s).length })),
-    hot:        active.filter(l => l.total_score >= (cfg.thresholds?.min_score_for_dm || 60)).length,
+    hot:        active.filter(l => l.total_score >= (cfg.thresholds?.min_score_for_dm ?? 30)).length,
     converted:  leads.filter(l => l.is_converted).length,
   };
 
@@ -141,7 +141,7 @@ Do not use the standard coupon with influencers — flag them in notes for manua
 Do not use the standard coupon with influencers — flag them in notes for manual follow-up.`;
 
   const step6Block = isAmbassador
-    ? `STEP 6 — DM → stage 6  (only if score ≥ ${cfg.thresholds?.min_score_for_dm || 60} AND followed back)
+    ? `STEP 6 — DM → stage 6  (only if score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} AND followed back)
   Send a short, casual opening DM as your persona (expert / enthusiast / creator).
   NO pitch. NO links. NO brand mention. Reference something specific from their profile or a post.
   Keep it under 2 sentences. Sound like a fellow enthusiast reaching out.
@@ -154,7 +154,7 @@ Do not use the standard coupon with influencers — flag them in notes for manua
     English: "easier to chat on whatsapp if you want: ${cfg.brand?.whatsapp_link || cfg.brand?.whatsapp_number || '[WhatsApp link]'}"
     Arabic: "تقدرين تراسليني على الواتساب أسهل: ${cfg.brand?.whatsapp_link || cfg.brand?.whatsapp_number || '[WhatsApp link]'}"
 `
-    : `STEP 6 — DM → stage 6  (only if score ≥ ${cfg.thresholds?.min_score_for_dm || 60} AND followed back)
+    : `STEP 6 — DM → stage 6  (only if score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} AND followed back)
   Send a short, friendly opening DM. Reference something specific from their profile or a post.
   Keep it under 2 sentences. Be conversational, not corporate.
 
@@ -171,10 +171,10 @@ Do not use the standard coupon with influencers — flag them in notes for manua
 After Phase B, send coupon follow-ups to convert pipeline leads. This is the revenue phase — do it every session.
 
 TARGETS (process ALL of these, in this order):
-1. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_coupon || 70} — send coupon NOW
-2. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_dm || 60} — send lower-tier coupon
-3. Stage 5 leads with score ≥ 80 — send opening DM + coupon together (skip waiting)
-4. Stage 3 leads stuck > 3 days (last_engaged_at < 3 days ago) with score ≥ 70 — DM them directly,
+1. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_coupon ?? 30} — send coupon NOW
+2. Stage 6 leads with coupon_referenced = 0 AND score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} — send lower-tier coupon
+3. Stage 5 leads with score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} — send opening DM + coupon together (skip waiting)
+4. Stage 3 leads stuck > 3 days (last_engaged_at < 3 days ago) with score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} — DM them directly,
    skip the stuck comment step entirely (send ambassador opener + coupon in same message)
 
 AMBASSADOR COUPON DM STYLE — casual, personal, like a friend texting a deal:
@@ -193,8 +193,8 @@ After Phase B, send coupon follow-ups to ALL qualifying leads. This is the reven
 
 TARGETS:
 1. Stage 6 leads with coupon_referenced = 0 — send coupon immediately
-2. Stage 5 leads with score ≥ 75 — send opening DM + coupon together
-3. Stage 3 leads stuck > 3 days with score ≥ 70 — DM directly, skip stuck comment step
+2. Stage 5 leads with score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} — send opening DM + coupon together
+3. Stage 3 leads stuck > 3 days with score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30} — DM directly, skip stuck comment step
 
 Send the coupon as a special offer. Match their language. Keep it short and warm.
 Set coupon_referenced = 1, coupon_code = the code, updated_at = now.`;
@@ -243,9 +243,9 @@ ${JSON.stringify(cfg.scoring || {}, null, 2)}
 
 Thresholds:
 - Min score to engage at all:  ${cfg.thresholds?.min_score_to_engage || 20}
-- Min score for comment:       ${cfg.thresholds?.min_score_for_comment || 40}
-- Min score for DM:            ${cfg.thresholds?.min_score_for_dm || 60}
-- Min score to share coupon:   ${cfg.thresholds?.min_score_for_coupon || 70}
+- Min score for comment:       ${cfg.thresholds?.min_score_for_comment ?? 30}
+- Min score for DM:            ${cfg.thresholds?.min_score_for_dm ?? 30}
+- Min score to share coupon:   ${cfg.thresholds?.min_score_for_coupon ?? 30}
 - Influencer threshold:        ${cfg.thresholds?.influencer_min_followers || 5000} followers
 
 ━━━ GEO TARGETING (UAE PRIORITY) ━━━
@@ -356,7 +356,7 @@ STEP 2 — Like → stage 2
 STEP 3 — Follow → stage 3
   Follow their account.
 
-STEP 4 — Comment → stage 4  (only if score ≥ ${cfg.thresholds?.min_score_for_comment || 40})
+STEP 4 — Comment → stage 4  (only if score ≥ ${cfg.thresholds?.min_score_for_comment ?? 30})
   Leave ONE genuine comment on their most relevant post.
   Select a comment opener from the active persona. Write naturally in that persona's voice.
   ${isAmbassador ? 'NEVER mention any brand or product.' : 'You may reference your product if relevant, but keep it natural.'} Under 15 words. Sound like a real person texting on their phone.
@@ -764,8 +764,8 @@ Process in this priority order:
 Priority 0: Ad-sourced UAE leads (source_type = "competitor_ad_commenter") → advance as far as possible. These are geo-confirmed buyers.
 Priority 0b: Other UAE-based leads (notes contain "UAE:yes") at ANY stage → advance as far as possible.
 Priority 1: Influencers at stage 0-3 → skip to stage 4 (comment) immediately
-Priority 2: Hot leads (score ≥ ${cfg.thresholds?.min_score_for_dm || 60}) at stage < 6 → advance as far as possible
-Priority 3: Mid leads (score ${cfg.thresholds?.min_score_for_comment || 40}-${(cfg.thresholds?.min_score_for_dm || 60) - 1}) at stage 2-3 → advance one step
+Priority 2: Hot leads (score ≥ ${cfg.thresholds?.min_score_for_dm ?? 30}) at stage < 6 → advance as far as possible
+Priority 3: Mid leads (score ${cfg.thresholds?.min_score_for_comment ?? 30}-${(cfg.thresholds?.min_score_for_dm ?? 30) - 1}) at stage 2-3 → advance one step
 Priority 4: New leads (stage 0) → do steps 1 and 2 (story + like)
 
 For each lead being processed:
