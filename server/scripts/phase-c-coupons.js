@@ -216,11 +216,22 @@ async function fetchLeads(params) {
         continue;
       }
       await msgBtn.click();
-      await delay(2500);
+      await delay(3500);
 
-      const msgInput = page.locator('[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i]').last();
-      if (!await msgInput.isVisible({ timeout: 6000 }).catch(() => false)) {
-        console.log(`[phase-c] Message input not visible for @${lead.username}`);
+      // Handle message request confirm dialog
+      const confirmBtn = page.locator('div[role="button"]:has-text("Send Message"), button:has-text("Send Message"), div[role="button"]:has-text("Send Request"), button:has-text("Send Request")').first();
+      if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await confirmBtn.click();
+        await delay(2000);
+      }
+
+      console.log(`[phase-c] After click — URL: ${page.url().slice(0, 80)}`);
+
+      const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
+      const msgInput = page.locator(inputSel).last();
+      if (!await msgInput.isVisible({ timeout: 10000 }).catch(() => false)) {
+        const elems = await page.locator('div[role="button"], [placeholder]').allTextContents().catch(() => []);
+        console.log(`[phase-c] Message input not visible for @${lead.username} | Elements: ${elems.slice(0,5).join(' | ')}`);
         continue;
       }
 

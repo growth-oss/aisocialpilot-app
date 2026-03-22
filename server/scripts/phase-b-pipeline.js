@@ -135,11 +135,32 @@ async function sendDM(page, lead) {
     return false;
   }
   await msgBtn.click();
-  await delay(2500);
+  await delay(3500);
 
-  const input = page.locator('[contenteditable="true"][role="textbox"], [contenteditable="true"], textarea[placeholder*="essage" i]').last();
-  if (!await input.isVisible({ timeout: 7000 }).catch(() => false)) {
-    console.log(`[phase-b] Message input not visible for @${lead.username}`);
+  // Handle Instagram message request confirmation dialog (appears for non-mutual followers)
+  const confirmBtn = page.locator('div[role="button"]:has-text("Send Message"), button:has-text("Send Message"), div[role="button"]:has-text("Send Request"), button:has-text("Send Request")').first();
+  if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    console.log(`[phase-b] Clicking message request confirm for @${lead.username}`);
+    await confirmBtn.click();
+    await delay(2000);
+  }
+
+  // Log current URL and page title for debugging
+  console.log(`[phase-b] After Message click — URL: ${page.url().slice(0, 80)}`);
+
+  // Broad input selector covering regular DM, message request, and mobile-style views
+  const inputSel = [
+    '[contenteditable="true"][role="textbox"]',
+    'textarea[placeholder*="essage" i]',
+    'textarea[placeholder*="esage" i]',
+    '[contenteditable="true"]',
+    'div[role="textbox"]',
+  ].join(', ');
+  const input = page.locator(inputSel).last();
+  if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+    const url = page.url();
+    const allText = await page.locator('div[role="button"], button, [placeholder]').allTextContents().catch(() => []);
+    console.log(`[phase-b] Message input not visible for @${lead.username} — URL: ${url.slice(0,80)} | Elements: ${allText.slice(0,6).join(' | ')}`);
     return false;
   }
 
