@@ -20,7 +20,7 @@ const BASE_URL           = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const CLIENT_ID          = process.env.CLIENT_ID || '';
 const SESSION_DIR        = process.env.SESSION_DIR || '';
 const PROXY              = process.env.PROXY || process.env.SOCIALPILOT_PROXY || '';
-const MAX_LEADS          = parseInt(process.env.MAX_LEADS  || '10', 10);
+const MAX_LEADS          = parseInt(process.env.MAX_LEADS  || '20', 10);
 const MAX_DMS            = parseInt(process.env.MAX_DMS    || '8',  10);
 const MAX_COMMENTS       = parseInt(process.env.MAX_COMMENTS || '10', 10);
 const COOLDOWN_HOURS     = parseInt(process.env.COOLDOWN_HOURS || '0', 10);
@@ -83,18 +83,22 @@ function followbackReady(lead) {
 
 // ── Message / comment pools ───────────────────────────────────────────────────
 const EN_DM = [
-  (n, s) => `hey ${n}! saw you follow ${s} — thought we might have similar taste 😄 curious what you look for in bedding?`,
-  (n, s) => `hi ${n}! noticed you follow ${s} — are you into natural fabrics or just exploring?`,
-  (n)    => `hey ${n}! love that you follow sleep content. have you tried bamboo sheets yet?`,
-  (n)    => `hi ${n}! random but I follow a lot of the same accounts — are you based in UAE?`,
-  (n)    => `hey ${n}! just noticed we have similar taste in sleep stuff 😊 any bedding brands you've been loving?`,
+  (n, s) => `hey ${n}! noticed you follow ${s} — looks like we have similar taste 😊 do you have a favourite bedding brand?`,
+  (n, s) => `hi ${n}! saw you follow ${s} — curious if you're into natural fabrics? I've been obsessed lately`,
+  (n)    => `hey ${n}! random but I love your taste — are you into bamboo bedding at all? been a game changer for me`,
+  (n)    => `hi ${n}! I follow a lot of the same sleep accounts as you 😄 are you based in the UAE by any chance?`,
+  (n)    => `hey ${n}! just came across your profile — do you have any bedding recommendations? always looking for new options`,
+  (n)    => `hi ${n}! love what you share 🌿 have you ever tried bamboo sheets? genuinely curious what your sleep setup is like`,
+  (n)    => `hey ${n}! noticed we follow similar accounts — are you into the whole natural living / sleep quality thing?`,
 ];
 const AR_DM = [
-  (n, s) => `هلا ${n}! شفت إنك تتابعين ${s} — يبدو عندنا نفس الذوق 😄 شو اللي تبحثين عنه في النوم الجيد؟`,
-  (n, s) => `هلا ${n}! لاحظت إنك تتابعين ${s} — هل تهتمين بالأقمشة الطبيعية؟`,
-  (n)    => `هلا ${n}! أحب إنك مهتمة بمحتوى النوم. جربتِ مفارش البامبو؟`,
-  (n)    => `هلا ${n}! بالصدفة — هل أنتِ بالإمارات؟ أحب أتواصل مع ناس عندها نفس الاهتمام`,
-  (n)    => `هلا ${n}! يبدو نتابع نفس الحسابات 😊 في ماركات مفارش تحبينها؟`,
+  (n, s) => `هلا ${n}! شفت إنك تتابعين ${s} — يبدو عندنا نفس الذوق 😊 عندك ماركة مفارش تحبينها؟`,
+  (n, s) => `هلا ${n}! لاحظت إنك تتابعين ${s} — هل تهتمين بالأقمشة الطبيعية؟ أنا منبهرة بها هالفترة`,
+  (n)    => `هلا ${n}! بصراحة أحب ذوقك — هل جربتِ مفارش البامبو؟ غيّرت حياتي فعلاً`,
+  (n)    => `هلا ${n}! أنا أتابع نفس حسابات النوم اللي تتابعينها 😄 هل أنتِ بالإمارات؟`,
+  (n)    => `هلا ${n}! وقعت على حسابك — عندك توصيات لمفارش؟ دايم أبحث عن خيارات جديدة`,
+  (n)    => `هلا ${n}! أحب ما تشاركينه 🌿 جربتِ مفارش البامبو؟ فضولي أعرف كيف جهازك للنوم`,
+  (n)    => `هلا ${n}! لاحظت نتابع نفس الحسابات — مهتمة بموضوع العيش الطبيعي وجودة النوم؟`,
 ];
 
 const EN_COMMENTS = ['love this ✨','such a beautiful space 🌿','this is so inspiring 😍','obsessed with this aesthetic 💚','gorgeous 😍','so dreamy ✨','this is everything 🙏'];
@@ -113,6 +117,55 @@ function getCommentText(lead) {
 }
 
 // ── Instagram actions ─────────────────────────────────────────────────────────
+
+// Fallback: send DM via /direct/new/ search flow (bypasses profile Message button)
+async function sendDMViaDirect(page, lead) {
+  await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(2500);
+
+  const searchInput = page.locator('input[name="queryBox"], input[placeholder*="Search" i], [aria-label*="Search" i]').first();
+  if (!await searchInput.isVisible({ timeout: 6000 }).catch(() => false)) {
+    console.log(`[phase-b] direct/new: no search input — URL: ${page.url()}`);
+    return false;
+  }
+  await searchInput.click();
+  await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
+  await delay(2000);
+
+  const userResult = page.locator(`[role="option"]:has-text("${lead.username}"), [role="listitem"]:has-text("${lead.username}")`).first();
+  if (!await userResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+    console.log(`[phase-b] direct/new: @${lead.username} not found in search results`);
+    return false;
+  }
+  await userResult.click();
+  await delay(1000);
+
+  const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat")').first();
+  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await nextBtn.click();
+    await delay(2000);
+  }
+
+  const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
+  const input = page.locator(inputSel).last();
+  if (!await input.isVisible({ timeout: 8000 }).catch(() => false)) {
+    console.log(`[phase-b] direct/new: message input not visible for @${lead.username}`);
+    return false;
+  }
+
+  const msg = getDMMsg(lead);
+  await input.click();
+  await page.keyboard.type(msg, { delay: 55 + Math.random() * 75 });
+  await delay(800);
+  await page.keyboard.press('Enter');
+  await delay(2000);
+
+  console.log(`[phase-b] ✅ DM (direct) → @${lead.username}: "${msg.slice(0,70)}..."`);
+  await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  logOutreach({ action_type: 'dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
+  return true;
+}
+
 async function sendDM(page, lead) {
   const profileUrl = `https://www.instagram.com/${lead.username}/`;
   await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -160,8 +213,9 @@ async function sendDM(page, lead) {
   if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
     const url = page.url();
     const allText = await page.locator('div[role="button"], button, [placeholder]').allTextContents().catch(() => []);
-    console.log(`[phase-b] Message input not visible for @${lead.username} — URL: ${url.slice(0,80)} | Elements: ${allText.slice(0,6).join(' | ')}`);
-    return false;
+    console.log(`[phase-b] Profile DM failed for @${lead.username} — URL: ${url.slice(0,80)} | Elements: ${allText.slice(0,6).join(' | ')}`);
+    console.log(`[phase-b] Falling back to direct/new for @${lead.username}`);
+    return sendDMViaDirect(page, lead);
   }
 
   const msg = getDMMsg(lead);
