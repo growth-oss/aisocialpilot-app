@@ -591,7 +591,10 @@ PRE-BUILT SCRIPTS (call with node, inject env vars inline):
     GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} LEADS_FILE=${lgDir}/leads.json MAX_REPLIES=8 OUTREACH_LOG=${logNdjsonPath} node /app/server/scripts/youtube-reply.js
 
 Only write a custom /tmp script if you need to do something these scripts cannot handle.
-NEVER write scripts for Phase B, C, or YouTube commenting — they are handled above.
+NEVER write or recreate these scripts — they are all version-controlled and pre-deployed:
+  phase-b-pipeline.js, phase-c-coupons.js, scrape-youtube.js, scrape-tiktok.js,
+  youtube-comment.js, youtube-to-instagram.js, youtube-reply.js, post-via-blotato.js
+Writing any of these from scratch wastes API tokens and will overwrite the working version.
 
 ━━━ CRITICAL: SEQUENTIAL EXECUTION ONLY ━━━
 NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
