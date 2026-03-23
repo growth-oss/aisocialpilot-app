@@ -184,10 +184,15 @@ async function sendDM(page, lead) {
   // Debug: log all buttons visible on the page if Message not found
   if (!await msgBtn.isVisible({ timeout: 7000 }).catch(() => false)) {
     const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
-    console.log(`[phase-b] No Message button for @${lead.username}. Visible buttons: ${btns.slice(0,8).join(' | ')}`);
-    return false;
+    console.log(`[phase-b] No Message button for @${lead.username}. Visible: ${btns.slice(0,8).join(' | ')} — trying direct/new fallback`);
+    return sendDMViaDirect(page, lead);
   }
-  await msgBtn.click();
+  try {
+    await msgBtn.click({ timeout: 10000 });
+  } catch (clickErr) {
+    console.log(`[phase-b] Message button click failed for @${lead.username} (${clickErr.message.slice(0,60)}) — trying direct/new fallback`);
+    return sendDMViaDirect(page, lead);
+  }
   await delay(3500);
 
   // Handle Instagram message request confirmation dialog (appears for non-mutual followers)
