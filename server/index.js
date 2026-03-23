@@ -1711,6 +1711,37 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
         `export TT_OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
       );
     }
+
+    // Facebook Groups env vars
+    const fbSources  = allSources.filter(s => s.platform === 'facebook' && s.enabled !== false);
+    const fbKeywords = fbSources.filter(s => s.type === 'keyword').map(s => s.handle_or_url);
+    const fbGroupsFile = path.join(clientDir, 'facebook-groups.json');
+    extraEnvExports.push(
+      `export FB_SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'facebook'))}`,
+      `export FB_GROUPS_FILE=${se(fbGroupsFile)}`,
+    );
+    if (fbKeywords.length) {
+      extraEnvExports.push(`export FB_JOIN_KEYWORDS=${se(JSON.stringify(fbKeywords))}`);
+    }
+    if (fbSources.length) {
+      extraEnvExports.push(
+        `export FB_SOURCES=${se(JSON.stringify(fbSources.map(s => ({ type: s.type, handle_or_url: s.handle_or_url, why: s.why || '' }))))}`,
+        `export FB_LEADS_FILE=${se(path.join(lgDir, 'leads.json'))}`,
+        `export FB_SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export FB_OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      );
+    }
+
+    // Google Maps env vars
+    const mapsSources = allSources.filter(s => s.platform === 'google_maps' && s.enabled !== false);
+    if (mapsSources.length) {
+      extraEnvExports.push(
+        `export MAPS_SOURCES=${se(JSON.stringify(mapsSources.map(s => ({ type: s.type, handle_or_url: s.handle_or_url, why: s.why || '' }))))}`,
+        `export MAPS_LEADS_FILE=${se(path.join(lgDir, 'leads.json'))}`,
+        `export MAPS_SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export MAPS_OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      );
+    }
   }
 
   if (command.startsWith('precision-post:')) {

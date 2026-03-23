@@ -99,18 +99,27 @@ data/clients/{clientId}/
 ```json
 {
   "id": 1,
-  "platform": "instagram",
+  "platform": "instagram",           // "instagram" | "youtube" | "google_maps" etc.
   "username": "@handle",
   "display_name": "Name",
   "follower_count": 5000,
   "bio_snippet": "...",
   "total_score": 85,
-  "engagement_stage": 3,       // 0=New, 1=Story, 2=Liked, 3=Followed, 4=Commented, 5=DM, 6=Reply, 7=Converted
+  "engagement_stage": 3,             // 0=New, 1=Story, 2=Liked, 3=Followed, 4=Commented, 5=DM, 6=Reply, 7=Converted
   "last_engaged_at": "ISO",
   "source_type": "competitor_commenter",
   "source_handle": "@competitor",
   "is_converted": 0,
   "is_do_not_engage": 0,
+  // YouTube-specific fields (added 2026-03-22):
+  "video_url": "https://youtube.com/watch?v=...",   // video they commented on
+  "video_title": "...",                              // for context
+  "comment_text": "...",                             // their comment (used by youtube-reply.js)
+  "yt_replied": false,                               // true after youtube-reply.js replies to their comment
+  "ig_checked": false,                               // true after youtube-to-instagram.js checked for IG match
+  // Coupon fields (phase-c):
+  "coupon_referenced": 0,            // 1 after coupon DM sent
+  "coupon_code": null,               // e.g. "MyFriends20"
   // Feedback fields (added 2026-03-11):
   "feedback_good": 0,
   "feedback_bad": 0,
@@ -135,6 +144,11 @@ data/clients/{clientId}/
 3. **Session dir path**: `browser-sessions/{platform}/` NOT `sessions/{platform}/`
 4. **Meta Ads Library**: React SPA — can't extract post URLs from DOM. Use as keyword discovery tool: search "mattress" UAE → get brand names → find their Instagram → scrape their posts
 5. **Chrome lock files**: If run fails with "session already open", delete `SingletonLock` in session dir and retry
+6. **Score thresholds use `??`**: All `|| 60`/`|| 70` in prompt.js replaced with `?? 30` — 10 occurrences. Leads score 30–55; `||` caused 0 to default to 60 and skip all leads.
+7. **Phase B DM fallback**: When profile page Message button not visible OR click throws timeout, must call `sendDMViaDirect(page, lead)` — NOT `return false`. Previously all 20 DM attempts failed silently. (commit 6adbacd)
+8. **Config PUT replaces entire file**: `PUT /api/clients/:id/leadgen/config` with `{"config": {...subset...}}` wipes all other sections. Always send the FULL config object.
+9. **Concurrent run session conflict**: Two simultaneous runs for the same client both try to open the same Instagram browser session dir → Chrome context crash, 0 DMs sent. Fixed: server now rejects `POST /run` with 409 if `runningProcesses` already has an entry for that clientId. (commit 65f9f96)
+10. **Phase B MAX_LEADS**: Default reduced 20→10 to keep Chrome memory usage low per run. 20 navigations in headed mode caused OOM-style crashes in Railway Docker container.
 
 ---
 
@@ -265,15 +279,18 @@ Legacy flat `blotato.account_id` still works as fallback for Instagram.
 | Instagram | tagged_posts | ✅ Working | Search by hashtag |
 | Instagram | location_posts | ✅ Working | Location ID scraping |
 | Meta Ads Library | competitor_ad_commenter | ⚠ Partial | Use as brand discovery only (React SPA), then scrape their IG |
-| Google Maps | business_leads | 🔧 TODO | Scrape business listings by keyword + location |
+| Google Maps | business_leads | ✅ Script ready | `scrape-google-maps.js` — no login/proxy. B2B leads (hotels, interior designers). Scored by category. `dm_channel: linkedin_or_email`. |
 | LinkedIn | profile_scraper | 🔧 TODO | Interior designers, hospitality buyers UAE |
-| Facebook | group_members | 🔧 TODO | Home decor UAE groups |
-| TikTok | video_commenters | 🔧 TODO | Session required |
+| Facebook | group_members | ✅ Scripts ready | 4-script system: `facebook-group-join.js` → `facebook-group-monitor.js` → `facebook-group-engage.js` → `scrape-facebook.js`. Groups tracked in `facebook-groups.json`. Proxy required (AE). |
+| TikTok | tiktok_video_commenter | ✅ Script ready | `scrape-tiktok.js` — public content, no proxy/session. 4 keyword sources active (EN+AR). Cross-matched to Instagram via youtube-to-instagram.js. |
 | Dubizzle | furnished_apt_listings | 🔧 TODO | Property listings = bedding buyers |
 | Google Search | organic | 🔧 TODO | "bamboo bedding UAE" searchers via ads |
 | Quora | question_answerers | 🔧 TODO | Sleep/bedding questions |
 | Pinterest | pin_savers | 🔧 TODO | Home decor intent |
-| YouTube | youtube_video_commenter, youtube_channel_commenter | ✅ Working | keyword search + channel scraping, discovery only (no engagement on YT) |
+| YouTube | youtube_video_commenter, youtube_channel_commenter | ✅ Working | keyword search + channel scraping, ~56 leads/run. Saves video_url + comment_text per lead. |
+| YouTube replies | youtube_reply | ✅ Script ready | `youtube-reply.js` — replies to their YT comment. Requires Google session. Not yet in scheduled runs. |
+| YouTube→Instagram | youtube_cross_match | ✅ Wired | `youtube-to-instagram.js` — checks YT + TikTok handles on Instagram, adds as new IG lead +20 score. Runs as step 6 in scheduled runs. |
+| TikTok→Instagram | tiktok_cross_match | ✅ Wired | Same script as above — `youtube-to-instagram.js` now handles platform='tiktok' too. |
 
 **To add a new source:**
 1. Add entry to client's `hot-sources.json` (or via admin UI → Lead Gen → Sources)
@@ -288,8 +305,63 @@ Legacy flat `blotato.account_id` still works as fallback for Instagram.
 - **Ambassador**: Nada Ali → @bamboo_sleep_professor (Instagram)
 - **Target**: Interior designers, hotel procurement, home buyers in UAE
 - **Proxy**: UAE residential proxy (required — AE geo)
-- **Lead count**: ~36 leads as of last session (stages 3–4, need to reach DM)
-- **Next steps**: advance leads from stage 3 (followed) → stage 4 (comment) → stage 5 (DM)
+- **Lead count**: ~1,375 total (65 active pipeline stages 3–6, 1,310 stage 0 YouTube discovery)
+  - Stage 6 (reply): 22 leads — coupon codes sent, 0 sales yet
+  - Stage 3 (followed): ~26 Instagram leads — primary DM targets
+  - YouTube-only: ~1,267 — need cross-match to Instagram or YT reply
+- **Thresholds**: all at 30 (min_score_for_dm, min_score_for_comment, min_score_for_coupon)
+- **Cooldown**: 0 hours (immediate retry allowed)
+- **Coupon codes**: MyFriends20 (≥30), MyCode30 (≥45), My50VIP (≥55)
+- **Next steps**: confirm Phase B DMs firing via /direct/new/ fallback → get first sale
+
+---
+
+## Standalone Scripts (server/scripts/)
+
+These are called directly by Claude during a leadgen run via the pre-built scripts block in prompt.js.
+
+| Script | What it does | Required env vars |
+|--------|-------------|-------------------|
+| `phase-b-pipeline.js` | DMs + comments for stage 3–4 Instagram leads. Two-method DM: (1) profile Message button, (2) /direct/new/ fallback. | BASE_URL, CLIENT_ID, SESSION_DIR, PROXY, DM_SCORE, COMMENT_SCORE, MAX_DMS, MAX_LEADS |
+| `phase-c-coupons.js` | Coupon DMs to stage 6 leads. Same two-method DM. Picks best coupon per lead score. | BASE_URL, CLIENT_ID, SESSION_DIR, PROXY, COUPONS (JSON array), MIN_SCORE |
+| `scrape-youtube.js` | Scrapes YouTube commenters for keyword/channel sources. Saves video_url + comment_text per lead. | CLIENT_ID, LEADS_FILE |
+| `youtube-reply.js` | Loads YouTube leads with comment_text, finds their comment on the video, replies. Marks yt_replied=true. | GOOGLE_SESSION_DIR, LEADS_FILE, CLIENT_ID, MAX_REPLIES |
+| `scrape-tiktok.js` | Scrapes TikTok video commenters for keyword/account sources. No proxy/session needed (public). Saves video_url + comment_text. platform='tiktok'. | LEADS_FILE, SOURCES (TT_SOURCES), CLIENT_ID, SCREENSHOTS_DIR, OUTREACH_LOG |
+| `youtube-to-instagram.js` | For each YouTube OR TikTok lead without ig_checked, tries instagram.com/{username}/ — if found, creates new Instagram lead with +20 score. | BASE_URL, CLIENT_ID, SESSION_DIR (IG), LEADS_FILE, PROXY, MAX_CHECKS |
+| `post-via-blotato.js` | Posts to Instagram via Blotato REST API. DMs leads via Playwright after posting. | BLOTATO_API_KEY, BLOTATO_ACCOUNT_ID, IMAGE_URL, CAPTION, BRIEF_ID, BRIEFS_FILE |
+| `post-to-instagram.js` | Legacy Playwright posting fallback (only if Blotato not configured). | SESSION_DIR, PROXY |
+| `facebook-group-join.js` | Search FB Groups by keyword, apply to join up to MAX_JOINS per run. Logs to `facebook-groups.json`. | FB_SESSION_DIR, FB_GROUPS_FILE, FB_JOIN_KEYWORDS, PROXY |
+| `facebook-group-monitor.js` | Check pending group applications → update status to `member` or `expired`. Lightweight URL check. | FB_SESSION_DIR, FB_GROUPS_FILE, PROXY |
+| `facebook-group-engage.js` | Reply to sleep/wellness threads in member groups (ambassador voice). Post questions once/week per group. Saves engagers as leads. | FB_SESSION_DIR, FB_GROUPS_FILE, LEADS_FILE, CLIENT_ID, PROXY |
+| `scrape-facebook.js` | Scrape post authors + commenters from member groups matching sleep keywords. Leads enter at stage 0, ig_checked=false. | FB_SESSION_DIR, FB_GROUPS_FILE, LEADS_FILE, CLIENT_ID, PROXY |
+| `scrape-google-maps.js` | Search Google Maps by keyword → extract B2B business listings (hotels, interior designers, etc.). No proxy, no session. Scored by category. | MAPS_SOURCES, LEADS_FILE, CLIENT_ID |
+
+### facebook-groups.json schema
+```json
+[
+  {
+    "group_url": "https://www.facebook.com/groups/...",
+    "group_name": "Dubai Moms Community",
+    "status": "pending|member|rejected|expired",
+    "members": "45K",
+    "keyword": "dubai moms",
+    "applied_at": "ISO",
+    "accepted_at": null,
+    "last_engaged_at": null,
+    "last_question_at": null,
+    "posts_replied": 0,
+    "questions_asked": 0
+  }
+]
+```
+Stored at: `data/clients/{id}/facebook-groups.json`
+
+### DM method in phase-b and phase-c
+Both scripts use a two-method approach:
+1. Navigate to `instagram.com/{username}/` → find Message button → click → handle confirm dialog → type in input
+2. **Fallback**: If button not found OR click throws timeout → navigate to `instagram.com/direct/new/` → search username → select result → click Next → type in input
+
+The fallback fires for: private accounts blocking Message button, UI overlays preventing click, profile layout variations.
 
 ---
 

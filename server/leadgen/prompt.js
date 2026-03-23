@@ -590,28 +590,53 @@ PRE-BUILT SCRIPTS (call with node, inject env vars inline):
   YouTube comment replies (replies to specific commenters, uses Google session, NO proxy):
     GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} LEADS_FILE=${lgDir}/leads.json MAX_REPLIES=8 OUTREACH_LOG=${logNdjsonPath} node /app/server/scripts/youtube-reply.js
 
+  Facebook Groups — apply to join new groups (run if FB_JOIN_KEYWORDS is set):
+    FB_SESSION_DIR=$FB_SESSION_DIR FB_GROUPS_FILE=$FB_GROUPS_FILE FB_JOIN_KEYWORDS=$FB_JOIN_KEYWORDS PROXY="$SOCIALPILOT_PROXY" SCREENSHOTS_DIR=$FB_SCREENSHOTS_DIR node /app/server/scripts/facebook-group-join.js
+
+  Facebook Groups — check pending applications for acceptance (lightweight, runs every session):
+    FB_SESSION_DIR=$FB_SESSION_DIR FB_GROUPS_FILE=$FB_GROUPS_FILE PROXY="$SOCIALPILOT_PROXY" node /app/server/scripts/facebook-group-monitor.js
+
+  Facebook Groups — reply to threads + ask questions in member groups:
+    FB_SESSION_DIR=$FB_SESSION_DIR FB_GROUPS_FILE=$FB_GROUPS_FILE LEADS_FILE=$FB_LEADS_FILE CLIENT_ID=${clientId} PROXY="$SOCIALPILOT_PROXY" OUTREACH_LOG=$FB_OUTREACH_LOG SCREENSHOTS_DIR=$FB_SCREENSHOTS_DIR node /app/server/scripts/facebook-group-engage.js
+
+  Facebook Groups — scrape leads from member groups (post authors + commenters):
+    FB_SESSION_DIR=$FB_SESSION_DIR FB_GROUPS_FILE=$FB_GROUPS_FILE LEADS_FILE=$FB_LEADS_FILE CLIENT_ID=${clientId} PROXY="$SOCIALPILOT_PROXY" OUTREACH_LOG=$FB_OUTREACH_LOG SCREENSHOTS_DIR=$FB_SCREENSHOTS_DIR node /app/server/scripts/scrape-facebook.js
+
+  Google Maps — B2B lead discovery (hotels, interior designers, etc. — NO proxy, NO session):
+    MAPS_SOURCES=$MAPS_SOURCES LEADS_FILE=$MAPS_LEADS_FILE CLIENT_ID=${clientId} OUTREACH_LOG=$MAPS_OUTREACH_LOG SCREENSHOTS_DIR=$MAPS_SCREENSHOTS_DIR node /app/server/scripts/scrape-google-maps.js
+
 Only write a custom /tmp script if you need to do something these scripts cannot handle.
 NEVER write or recreate these scripts — they are all version-controlled and pre-deployed:
   phase-b-pipeline.js, phase-c-coupons.js, scrape-youtube.js, scrape-tiktok.js,
-  youtube-comment.js, youtube-to-instagram.js, youtube-reply.js, post-via-blotato.js
+  youtube-comment.js, youtube-to-instagram.js, youtube-reply.js, post-via-blotato.js,
+  facebook-group-join.js, facebook-group-monitor.js, facebook-group-engage.js,
+  scrape-facebook.js, scrape-google-maps.js
 Writing any of these from scratch wastes API tokens and will overwrite the working version.
 
 ━━━ CRITICAL: SEQUENTIAL EXECUTION ONLY ━━━
 NEVER launch multiple browser tasks in parallel. Only ONE Playwright/Chrome process at a time.
 The Instagram session directory is a singleton — concurrent access causes ProfileSingleton lock errors that block all subsequent tasks.
-YouTube scripts use the Google session dir (separate from Instagram — no conflict).
+YouTube/Google scripts use the Google session dir (separate from Instagram — no conflict).
+Facebook scripts use the Facebook session dir (separate from both — no conflict).
+Google Maps uses a /tmp throwaway session — no conflict with anything.
 
 Correct order — PHASE B AND C MUST RUN FIRST:
-1. Run phase-b-pipeline.js (DMs/comments to stage 3-4 leads) → wait to finish completely
-2. Run phase-c-coupons.js (stage 6 leads) → wait to finish completely
-3. Run youtube-comment.js (Google session, no proxy needed) → wait to finish completely
-4. Run scrape-youtube.js (YouTube scraping) → wait for it to finish completely
-5. Run scrape-tiktok.js (TikTok scraping, only if TT_SOURCES is set and non-empty) → wait to finish
-6. Run youtube-to-instagram.js (cross-match YouTube + TikTok leads to Instagram) → wait to finish
-7. Run Instagram scraping → wait to finish completely
+1.  Run phase-b-pipeline.js (DMs/comments to stage 3-4 leads) → wait to finish completely
+2.  Run phase-c-coupons.js (stage 6 leads) → wait to finish completely
+3.  Run youtube-comment.js (Google session, no proxy) → wait to finish completely
+4.  Run scrape-youtube.js (YouTube scraping) → wait to finish completely
+5.  Run scrape-tiktok.js (TikTok scraping, only if TT_SOURCES is set) → wait to finish
+6.  Run youtube-to-instagram.js (cross-match YouTube + TikTok leads to Instagram) → wait to finish
+7.  Run facebook-group-monitor.js (check pending group applications) → wait to finish
+8.  Run facebook-group-engage.js (reply/ask in member groups, only if FB_GROUPS_FILE exists) → wait
+9.  Run scrape-facebook.js (scrape member group leads, only if FB_SOURCES is set) → wait to finish
+10. Run scrape-google-maps.js (B2B leads, only if MAPS_SOURCES is set) → wait to finish
+11. Run facebook-group-join.js (apply to new groups, only if FB_JOIN_KEYWORDS is set) → wait
+12. Run Instagram scraping → wait to finish completely
 
 **REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
 If time runs short, scraping is skipped — DMs/coupons are NEVER skipped.
+Facebook join is last — it's fire-and-forget, acceptance comes in future runs.
 
 ⚠️ Phase B timing: script visits each profile with realistic delays — takes 3-8 minutes for 10 leads.
 NEVER use TaskStop on it. If TaskOutput is pending after 5 min, keep waiting — it is working.

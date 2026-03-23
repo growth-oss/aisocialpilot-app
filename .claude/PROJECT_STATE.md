@@ -1,5 +1,5 @@
 # AI Social Pilot — Current Project State
-**Last updated: 2026-03-14**
+**Last updated: 2026-03-23**
 
 > Read this at the start of any new session to understand where we are.
 > For full technical details: `.claude/MEMORY.md`
@@ -19,7 +19,10 @@ A self-hosted social media automation + lead generation platform with a full web
 - **Bamboo Sleep Professor** — DrSleeep bamboo bedding UAE
 - Ambassador: Nada Ali → @bamboo_sleep_professor (Instagram)
 - Target: Interior designers, hotel procurement, home buyers in UAE
-- ~36 leads in pipeline (stages 3–4 — followed, need DMs)
+- **Pipeline: ~1,375 total leads** (65 active stages 3–6, 1,310 stage 0 discovery)
+  - Stage 6 (reply received): 22 leads — have coupon codes, 0 converted yet
+  - Stage 3 (followed): ~26 leads — primary DM targets
+  - YouTube-only: ~1,267 leads — can't be DM'd on Instagram directly
 
 ## What's Working ✅
 - Instagram lead gen (competitor scraping, hashtag, location) — UAE proxy, headed browser
@@ -29,46 +32,29 @@ A self-hosted social media automation + lead generation platform with a full web
 - Run history with full log viewer + live run status
 - Anthropic Messages API chat endpoint for client conversations
 - Browser session management via VNC
-- Scheduler (per-platform UTC times, checks every 60s)
+- Scheduler (3 GST time windows per day, random times per window)
 - License system
-- **Blotato posting** (ACTIVE — replaces Playwright for all posts):
-  - Posts via REST API (`server/scripts/post-via-blotato.js`) — no browser needed
-  - Runs as direct node script — finishes in ~5s, no hanging Claude session
-  - Configured in Settings tab → Blotato card (API key + account IDs for 8 platforms)
-  - Image/video generation via Blotato templates (🎬 Blotato button on each brief)
-  - DMs still use Playwright after posting
-  - Fallback: `post-to-instagram.js` (Playwright) used only if Blotato not configured
-- **Precision Content Engine** (Content tab):
-  - Cluster leads by pain point → generate brief (Claude Sonnet)
-  - Generate image with Gemini (`gemini-3.1-flash-image-preview` via `@google/genai` SDK)
-  - OR generate via Blotato templates (🎬 button → template ID + prompt → poll → preview → save)
-  - Image refinement prompt on re-generate
-  - Approve → queue → post via Blotato API (instant, no browser)
-  - Product carousel briefs: multiple product images, no AI generation needed
-  - Re-queue button for failed briefs
-  - Screenshots tab (📷) to review run screenshots
-  - DM target leads after posting
-  - chatNotify persistent activity feed for all actions
-- **Smart Auto-Schedule** (Overview tab):
-  - 3 configurable GST time windows (e.g. 08:00–10:00, 13:00–15:00, 19:00–21:00)
-  - One random run time generated per window each day → written to `schedule.leadgen`
-  - Midnight UTC regenerates new random times daily
-  - Shows today's run times + "Next run in X hours" countdown
-  - On/off toggle + window editor in Overview tab
-  - Startup check: generates schedule if today's hasn't been set yet
+- **Blotato posting** (ACTIVE — replaces Playwright for all posts)
+- **Precision Content Engine** (Content tab)
+- **Smart Auto-Schedule** (3 GST windows, random times daily)
+- **YouTube scraping** — keyword + channel commenters, 56+ new leads per run
+- **YouTube commenting** — 8 visibility comments per run (no proxy needed)
+- **Phase C coupon DMs** — 2 sent in last run (stage 6 leads, score ≥ 30)
+- **Phase B pipeline DMs** — /direct/new/ fallback wired (fixed 2026-03-23, testing now)
 
 ## What's NOT Done Yet 🔧
 | Source | Status | Notes |
 |--------|--------|-------|
-| Instagram | ✅ Working | Priority #1 source |
+| Instagram DMs | ⚠ Testing | Phase B /direct/new/ fallback deployed + concurrent run guard added. Next clean run will confirm. |
 | Meta Ads Library | ⚠ Partial | Use for brand discovery only, not post URL scraping |
-| Google Maps | 🔧 TODO | Business listing scraper — no session needed |
+| Google Maps | ✅ Script ready | `scrape-google-maps.js` — B2B: hotels, interior designers, etc. No login/proxy. Scores by category (hotel=50, interior design=40). Add `google_maps` sources to hot-sources.json to activate. |
 | LinkedIn | 🔧 TODO | Interior designers + procurement UAE |
-| Facebook Groups | 🔧 TODO | Home decor UAE groups |
-| TikTok | 🔧 TODO | Session required, high bot detection |
+| Facebook Groups | ✅ Scripts ready | 4-script system: `facebook-group-join.js` → `facebook-group-monitor.js` → `facebook-group-engage.js` → `scrape-facebook.js`. To activate: (1) login FB session via VNC, (2) add `platform: "facebook", type: "keyword"` sources to hot-sources.json |
+| TikTok | ✅ Script ready | `scrape-tiktok.js` — public scraping, no session. 4 sources active (EN+AR). Cross-matches to Instagram. |
 | Dubizzle | 🔧 TODO | Furnished apartment listings |
 | Pinterest | 🔧 TODO | Home decor board savers |
-| YouTube | ✅ Working | Keyword search + channel scraping → commenters. Discovery only, no YT engagement. Google session shared with Maps/Search. |
+| YouTube → Instagram cross-match | ✅ Wired | `youtube-to-instagram.js` runs as step 6 in scheduled runs |
+| YouTube comment replies | ✅ Wired | `youtube-reply.js` runs as step 3 in scheduled runs |
 | Quora | 🔧 TODO | Sleep quality question askers |
 
 ## Architecture Gotchas (read before coding)
@@ -82,9 +68,11 @@ A self-hosted social media automation + lead generation platform with a full web
 8. **Brief ID field**: briefs stored with `brief_id` (not `id`) — always use `b.brief_id || b.id`
 9. **Brief status flow**: `pending` → `queued` (Approve) → `posted` (script marks directly)
 10. **Smart schedule GST offset**: GST = UTC+4. Windows stored in GST, written to schedule as UTC.
-11. **Blotato posting is direct** — `spawnRun()` sets `directCmd` for Blotato briefs, bypassing Claude CLI entirely. Run log still written, shows `model: direct, cost: $0`.
-12. **image_url absolute URLs**: if `brief.image_url` starts with `https://`, passed directly to Blotato — NOT wrapped in `/public/precision/` endpoint. Local filenames ARE wrapped.
-13. **Blotato account IDs**: stored as `blotato.accounts.{platform}` in config.json. Legacy `blotato.account_id` still works for Instagram as fallback.
+11. **Blotato posting is direct** — `spawnRun()` sets `directCmd` for Blotato briefs, bypassing Claude CLI entirely.
+12. **image_url absolute URLs**: if `brief.image_url` starts with `https://`, passed directly to Blotato.
+13. **Blotato account IDs**: stored as `blotato.accounts.{platform}` in config.json.
+14. **lead score field**: use `total_score` not `lead_score` for threshold comparisons (both exist but total_score is authoritative).
+15. **Score thresholds**: set to 30 (was 60/70 — leads score 30–55 in practice). Uses `??` not `||`.
 
 ## Key Bugs Fixed (do NOT revert)
 - Geo check timeout: 20s not 10s, curl not browser
@@ -98,6 +86,26 @@ A self-hosted social media automation + lead generation platform with a full web
 - Gemini image gen: wrong model name + wrong SDK call → fixed with `@google/genai`
 - Posting run never terminated: Blotato posts now run as direct node script (no Claude CLI)
 - image_url wrapping: absolute URLs passed directly to Blotato, not re-wrapped in local endpoint
+- **Score thresholds always defaulting to 60**: `|| 60` in prompt.js treated 0 as falsy → replaced all 10 occurrences with `?? 30`
+- **Phase B DMs 0 sent — profile Message button blocked**: Instagram overlay prevents click; fix: when button not visible OR click throws timeout → fall through to `/direct/new/` search fallback (commit 6adbacd, 2026-03-23)
+- **Phase B browser context crash from concurrent runs**: Two simultaneous runs share same Instagram session dir → Chrome crashes. Fix: server rejects `POST /run` with 409 if run already active for client (commit 65f9f96, 2026-03-23)
+- **Config PUT wiping all sections**: PUT `/api/clients/:id/leadgen/config` replaces entire file — always send complete config object, never just a subset
+
+## Standalone Scripts (in `server/scripts/`)
+| Script | Purpose | Key env vars |
+|--------|---------|-------------|
+| `phase-b-pipeline.js` | DMs + comments for stage 3–4 IG leads | SESSION_DIR, PROXY, BASE_URL, CLIENT_ID |
+| `phase-c-coupons.js` | Coupon DMs to stage 6 leads | SESSION_DIR, PROXY, COUPONS (JSON), MIN_SCORE |
+| `scrape-youtube.js` | YouTube commenter discovery → leads | LEADS_FILE, CLIENT_ID |
+| `youtube-reply.js` | Reply to YouTube comments from discovered leads | GOOGLE_SESSION_DIR, LEADS_FILE |
+| `youtube-to-instagram.js` | Cross-match YouTube handles to Instagram | BASE_URL, CLIENT_ID, SESSION_DIR (IG), PROXY |
+| `post-via-blotato.js` | Post via Blotato REST API | BLOTATO_API_KEY, BLOTATO_ACCOUNT_ID, IMAGE_URL, CAPTION |
+| `post-to-instagram.js` | Playwright post fallback (Blotato not configured) | SESSION_DIR, PROXY |
+| `facebook-group-join.js` | Apply to join FB groups by keyword | FB_SESSION_DIR, FB_GROUPS_FILE, FB_JOIN_KEYWORDS, PROXY |
+| `facebook-group-monitor.js` | Check pending FB group applications | FB_SESSION_DIR, FB_GROUPS_FILE, PROXY |
+| `facebook-group-engage.js` | Reply to threads + ask questions in member groups | FB_SESSION_DIR, FB_GROUPS_FILE, LEADS_FILE, CLIENT_ID |
+| `scrape-facebook.js` | Scrape leads from FB member groups | FB_SESSION_DIR, FB_GROUPS_FILE, LEADS_FILE, CLIENT_ID |
+| `scrape-google-maps.js` | B2B leads from Google Maps (no login/proxy) | MAPS_SOURCES, LEADS_FILE, CLIENT_ID |
 
 ## Key Files
 | File | Purpose |
@@ -111,10 +119,14 @@ A self-hosted social media automation + lead generation platform with a full web
 | `admin/public/index.html` | Global admin (client list, settings) |
 | `data/clients/{id}/config.json` | Client config incl. schedule, smartSchedule, blotato |
 | `data/clients/{id}/leadgen/precision-briefs.json` | Content briefs |
+| `data/clients/{id}/leadgen/leadgen-config.json` | Pipeline thresholds (all at 30), cooldown=0 |
+| `data/clients/{id}/leadgen/coupon-config.json` | Coupon codes + min score thresholds |
 | `data/clients/{id}/assets/precision/` | Locally generated images |
+| `data/clients/{id}/facebook-groups.json` | FB group membership tracker (join → monitor → engage) |
 
 ## Next Priorities
-1. Advance current leads from stage 3 → DM (stage 5)
-2. Add Google Maps source (no auth needed, high value)
-3. Add LinkedIn source (interior designers UAE)
-4. Lead feedback attribution → Claude insights on which sources convert best
+1. **Confirm Phase B DM fix works** — next clean scheduled run (no concurrent conflict now) should show `[phase-b] direct/new` in log and send DMs
+2. **Get first sale** — 22 stage-6 leads have coupon codes but 0 converted; try different coupon message angles
+3. **Activate Google Maps** — add `{ platform: "google_maps", type: "keyword", handle_or_url: "hotel Dubai", enabled: true }` sources to hot-sources.json → runs automatically next session
+4. **Activate Facebook Groups** — (a) login FB session via VNC, (b) add `{ platform: "facebook", type: "keyword", ... }` sources to hot-sources.json → join script runs automatically
+5. **TikTok cross-match** — monitor next run for YouTube/TikTok → Instagram matches
