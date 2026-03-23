@@ -730,6 +730,11 @@
         <div class="cmd-item-text"><strong>Instagram</strong><span id="session-status-instagram">Checking...</span></div>
         <span id="session-indicator-instagram" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
       </button>
+      <button class="cmd-item" onclick="startSession('facebook')">
+        <span class="cmd-item-icon">📘</span>
+        <div class="cmd-item-text"><strong>Facebook</strong><span id="session-status-facebook">Checking...</span></div>
+        <span id="session-indicator-facebook" style="margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0"></span>
+      </button>
       <button class="cmd-item" onclick="startSession('tiktok')">
         <span class="cmd-item-icon">🎵</span>
         <div class="cmd-item-text"><strong>TikTok</strong><span id="session-status-tiktok">Checking...</span></div>
@@ -4017,7 +4022,7 @@ function closeSessionPicker() {
 
 async function refreshSessionStatus(clientId) {
   const status = await api('GET', `/clients/${clientId}/sessions`);
-  const platforms = { instagram: '📸', tiktok: '🎵', x: '𝕏', whatsapp: '💬', google: '🔍' };
+  const platforms = { instagram: '📸', facebook: '📘', tiktok: '🎵', x: '𝕏', whatsapp: '💬', google: '🔍' };
   for (const [platform] of Object.entries(platforms)) {
     const dot = document.getElementById(`session-indicator-${platform}`);
     const label = document.getElementById(`session-status-${platform}`);
