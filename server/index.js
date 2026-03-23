@@ -1701,6 +1701,16 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
         `export SCORE_PURCHASE_SIGNAL=${se(String(cfg.scoring?.youtube_purchase_signal ?? 15))}`,
       );
     }
+
+    const ttSources = allSources.filter(s => s.platform === 'tiktok' && s.enabled !== false);
+    if (ttSources.length) {
+      extraEnvExports.push(
+        `export TT_SOURCES=${se(JSON.stringify(ttSources.map(s => ({ type: s.type, handle_or_url: s.handle_or_url, why: s.why || '' }))))}`,
+        `export TT_LEADS_FILE=${se(path.join(lgDir, 'leads.json'))}`,
+        `export TT_SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+        `export TT_OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      );
+    }
   }
 
   if (command.startsWith('precision-post:')) {

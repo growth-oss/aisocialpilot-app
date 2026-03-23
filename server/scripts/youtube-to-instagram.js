@@ -84,9 +84,9 @@ function shuffle(arr) {
 (async () => {
   const leads = loadLeads();
 
-  // Filter eligible YouTube leads to check on Instagram
+  // Filter eligible YouTube + TikTok leads to check on Instagram
   const eligible = leads.filter(l =>
-    l.platform === 'youtube' &&
+    (l.platform === 'youtube' || l.platform === 'tiktok') &&
     l.engagement_stage === 0 &&
     !l.ig_checked &&
     l.username &&
@@ -95,7 +95,7 @@ function shuffle(arr) {
   );
 
   const toCheck = shuffle(eligible).slice(0, MAX_CHECKS);
-  console.log(`[yt2ig] ${eligible.length} eligible YouTube leads, will check up to ${MAX_CHECKS}`);
+  console.log(`[yt2ig] ${eligible.length} eligible YouTube/TikTok leads, will check up to ${MAX_CHECKS}`);
 
   if (toCheck.length === 0) {
     console.log('[yt2ig] Nothing to check.');

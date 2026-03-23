@@ -578,6 +578,9 @@ PRE-BUILT SCRIPTS (call with node, inject env vars inline):
   YouTube scraping (already pre-built, call as before):
     node /app/server/scripts/scrape-youtube.js
 
+  TikTok scraping (no proxy, no session — public content, run if TT_SOURCES is set):
+    LEADS_FILE=$TT_LEADS_FILE SOURCES=$TT_SOURCES CLIENT_ID=${clientId} SCREENSHOTS_DIR=$TT_SCREENSHOTS_DIR OUTREACH_LOG=$TT_OUTREACH_LOG node /app/server/scripts/scrape-tiktok.js
+
   YouTube commenting (pre-built — run this every session to build visibility):
     GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} KEYWORDS='${JSON.stringify((cfg.niche_keywords || []).slice(0, 6))}' MAX_COMMENTS=8 MAX_VIDEOS_PER_KW=3 OUTREACH_LOG=${logNdjsonPath} COMMENT_LOG=${clientDir}/leadgen/youtube-comment-log.json IS_AMBASSADOR=${isAmbassador ? '1' : '0'} node /app/server/scripts/youtube-comment.js
 
@@ -600,7 +603,9 @@ Correct order — PHASE B AND C MUST RUN FIRST:
 2. Run phase-c-coupons.js (stage 6 leads) → wait to finish completely
 3. Run youtube-comment.js (Google session, no proxy needed) → wait to finish completely
 4. Run scrape-youtube.js (YouTube scraping) → wait for it to finish completely
-5. Run Instagram scraping → wait to finish completely
+5. Run scrape-tiktok.js (TikTok scraping, only if TT_SOURCES is set and non-empty) → wait to finish
+6. Run youtube-to-instagram.js (cross-match YouTube + TikTok leads to Instagram) → wait to finish
+7. Run Instagram scraping → wait to finish completely
 
 **REASON:** Phase B/C directly generate revenue. Scraping only adds to discovery queue.
 If time runs short, scraping is skipped — DMs/coupons are NEVER skipped.
