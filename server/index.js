@@ -2408,6 +2408,12 @@ app.post('/api/clients/:id/run', requireLicense, async (req, res) => {
   if (clientConfig.status === 'paused') {
     return res.status(400).json({ error: 'Client is paused. Set status to Active first.' });
   }
+
+  // Reject if a run is already active for this client — prevents concurrent session conflicts
+  const existingRun = [...runningProcesses.values()].find(r => r.clientId === req.params.id);
+  if (existingRun) {
+    return res.status(409).json({ error: `Run ${existingRun.runId || '?'} already active for this client. Wait for it to finish.` });
+  }
   const willUseOpenAI = config.aiProvider === 'openai' && TEXT_ONLY_COMMANDS.has(command) && config.openaiApiKey;
   if (!willUseOpenAI && !config.anthropicApiKey) {
     return res.status(400).json({ error: 'Anthropic API key not configured. Complete setup first.' });
