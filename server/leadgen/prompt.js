@@ -581,6 +581,12 @@ PRE-BUILT SCRIPTS (call with node, inject env vars inline):
   YouTube commenting (pre-built — run this every session to build visibility):
     GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} KEYWORDS='${JSON.stringify((cfg.niche_keywords || []).slice(0, 6))}' MAX_COMMENTS=8 MAX_VIDEOS_PER_KW=3 OUTREACH_LOG=${logNdjsonPath} COMMENT_LOG=${clientDir}/leadgen/youtube-comment-log.json IS_AMBASSADOR=${isAmbassador ? '1' : '0'} node /app/server/scripts/youtube-comment.js
 
+  YouTube → Instagram cross-matcher (run after scraping, uses Instagram session):
+    BASE_URL=http://127.0.0.1:${serverPort} CLIENT_ID=${clientId} SESSION_DIR=${clientDir}/browser-sessions/instagram PROXY="$SOCIALPILOT_PROXY" LEADS_FILE=${lgDir}/leads.json MAX_CHECKS=30 OUTREACH_LOG=${logNdjsonPath} node /app/server/scripts/youtube-to-instagram.js
+
+  YouTube comment replies (replies to specific commenters, uses Google session, NO proxy):
+    GOOGLE_SESSION_DIR=${clientDir}/browser-sessions/google CLIENT_ID=${clientId} LEADS_FILE=${lgDir}/leads.json MAX_REPLIES=8 OUTREACH_LOG=${logNdjsonPath} node /app/server/scripts/youtube-reply.js
+
 Only write a custom /tmp script if you need to do something these scripts cannot handle.
 NEVER write scripts for Phase B, C, or YouTube commenting — they are handled above.
 
