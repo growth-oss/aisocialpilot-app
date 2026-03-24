@@ -55,19 +55,21 @@ if (!COUPONS.length) {
 }
 
 // ── Coupon DM templates (5 EN + 5 AR rotating) ────────────────────────────────
+const STORE_URL = 'https://drsleeep.ae';
+
 const EN_TEMPLATES = [
-  (name, code) => `hey ${name}! just got a discount code I can share — search Google for drsleeep and use ${code} at checkout if you end up ordering 😊`,
-  (name, code) => `${name}! thought of you — if you've been curious about our bamboo sheets, search 'drsleeep' on Google and use code ${code} for a discount 🌿`,
-  (name, code) => `hi ${name}! passing along a code in case it's useful: search drsleeep online and enter ${code} when checking out — no pressure at all 🙂`,
-  (name, code) => `hey ${name}! grabbed you a code — ${code} — just search drsleeep on Google if you want to try the bamboo bedding ✨`,
-  (name, code) => `${name}! randomly thought to share this — code ${code} works on drsleeep (just Google it). might be nice if you're into quality sleep 😴`,
+  (name, code) => `hey ${name}! I have a discount code I can share — use ${code} at ${STORE_URL} 😊 it should take a good chunk off`,
+  (name, code) => `${name}! thought of you — if you've been curious about bamboo sheets, here's a code: ${code} → ${STORE_URL} 🌿`,
+  (name, code) => `hi ${name}! passing this along in case it's useful — code ${code} works at ${STORE_URL} if you ever want to try the bamboo bedding 🙂`,
+  (name, code) => `hey ${name}! grabbed you a code — ${code} — just go to ${STORE_URL} and enter it at checkout ✨`,
+  (name, code) => `${name}! random but I have a sleep discount — code ${code} at ${STORE_URL} 😴 thought you might appreciate it`,
 ];
 const AR_TEMPLATES = [
-  (name, code) => `هلا ${name}! عندي كود خصم أقدر أشاركه — ابحثي عن دكتور النووم على قوقل واستخدمي ${code} عند الدفع لو طلبتِ 😊`,
-  (name, code) => `${name}! فكرت فيكِ — لو فضولك تجربين مفارش البامبو، ابحثي عن 'دكتور النووم' وحطي كود ${code} عند الطلب 🌿`,
-  (name, code) => `هلا ${name}! أشاركك كود لو حابة تستفيدين منه: ابحثي عن دكتور النووم على النت واستخدمي ${code} — بدون أي ضغط 🙂`,
-  (name, code) => `${name}! جبت لك كود — ${code} — بس ابحثي عن دكتور النووم على قوقل لو بتجربين مفارش البامبو ✨`,
-  (name, code) => `${name}! جاء على بالي أشاركك — كود ${code} يشتغل على دكتور النووم (ابحثي عليه). يمكن يفيدك لو تحبين نوم مريح 😴`,
+  (name, code) => `هلا ${name}! عندي كود خصم أقدر أشاركه — استخدمي ${code} على ${STORE_URL} لو طلبتِ 😊`,
+  (name, code) => `${name}! فكرت فيكِ — لو فضولك تجربين مفارش البامبو، كودك هو ${code} على ${STORE_URL} 🌿`,
+  (name, code) => `هلا ${name}! أشاركك كود لو حابة: ${code} على موقع ${STORE_URL} — بدون أي ضغط 🙂`,
+  (name, code) => `${name}! جبت لك كود — ${code} — تقدرين تستخدمينه مباشرة على ${STORE_URL} ✨`,
+  (name, code) => `${name}! جاء على بالي أشاركك — كود ${code} على ${STORE_URL}. يمكن يفيدك لو تحبين نوم مريح 😴`,
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
