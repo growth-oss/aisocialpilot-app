@@ -287,8 +287,15 @@ async function sendDM(page, lead) {
     await delay(2000);
   }
 
-  // Log current URL and page title for debugging
-  console.log(`[phase-b] After Message click — URL: ${page.url().slice(0, 80)}`);
+  // Log current URL for debugging
+  const afterClickUrl = page.url();
+  console.log(`[phase-b] After Message click — URL: ${afterClickUrl.slice(0, 100)}`);
+
+  // Wait for navigation to DM thread (URL changes to /direct/t/ or /direct/inbox/)
+  if (!afterClickUrl.includes('/direct/')) {
+    await page.waitForURL(/direct/, { timeout: 8000 }).catch(() => {});
+    console.log(`[phase-b] After nav wait — URL: ${page.url().slice(0, 100)}`);
+  }
 
   // Broad input selector covering regular DM, message request, and mobile-style views
   const inputSel = [
@@ -297,14 +304,18 @@ async function sendDM(page, lead) {
     'textarea[placeholder*="esage" i]',
     '[contenteditable="true"]',
     'div[role="textbox"]',
+    '[aria-label*="essage" i]',
   ].join(', ');
   const input = page.locator(inputSel).last();
-  if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+  const inputVisible = await input.isVisible({ timeout: 12000 }).catch(() => false);
+  if (!inputVisible) {
     const url = page.url();
-    const allText = await page.locator('div[role="button"], button, [placeholder]').allTextContents().catch(() => []);
-    console.log(`[phase-b] Profile DM failed for @${lead.username} — URL: ${url.slice(0,80)} | Elements: ${allText.slice(0,6).join(' | ')}`);
-    console.log(`[phase-b] Falling back to direct/new for @${lead.username}`);
-    return sendDMViaDirect(page, lead);
+    const allText = await page.locator('div[role="button"], button, [placeholder], [contenteditable]').allTextContents().catch(() => []);
+    console.log(`[phase-b] No message input for @${lead.username} — URL: ${url.slice(0,100)}`);
+    console.log(`[phase-b] Page elements: ${allText.filter(t => t.trim()).slice(0,8).join(' | ')}`);
+    // Don't fall to sendDMViaDirect for profile-initiated DMs — just skip
+    // sendDMViaDirect search won't find non-followers in compose search
+    return false;
   }
 
   const msg = getDMMsg(lead);
@@ -399,8 +410,8 @@ async function leaveComment(page, lead) {
     try {
       if (lead.engagement_stage >= 4 && dms < MAX_DMS && followbackReady(lead)) {
         // Already commented — send DM
-        await sendDM(page, lead);
-        dms++;
+        const sent = await sendDM(page, lead);
+        if (sent) dms++;
       } else if (lead.engagement_stage === 3 && score >= DM_SCORE && dms < MAX_DMS && followbackReady(lead)) {
         // High score + followback ready → DM directly
         const sent = await sendDM(page, lead);
