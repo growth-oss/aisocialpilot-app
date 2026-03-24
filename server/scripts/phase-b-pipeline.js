@@ -156,7 +156,7 @@ async function sendDMViaDirect(page, lead) {
   ].join(', ');
   const composeBtn = page.locator(composeSel).first();
   if (await composeBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
-    await composeBtn.click();
+    await composeBtn.click({ force: true }).catch(() => composeBtn.click());
     await delay(2000);
     console.log(`[phase-b] direct: clicked compose button`);
   } else {
@@ -179,7 +179,15 @@ async function sendDMViaDirect(page, lead) {
     console.log(`[phase-b] direct: no search input found — URL: ${page.url()}`);
     return false;
   }
-  await searchInput.click();
+  // force:true bypasses overlay interception — overlay divs blocking pointer events
+  try {
+    await searchInput.click({ force: true, timeout: 5000 });
+  } catch {
+    // JS-focus fallback if force click also intercepted
+    const h = await searchInput.elementHandle().catch(() => null);
+    if (h) await page.evaluate(el => el.focus(), h);
+    else await searchInput.focus().catch(() => {});
+  }
   await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
   await delay(2500);
 
@@ -194,13 +202,13 @@ async function sendDMViaDirect(page, lead) {
     console.log(`[phase-b] direct: @${lead.username} not found in results`);
     return false;
   }
-  await userResult.click();
+  await userResult.click({ force: true }).catch(() => userResult.click());
   await delay(1000);
 
   // Click Next / Chat button
   const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat"), button:has-text("Chat")').first();
   if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await nextBtn.click();
+    await nextBtn.click({ force: true }).catch(() => nextBtn.click());
     await delay(2500);
   }
 
@@ -219,7 +227,7 @@ async function sendDMViaDirect(page, lead) {
   }
 
   const msg = getDMMsg(lead);
-  await input.click();
+  await input.click({ force: true }).catch(() => input.click());
   await page.keyboard.type(msg, { delay: 55 + Math.random() * 75 });
   await delay(800);
   await page.keyboard.press('Enter');
@@ -264,7 +272,7 @@ async function sendDM(page, lead) {
   }
   try {
     await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
-    await msgBtn.click({ timeout: 10000 });
+    await msgBtn.click({ force: true, timeout: 10000 });
   } catch (clickErr) {
     console.log(`[phase-b] Message button click failed for @${lead.username} (${clickErr.message.slice(0,60)}) — trying direct fallback`);
     return sendDMViaDirect(page, lead);
@@ -300,7 +308,7 @@ async function sendDM(page, lead) {
   }
 
   const msg = getDMMsg(lead);
-  await input.click();
+  await input.click({ force: true }).catch(() => input.click());
   await page.keyboard.type(msg, { delay: 55 + Math.random() * 75 });
   await delay(800);
   await page.keyboard.press('Enter');

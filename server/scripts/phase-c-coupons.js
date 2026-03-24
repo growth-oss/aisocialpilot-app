@@ -98,7 +98,7 @@ async function sendCouponViaDirect(page, lead, msg) {
   const composeSel = 'svg[aria-label="New message"], svg[aria-label*="New message" i], [data-testid="new-message-button"], a[href="/direct/new/"]';
   const composeBtn = page.locator(composeSel).first();
   if (await composeBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
-    await composeBtn.click();
+    await composeBtn.click({ force: true }).catch(() => composeBtn.click());
     await delay(2000);
   } else {
     await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 25000 });
@@ -111,7 +111,14 @@ async function sendCouponViaDirect(page, lead, msg) {
     console.log(`[phase-c] direct: no search input — URL: ${page.url()}`);
     return false;
   }
-  await searchInput.click();
+  // force:true bypasses overlay interception
+  try {
+    await searchInput.click({ force: true, timeout: 5000 });
+  } catch {
+    const h = await searchInput.elementHandle().catch(() => null);
+    if (h) await page.evaluate(el => el.focus(), h);
+    else await searchInput.focus().catch(() => {});
+  }
   await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
   await delay(2500);
 
@@ -121,11 +128,11 @@ async function sendCouponViaDirect(page, lead, msg) {
     console.log(`[phase-c] direct: @${lead.username} not found in results`);
     return false;
   }
-  await userResult.click();
+  await userResult.click({ force: true }).catch(() => userResult.click());
   await delay(1000);
 
   const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat"), button:has-text("Chat")').first();
-  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) { await nextBtn.click(); await delay(2500); }
+  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) { await nextBtn.click({ force: true }).catch(() => nextBtn.click()); await delay(2500); }
 
   const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
   const input = page.locator(inputSel).last();
@@ -133,7 +140,7 @@ async function sendCouponViaDirect(page, lead, msg) {
     console.log(`[phase-c] direct: input not visible for @${lead.username} — URL: ${page.url()}`);
     return false;
   }
-  await input.click();
+  await input.click({ force: true }).catch(() => input.click());
   await page.keyboard.type(msg, { delay: 55 + Math.random() * 90 });
   await delay(800);
   await page.keyboard.press('Enter');
@@ -301,7 +308,7 @@ async function fetchLeads(params) {
         continue;
       }
       await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
-      await msgBtn.click();
+      await msgBtn.click({ force: true }).catch(() => msgBtn.click());
       await delay(3500);
 
       // Handle message request confirm dialog
@@ -317,7 +324,7 @@ async function fetchLeads(params) {
       const msgInput = page.locator(inputSel).last();
       let dmSent = false;
       if (await msgInput.isVisible({ timeout: 10000 }).catch(() => false)) {
-        await msgInput.click();
+        await msgInput.click({ force: true }).catch(() => msgInput.click());
         await page.keyboard.type(msg, { delay: 55 + Math.random() * 90 });
         await delay(700);
         await page.keyboard.press('Enter');
