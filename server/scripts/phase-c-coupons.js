@@ -74,34 +74,59 @@ const AR_TEMPLATES = [
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 const randDelay = () => delay(DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN));
 
-// Send DM via /direct/new/ flow (fallback when profile Message button fails)
+// Dismiss common Instagram overlays
+async function dismissOverlays(page) {
+  for (const sel of ['button:has-text("Not Now")', 'button:has-text("Not now")', 'div[role="button"]:has-text("Not Now")', '[aria-label="Close"]']) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) { await btn.click(); await delay(800); }
+    } catch {}
+  }
+}
+
+// Send DM via inbox compose flow (fallback when profile Message button fails)
 async function sendCouponViaDirect(page, lead, msg) {
-  await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(2500);
-  const searchInput = page.locator('input[name="queryBox"], input[placeholder*="Search" i], [aria-label*="Search" i]').first();
-  if (!await searchInput.isVisible({ timeout: 6000 }).catch(() => false)) {
-    console.log(`[phase-c] direct/new: no search input`);
+  await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(3000);
+  await dismissOverlays(page);
+
+  // Click compose button
+  const composeSel = 'svg[aria-label="New message"], svg[aria-label*="New message" i], [data-testid="new-message-button"], a[href="/direct/new/"]';
+  const composeBtn = page.locator(composeSel).first();
+  if (await composeBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
+    await composeBtn.click();
+    await delay(2000);
+  } else {
+    await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await delay(3000);
+  }
+
+  const searchSel = '[role="dialog"] input, input[name="queryBox"], input[placeholder*="Search" i], [aria-label*="Search people" i], input[type="text"]';
+  const searchInput = page.locator(searchSel).first();
+  if (!await searchInput.isVisible({ timeout: 8000 }).catch(() => false)) {
+    console.log(`[phase-c] direct: no search input — URL: ${page.url()}`);
     return false;
   }
   await searchInput.click();
   await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
-  await delay(2000);
-  const userResult = page.locator(`[role="option"]:has-text("${lead.username}"), [role="listitem"]:has-text("${lead.username}")`).first();
-  if (!await userResult.isVisible({ timeout: 5000 }).catch(() => false)) {
-    console.log(`[phase-c] direct/new: @${lead.username} not found in results`);
+  await delay(2500);
+
+  const resultSel = `[role="option"]:has-text("${lead.username}"), [role="listitem"]:has-text("${lead.username}"), div:has-text("${lead.username}")[tabindex]`;
+  const userResult = page.locator(resultSel).first();
+  if (!await userResult.isVisible({ timeout: 6000 }).catch(() => false)) {
+    console.log(`[phase-c] direct: @${lead.username} not found in results`);
     return false;
   }
   await userResult.click();
   await delay(1000);
-  const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat")').first();
-  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await nextBtn.click();
-    await delay(2000);
-  }
-  const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
+
+  const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat"), button:has-text("Chat")').first();
+  if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) { await nextBtn.click(); await delay(2500); }
+
+  const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
   const input = page.locator(inputSel).last();
-  if (!await input.isVisible({ timeout: 8000 }).catch(() => false)) {
-    console.log(`[phase-c] direct/new: input not visible for @${lead.username}`);
+  if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+    console.log(`[phase-c] direct: input not visible for @${lead.username} — URL: ${page.url()}`);
     return false;
   }
   await input.click();
@@ -244,15 +269,34 @@ async function fetchLeads(params) {
     console.log(`[phase-c] Sending coupon to @${lead.username} (score ${lead.lead_score}) — ${coupon.code}`);
 
     try {
-      // Use profile Message button — more reliable than /direct/new/
+      // Navigate to profile, wait for React to render buttons
       await page.goto(`https://www.instagram.com/${lead.username}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await delay(2000 + Math.random() * 1500);
+      await page.waitForSelector('header, main[role="main"], section', { timeout: 12000 }).catch(() => {});
+      await delay(3000 + Math.random() * 1500);
+      await dismissOverlays(page);
 
-      const msgBtn = page.locator('div[role="button"]:has-text("Message"), button:has-text("Message")').first();
-      if (!await msgBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
-        console.log(`[phase-c] No Message button for @${lead.username} — skipping`);
+      const msgBtnSel = [
+        'header div[role="button"]:has-text("Message")',
+        'header button:has-text("Message")',
+        'div[role="button"]:has-text("Message")',
+        'button:has-text("Message")',
+        '[aria-label="Message"]',
+      ].join(', ');
+      const msgBtn = page.locator(msgBtnSel).first();
+      if (!await msgBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
+        const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
+        console.log(`[phase-c] No Message button for @${lead.username} — Visible: ${btns.slice(0,8).join(' | ')} — trying direct fallback`);
+        const dmSentDirect = await sendCouponViaDirect(page, lead, msg);
+        if (!dmSentDirect) continue;
+        sent++;
+        console.log(`[phase-c] ✅ Coupon DM (direct) sent to @${lead.username}: code=${coupon.code}`);
+        await patchLead(lead.username, { coupon_referenced: 1, coupon_code: coupon.code, last_engaged_at: new Date().toISOString() });
+        logOutreach({ action_type: 'coupon_dm', platform: 'instagram', username: lead.username, coupon_code: coupon.code, content_used: msg, result: 'sent' });
+        await randDelay();
+        await delay(20000 + Math.random() * 30000);
         continue;
       }
+      await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
       await msgBtn.click();
       await delay(3500);
 

@@ -118,38 +118,103 @@ function getCommentText(lead) {
 
 // ── Instagram actions ─────────────────────────────────────────────────────────
 
-// Fallback: send DM via /direct/new/ search flow (bypasses profile Message button)
-async function sendDMViaDirect(page, lead) {
-  await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(2500);
+// Dismiss common Instagram overlays (app install banner, notification prompts, etc.)
+async function dismissOverlays(page) {
+  const dismissSels = [
+    'button:has-text("Not Now")',
+    'button:has-text("Not now")',
+    'div[role="button"]:has-text("Not Now")',
+    '[aria-label="Close"]',
+    'button[class*="close" i]',
+  ];
+  for (const sel of dismissSels) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await btn.click();
+        await delay(800);
+      }
+    } catch {}
+  }
+}
 
-  const searchInput = page.locator('input[name="queryBox"], input[placeholder*="Search" i], [aria-label*="Search" i]').first();
-  if (!await searchInput.isVisible({ timeout: 6000 }).catch(() => false)) {
-    console.log(`[phase-b] direct/new: no search input — URL: ${page.url()}`);
+// Fallback: send DM via inbox compose flow (bypasses profile Message button)
+async function sendDMViaDirect(page, lead) {
+  // Navigate to inbox; /direct/new/ sometimes redirects there in current IG UI
+  await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(3000);
+  await dismissOverlays(page);
+
+  // Click compose / "New message" button in inbox header
+  const composeSel = [
+    'svg[aria-label="New message"]',
+    'svg[aria-label*="New message" i]',
+    '[data-testid="new-message-button"]',
+    'a[href="/direct/new/"]',
+    'div[role="button"][title*="New"]',
+    'button[title*="New message" i]',
+  ].join(', ');
+  const composeBtn = page.locator(composeSel).first();
+  if (await composeBtn.isVisible({ timeout: 6000 }).catch(() => false)) {
+    await composeBtn.click();
+    await delay(2000);
+    console.log(`[phase-b] direct: clicked compose button`);
+  } else {
+    // Fallback: try /direct/new/ directly
+    await page.goto('https://www.instagram.com/direct/new/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await delay(3000);
+  }
+
+  // Find search input in compose dialog
+  const searchSel = [
+    '[role="dialog"] input',
+    'input[name="queryBox"]',
+    'input[placeholder*="Search" i]',
+    '[aria-label*="Search people" i]',
+    '[aria-label*="Search" i] input',
+    'input[type="text"]',
+  ].join(', ');
+  const searchInput = page.locator(searchSel).first();
+  if (!await searchInput.isVisible({ timeout: 8000 }).catch(() => false)) {
+    console.log(`[phase-b] direct: no search input found — URL: ${page.url()}`);
     return false;
   }
   await searchInput.click();
   await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
-  await delay(2000);
+  await delay(2500);
 
-  const userResult = page.locator(`[role="option"]:has-text("${lead.username}"), [role="listitem"]:has-text("${lead.username}")`).first();
-  if (!await userResult.isVisible({ timeout: 5000 }).catch(() => false)) {
-    console.log(`[phase-b] direct/new: @${lead.username} not found in search results`);
+  // Select user from results
+  const resultSel = [
+    `[role="option"]:has-text("${lead.username}")`,
+    `[role="listitem"]:has-text("${lead.username}")`,
+    `div:has-text("${lead.username}")[tabindex]`,
+  ].join(', ');
+  const userResult = page.locator(resultSel).first();
+  if (!await userResult.isVisible({ timeout: 6000 }).catch(() => false)) {
+    console.log(`[phase-b] direct: @${lead.username} not found in results`);
     return false;
   }
   await userResult.click();
   await delay(1000);
 
-  const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat")').first();
+  // Click Next / Chat button
+  const nextBtn = page.locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Chat"), button:has-text("Chat")').first();
   if (await nextBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
     await nextBtn.click();
-    await delay(2000);
+    await delay(2500);
   }
 
-  const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
+  // Find message input
+  const inputSel = [
+    '[contenteditable="true"][role="textbox"]',
+    'textarea[placeholder*="essage" i]',
+    '[placeholder*="essage" i]',
+    '[contenteditable="true"]',
+    'div[role="textbox"]',
+  ].join(', ');
   const input = page.locator(inputSel).last();
-  if (!await input.isVisible({ timeout: 8000 }).catch(() => false)) {
-    console.log(`[phase-b] direct/new: message input not visible for @${lead.username}`);
+  if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+    console.log(`[phase-b] direct: message input not found for @${lead.username} — URL: ${page.url()}`);
     return false;
   }
 
@@ -169,28 +234,39 @@ async function sendDMViaDirect(page, lead) {
 async function sendDM(page, lead) {
   const profileUrl = `https://www.instagram.com/${lead.username}/`;
   await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(2000 + Math.random() * 2000);
 
-  // Use Message button on profile
+  // Wait for the profile header section to hydrate (React renders buttons after initial load)
+  await page.waitForSelector('header, main[role="main"], section', { timeout: 12000 }).catch(() => {});
+  await delay(3000 + Math.random() * 2000);
+
+  // Dismiss any overlay (app install prompt, notification request)
+  await dismissOverlays(page);
+
+  // Use Message button on profile — broad selector covering current Instagram DOM
   const msgBtnSelector = [
+    'header div[role="button"]:has-text("Message")',
+    'header button:has-text("Message")',
     'div[role="button"]:has-text("Message")',
     'button:has-text("Message")',
     'a:has-text("Message")',
     '[aria-label="Message"]',
     'div[tabindex="0"]:has-text("Message")',
+    '._acan._acap._acas._aj1-',  // IG internal class (may change, used as last resort)
   ].join(', ');
   const msgBtn = page.locator(msgBtnSelector).first();
 
-  // Debug: log all buttons visible on the page if Message not found
-  if (!await msgBtn.isVisible({ timeout: 7000 }).catch(() => false)) {
+  // Debug: log all buttons visible if Message not found
+  if (!await msgBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
     const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
-    console.log(`[phase-b] No Message button for @${lead.username}. Visible: ${btns.slice(0,8).join(' | ')} — trying direct/new fallback`);
+    const url = page.url();
+    console.log(`[phase-b] No Message button for @${lead.username} — URL: ${url.slice(0,80)} | Visible: ${btns.slice(0,10).join(' | ')}`);
     return sendDMViaDirect(page, lead);
   }
   try {
+    await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
     await msgBtn.click({ timeout: 10000 });
   } catch (clickErr) {
-    console.log(`[phase-b] Message button click failed for @${lead.username} (${clickErr.message.slice(0,60)}) — trying direct/new fallback`);
+    console.log(`[phase-b] Message button click failed for @${lead.username} (${clickErr.message.slice(0,60)}) — trying direct fallback`);
     return sendDMViaDirect(page, lead);
   }
   await delay(3500);
@@ -239,7 +315,9 @@ async function sendDM(page, lead) {
 async function leaveComment(page, lead) {
   const profileUrl = `https://www.instagram.com/${lead.username}/`;
   await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(2000 + Math.random() * 2000);
+  await page.waitForSelector('article, main[role="main"]', { timeout: 12000 }).catch(() => {});
+  await delay(2500 + Math.random() * 2000);
+  await dismissOverlays(page);
 
   const post = page.locator('a[href*="/p/"], a[href*="/reel/"]').first();
   if (!await post.isVisible({ timeout: 5000 }).catch(() => false)) {
