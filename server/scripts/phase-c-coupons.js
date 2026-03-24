@@ -55,21 +55,23 @@ if (!COUPONS.length) {
 }
 
 // ── Coupon DM templates (5 EN + 5 AR rotating) ────────────────────────────────
-const STORE_URL = 'https://drsleeep.ae';
+// NOTE: No external URLs in DMs — Instagram spam filter flags them and risks account.
+// Direct people to the Instagram bio link instead (stays within Instagram).
+const BIO_HANDLE = '@bamboo_sleep_professor';
 
 const EN_TEMPLATES = [
-  (name, code) => `hey ${name}! I have a discount code I can share — use ${code} at ${STORE_URL} 😊 it should take a good chunk off`,
-  (name, code) => `${name}! thought of you — if you've been curious about bamboo sheets, here's a code: ${code} → ${STORE_URL} 🌿`,
-  (name, code) => `hi ${name}! passing this along in case it's useful — code ${code} works at ${STORE_URL} if you ever want to try the bamboo bedding 🙂`,
-  (name, code) => `hey ${name}! grabbed you a code — ${code} — just go to ${STORE_URL} and enter it at checkout ✨`,
-  (name, code) => `${name}! random but I have a sleep discount — code ${code} at ${STORE_URL} 😴 thought you might appreciate it`,
+  (name, code) => `hey ${name}! I have a discount code I can share — ${code} — you can find the store link in my bio if you want to try the bamboo bedding 😊`,
+  (name, code) => `${name}! thought of you — here's a code: ${code} — link to order is in my bio whenever you're curious 🌿`,
+  (name, code) => `hi ${name}! passing this along — code ${code} — store link is in my bio, no pressure at all 🙂`,
+  (name, code) => `hey ${name}! grabbed you a code — ${code} — just click the link in my bio and enter it at checkout ✨`,
+  (name, code) => `${name}! random but — code ${code} — it works on the bamboo bedding, link in my bio if you want to check it out 😴`,
 ];
 const AR_TEMPLATES = [
-  (name, code) => `هلا ${name}! عندي كود خصم أقدر أشاركه — استخدمي ${code} على ${STORE_URL} لو طلبتِ 😊`,
-  (name, code) => `${name}! فكرت فيكِ — لو فضولك تجربين مفارش البامبو، كودك هو ${code} على ${STORE_URL} 🌿`,
-  (name, code) => `هلا ${name}! أشاركك كود لو حابة: ${code} على موقع ${STORE_URL} — بدون أي ضغط 🙂`,
-  (name, code) => `${name}! جبت لك كود — ${code} — تقدرين تستخدمينه مباشرة على ${STORE_URL} ✨`,
-  (name, code) => `${name}! جاء على بالي أشاركك — كود ${code} على ${STORE_URL}. يمكن يفيدك لو تحبين نوم مريح 😴`,
+  (name, code) => `هلا ${name}! عندي كود خصم — ${code} — الرابط موجود في البايو تبعي لو تبين تطلبين 😊`,
+  (name, code) => `${name}! فكرت فيكِ — كودك هو ${code} — رابط الطلب في البايو تبعي لو فضولك 🌿`,
+  (name, code) => `هلا ${name}! أشاركك كود لو حابة: ${code} — الرابط في البايو تبعي، بدون أي ضغط 🙂`,
+  (name, code) => `${name}! جبت لك كود — ${code} — تقدرين تطلبين من رابط البايو تبعي وتحطين الكود ✨`,
+  (name, code) => `${name}! جاء على بالي أشاركك كود — ${code} — الرابط في البايو. يمكن يفيدك لو تحبين نوم مريح 😴`,
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
