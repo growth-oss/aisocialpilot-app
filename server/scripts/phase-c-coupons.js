@@ -195,7 +195,7 @@ function logOutreach(entry) {
 
 function patchLead(username, updates) {
   return apiCall('PATCH', `/api/clients/${CLIENT_ID}/leadgen/leads/by-username`, {
-    username, ...updates, updated_at: new Date().toISOString()
+    platform: 'instagram', username, ...updates, updated_at: new Date().toISOString()
   });
 }
 

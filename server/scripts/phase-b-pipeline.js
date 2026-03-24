@@ -54,7 +54,7 @@ function apiCall(method, urlPath, body) {
 }
 
 function patchLead(username, updates) {
-  return apiCall('PATCH', `/api/clients/${CLIENT_ID}/leadgen/leads/by-username`, { username, ...updates, updated_at: new Date().toISOString() });
+  return apiCall('PATCH', `/api/clients/${CLIENT_ID}/leadgen/leads/by-username`, { platform: 'instagram', username, ...updates, updated_at: new Date().toISOString() });
 }
 
 async function fetchLeads(params) {
@@ -234,7 +234,8 @@ async function sendDMViaDirect(page, lead) {
   await delay(2000);
 
   console.log(`[phase-b] ✅ DM (direct) → @${lead.username}: "${msg.slice(0,70)}..."`);
-  await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  const patch1 = await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  if (patch1 && patch1.error) console.log(`[phase-b] patchLead error for @${lead.username}: ${patch1.error}`);
   logOutreach({ action_type: 'dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
   return true;
 }
@@ -326,7 +327,8 @@ async function sendDM(page, lead) {
   await delay(2000);
 
   console.log(`[phase-b] ✅ DM → @${lead.username}: "${msg.slice(0,70)}..."`);
-  await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  const patch2 = await patchLead(lead.username, { engagement_stage: 5, last_engaged_at: new Date().toISOString() });
+  if (patch2 && patch2.error) console.log(`[phase-b] patchLead error for @${lead.username}: ${patch2.error}`);
   logOutreach({ action_type: 'dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
   return true;
 }
