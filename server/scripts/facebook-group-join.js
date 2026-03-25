@@ -105,6 +105,67 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
 
   for (const keyword of FB_JOIN_KEYWORDS) {
     if (joinCount >= MAX_JOINS) break;
+
+    // If keyword is a direct group URL, navigate to it instead of searching
+    const keywordIsUrl = keyword.startsWith('http') || keyword.includes('facebook.com/groups/');
+    if (keywordIsUrl) {
+      let groupUrl = keyword.trim();
+      try {
+        const u = new URL(groupUrl.includes('://') ? groupUrl : 'https://' + groupUrl);
+        groupUrl = u.origin + u.pathname.replace(/\/$/, '');
+      } catch {}
+      if (knownUrls.has(groupUrl)) {
+        console.log(`\n[fb-join] Already tracked (URL keyword): ${groupUrl} — skip`);
+        continue;
+      }
+      console.log(`\n[fb-join] Direct URL group: "${groupUrl}"`);
+      try {
+        await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await sleep(4000);
+        // Extract group name from page title or h1
+        const groupName = await page.$eval('h1, title', el => el.textContent?.trim() || '').catch(() => '');
+        // Reuse the same member/join logic via a synthetic card
+        const pageText = await page.evaluate(() => document.body?.innerText || '');
+        const alreadyMember = pageText.includes('Joined') || pageText.includes('انضممت') ||
+                              pageText.includes('Leave group') || pageText.includes('Write something');
+        const alreadyPending = pageText.includes('Requested to join') || pageText.includes('Cancel request') ||
+                               pageText.includes('طلب انضمام');
+        if (alreadyMember) {
+          console.log(`[fb-join] Already a member of: ${groupName || groupUrl}`);
+          groups.push({ group_url: groupUrl, group_name: groupName, status: 'member', members: null, keyword, applied_at: new Date().toISOString(), accepted_at: new Date().toISOString(), last_engaged_at: null, posts_replied: 0, questions_asked: 0 });
+          knownUrls.add(groupUrl); saveGroups(groups);
+        } else if (alreadyPending) {
+          console.log(`[fb-join] Already pending for: ${groupName || groupUrl}`);
+          groups.push({ group_url: groupUrl, group_name: groupName, status: 'pending', members: null, keyword, applied_at: new Date().toISOString(), accepted_at: null, last_engaged_at: null, posts_replied: 0, questions_asked: 0 });
+          knownUrls.add(groupUrl); saveGroups(groups);
+        } else {
+          const joinBtn = page.locator(
+            'div[role="button"]:has-text("Join group"), div[role="button"]:has-text("Join Group"), ' +
+            'button:has-text("Join group"), button:has-text("Join Group"), ' +
+            'div[role="button"]:has-text("انضم")'
+          ).first();
+          const joinVisible = await joinBtn.isVisible({ timeout: 5000 }).catch(() => false);
+          if (joinVisible) {
+            await joinBtn.click({ timeout: 8000 });
+            await sleep(3000);
+            try {
+              const submitBtn = page.locator('div[role="button"]:has-text("Submit"), button:has-text("Submit")').first();
+              if (await submitBtn.isVisible({ timeout: 3000 }).catch(() => false)) { await submitBtn.click(); await sleep(2000); }
+            } catch {}
+            console.log(`[fb-join] ✅ Applied to join: ${groupName || groupUrl}`);
+            groups.push({ group_url: groupUrl, group_name: groupName, status: 'pending', members: null, keyword, applied_at: new Date().toISOString(), accepted_at: null, last_engaged_at: null, posts_replied: 0, questions_asked: 0 });
+            knownUrls.add(groupUrl); saveGroups(groups); joinCount++;
+          } else {
+            console.log(`[fb-join] No Join button for: ${groupName || groupUrl} — skipping`);
+          }
+        }
+      } catch (e) {
+        console.error(`[fb-join] ERROR on URL keyword ${groupUrl}: ${e.message}`);
+      }
+      await sleep(rnd(5000, 10000));
+      continue;
+    }
+
     console.log(`\n[fb-join] Searching for groups: "${keyword}"`);
 
     try {
