@@ -154,10 +154,13 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
     // - group name or search keyword mentions sleep/bedroom/decor/women
     // - OR the search keyword is NOT a URL (i.e. it's a meaningful search term)
     const keywordIsUrl = groupKeyword.startsWith('http') || groupKeyword.includes('facebook.com');
-    const isHighIntent = !keywordIsUrl || HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
-      groupLabel.toLowerCase().includes(kw.toLowerCase()) ||
-      groupKeyword.includes(kw.toLowerCase())
-    );
+    const isHighIntent = !keywordIsUrl ||
+      // URL keyword with no group name = joined via specific group URL = treat as high intent
+      (keywordIsUrl && !group.group_name) ||
+      HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
+        groupLabel.toLowerCase().includes(kw.toLowerCase()) ||
+        groupKeyword.includes(kw.toLowerCase())
+      );
     console.log(`\n[fb-scrape] Group: ${groupLabel} | keyword: "${groupKeyword.slice(0,40)}" | high-intent: ${isHighIntent}`);
 
     try {
