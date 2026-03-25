@@ -154,9 +154,11 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
     // - group name or search keyword mentions sleep/bedroom/decor/women
     // - OR the search keyword is NOT a URL (i.e. it's a meaningful search term)
     const keywordIsUrl = groupKeyword.startsWith('http') || groupKeyword.includes('facebook.com');
+    // groupLabel === group_url means no real name was extracted (name is missing or is the URL itself)
+    const hasNoRealName = groupLabel === (group.group_url || '') || groupLabel.startsWith('http');
     const isHighIntent = !keywordIsUrl ||
-      // URL keyword with no group name = joined via specific group URL = treat as high intent
-      (keywordIsUrl && !group.group_name) ||
+      // URL keyword with no real group name = joined via specific group URL = treat as high intent
+      (keywordIsUrl && hasNoRealName) ||
       HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
         groupLabel.toLowerCase().includes(kw.toLowerCase()) ||
         groupKeyword.includes(kw.toLowerCase())
