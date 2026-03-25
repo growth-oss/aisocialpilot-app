@@ -41,6 +41,9 @@ const DELAY_MAX      = parseInt(process.env.DELAY_MAX || '10000', 10);
 const OUTREACH_LOG   = process.env.OUTREACH_LOG || '';
 const IS_AMBASSADOR  = process.env.IS_AMBASSADOR === '1';
 const MIN_SCORE      = parseInt(process.env.MIN_SCORE || '60', 10);
+// URGENCY_MODE: when '1', send follow-up to leads who already have coupon but haven't converted
+const URGENCY_MODE   = process.env.URGENCY_MODE === '1';
+const URGENCY_MIN_DAYS = parseInt(process.env.URGENCY_MIN_DAYS || '7', 10);
 
 let COUPONS = [];
 try { COUPONS = JSON.parse(process.env.COUPONS || '[]'); } catch (e) { /* no coupons */ }
@@ -49,8 +52,8 @@ if (!CLIENT_ID || !SESSION_DIR) {
   console.error('[phase-c] ERROR: CLIENT_ID and SESSION_DIR are required');
   process.exit(1);
 }
-if (!COUPONS.length) {
-  console.log('[phase-c] No coupons configured — skipping');
+if (!COUPONS.length && !URGENCY_MODE) {
+  console.log('[phase-c] No coupons configured and not urgency mode — skipping');
   process.exit(0);
 }
 
@@ -72,6 +75,18 @@ const AR_TEMPLATES = [
   (name, code) => `هلا ${name}! أشاركك كود لو حابة: ${code} — الرابط في البايو تبعي، بدون أي ضغط 🙂`,
   (name, code) => `${name}! جبت لك كود — ${code} — تقدرين تطلبين من رابط البايو تبعي وتحطين الكود ✨`,
   (name, code) => `${name}! جاء على بالي أشاركك كود — ${code} — الرابط في البايو. يمكن يفيدك لو تحبين نوم مريح 😴`,
+];
+
+// Urgency follow-up templates (for leads who already got the coupon)
+const EN_URGENCY = [
+  (name) => `hey ${name}! just checking in — did you get a chance to try the discount code I sent? happy to help if you need anything 😊`,
+  (name) => `${name}! wanted to make sure the code reached you okay — let me know if you have any questions before ordering 🌿`,
+  (name) => `hi ${name}! following up on that discount I shared — the bamboo sheets have been so popular lately, wanted to make sure you didn't miss out ✨`,
+];
+const AR_URGENCY = [
+  (name) => `هلا ${name}! بس أتأكد — وصلك الكود اللي أرسلته؟ قوليني لو تحتاجين أي مساعدة 😊`,
+  (name) => `${name}! أبغى أتأكد وصلك الكود — قوليني لو عندك أي سؤال قبل الطلب 🌿`,
+  (name) => `هلا ${name}! بس أتابع معك على الخصم — الشراشف البامبو طلبت كثير هالفترة، ما أبغاك تفوتينك الفرصة ✨`,
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -264,23 +279,39 @@ async function fetchLeads(params) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log(`[phase-c] Starting coupon DM session for ${CLIENT_ID}`);
-  console.log(`[phase-c] Coupons: ${COUPONS.map(c => c.code).join(', ')} | Max DMs: ${MAX_DMS}`);
+  console.log(`[phase-c] Starting ${URGENCY_MODE ? 'urgency follow-up' : 'coupon DM'} session for ${CLIENT_ID}`);
+  if (!URGENCY_MODE) console.log(`[phase-c] Coupons: ${COUPONS.map(c => c.code).join(', ')} | Max DMs: ${MAX_DMS}`);
 
-  // Fetch stage 5 and 6 leads without coupon (stage 5 = DM sent, stage 6 = replied/engaged)
-  const [s5, s6] = await Promise.all([
-    fetchLeads({ platform: 'instagram', stage: 5, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
-    fetchLeads({ platform: 'instagram', stage: 6, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
-  ]);
-  // Dedupe and prioritise stage-6 first (replied), then stage-5 (DM sent)
-  const seen = new Set();
-  const leads = [...s6, ...s5].filter(l => { if (seen.has(l.username)) return false; seen.add(l.username); return true; });
-
-  if (!leads.length) {
-    console.log('[phase-c] No qualifying leads for coupon DMs');
-    process.exit(0);
+  let leads;
+  if (URGENCY_MODE) {
+    // Urgency mode: target leads who already got coupon but haven't been followed up
+    const allCoupon = await fetchLeads({ platform: 'instagram', coupon_referenced: 1, limit: 200 });
+    const cutoff = Date.now() - URGENCY_MIN_DAYS * 86400000;
+    leads = allCoupon.filter(l =>
+      !l.is_converted &&
+      !l.urgency_used &&
+      (!l.last_engaged_at || new Date(l.last_engaged_at).getTime() < cutoff)
+    ).sort((a, b) => (b.total_score || 0) - (a.total_score || 0)).slice(0, MAX_DMS);
+    if (!leads.length) {
+      console.log(`[phase-c] No urgency leads found (need coupon_referenced=1, urgency_used=0, last contact >${URGENCY_MIN_DAYS}d ago)`);
+      process.exit(0);
+    }
+    console.log(`[phase-c] ${leads.length} leads eligible for urgency follow-up`);
+  } else {
+    // Fetch stage 5 and 6 leads without coupon (stage 5 = DM sent, stage 6 = replied/engaged)
+    const [s5, s6] = await Promise.all([
+      fetchLeads({ platform: 'instagram', stage: 5, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
+      fetchLeads({ platform: 'instagram', stage: 6, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
+    ]);
+    // Dedupe and prioritise stage-6 first (replied), then stage-5 (DM sent)
+    const seen = new Set();
+    leads = [...s6, ...s5].filter(l => { if (seen.has(l.username)) return false; seen.add(l.username); return true; });
+    if (!leads.length) {
+      console.log('[phase-c] No qualifying leads for coupon DMs');
+      process.exit(0);
+    }
+    console.log(`[phase-c] ${leads.length} leads eligible for coupon (stage 5: ${s5.length}, stage 6: ${s6.length})`);
   }
-  console.log(`[phase-c] ${leads.length} leads eligible for coupon (stage 5: ${s5.length}, stage 6: ${s6.length})`);
 
   // Launch browser
   const launchOpts = {
@@ -327,14 +358,20 @@ async function fetchLeads(params) {
       }
     }
 
-    const coupon = pickCoupon(lead.total_score || lead.lead_score || 0);
-    if (!coupon) continue;
-
     const name = (lead.display_name || lead.name || lead.username || '').split(' ')[0] || lead.username;
     const isAr = !!(lead.notes?.includes('Arabic') || lead.notes?.includes('arabic') || lead.bio_snippet?.match(/[ا-ي]/));
-    const msg = getTemplate(isAr, name, coupon.code);
 
-    console.log(`[phase-c] Sending coupon to @${lead.username} (score ${lead.lead_score}) — ${coupon.code}`);
+    let msg, coupon;
+    if (URGENCY_MODE) {
+      const urgencyTemplates = isAr ? AR_URGENCY : EN_URGENCY;
+      msg = urgencyTemplates[Math.floor(Math.random() * urgencyTemplates.length)](name);
+      console.log(`[phase-c] Sending urgency follow-up to @${lead.username} (score ${lead.total_score})`);
+    } else {
+      coupon = pickCoupon(lead.total_score || lead.lead_score || 0);
+      if (!coupon) continue;
+      msg = getTemplate(isAr, name, coupon.code);
+      console.log(`[phase-c] Sending coupon to @${lead.username} (score ${lead.lead_score}) — ${coupon.code}`);
+    }
 
     try {
       // Navigate to profile, wait for React to render buttons
@@ -357,9 +394,15 @@ async function fetchLeads(params) {
         const dmSentDirect = await sendViaExistingThread(page, lead, msg) || await sendCouponViaDirect(page, lead, msg);
         if (!dmSentDirect) continue;
         sent++;
-        console.log(`[phase-c] ✅ Coupon DM (direct) sent to @${lead.username}: code=${coupon.code}`);
-        await patchLead(lead.username, { coupon_referenced: 1, coupon_code: coupon.code, last_engaged_at: new Date().toISOString() });
-        logOutreach({ action_type: 'coupon_dm', platform: 'instagram', username: lead.username, coupon_code: coupon.code, content_used: msg, result: 'sent' });
+        if (URGENCY_MODE) {
+          console.log(`[phase-c] ✅ Urgency follow-up (direct) sent to @${lead.username}`);
+          await patchLead(lead.username, { urgency_used: 1, last_engaged_at: new Date().toISOString() });
+          logOutreach({ action_type: 'urgency_dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
+        } else {
+          console.log(`[phase-c] ✅ Coupon DM (direct) sent to @${lead.username}: code=${coupon.code}`);
+          await patchLead(lead.username, { coupon_referenced: 1, coupon_code: coupon.code, last_engaged_at: new Date().toISOString() });
+          logOutreach({ action_type: 'coupon_dm', platform: 'instagram', username: lead.username, coupon_code: coupon.code, content_used: msg, result: 'sent' });
+        }
         await randDelay();
         await delay(20000 + Math.random() * 30000);
         continue;
@@ -399,21 +442,19 @@ async function fetchLeads(params) {
       if (!dmSent) { console.log(`[phase-c] Both DM methods failed for @${lead.username} — skipping`); continue; }
 
       sent++;
-      console.log(`[phase-c] ✅ Coupon DM sent to @${lead.username}: code=${coupon.code}`);
-
-      await patchLead(lead.username, {
-        coupon_referenced: 1,
-        coupon_code: coupon.code,
-        last_engaged_at: new Date().toISOString()
-      });
-      logOutreach({
-        action_type: 'coupon_dm',
-        platform: 'instagram',
-        username: lead.username,
-        coupon_code: coupon.code,
-        content_used: msg,
-        result: 'sent'
-      });
+      if (URGENCY_MODE) {
+        console.log(`[phase-c] ✅ Urgency follow-up sent to @${lead.username}`);
+        await patchLead(lead.username, { urgency_used: 1, last_engaged_at: new Date().toISOString() });
+        logOutreach({ action_type: 'urgency_dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
+      } else {
+        console.log(`[phase-c] ✅ Coupon DM sent to @${lead.username}: code=${coupon.code}`);
+        await patchLead(lead.username, {
+          coupon_referenced: 1,
+          coupon_code: coupon.code,
+          last_engaged_at: new Date().toISOString()
+        });
+        logOutreach({ action_type: 'coupon_dm', platform: 'instagram', username: lead.username, coupon_code: coupon.code, content_used: msg, result: 'sent' });
+      }
 
       await randDelay();
       await delay(20000 + Math.random() * 30000); // 20-50s between coupon DMs
@@ -424,5 +465,5 @@ async function fetchLeads(params) {
   }
 
   await context.close();
-  console.log(`[phase-c] Done. Sent ${sent} coupon DMs`);
+  console.log(`[phase-c] Done. Sent ${sent} ${URGENCY_MODE ? 'urgency follow-up' : 'coupon'} DMs`);
 })();

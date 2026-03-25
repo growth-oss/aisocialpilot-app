@@ -1822,6 +1822,25 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     );
   }
 
+  // ── Phase D (urgency follow-ups) — same script as phase-c, URGENCY_MODE=1 ────
+  if (command === 'phase-d' || command === 'phase-d-only') {
+    const lgDir2  = path.join(clientDir, 'leadgen');
+    const cfg2    = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'leadgen-config.json'), 'utf8')); } catch { return {}; } })();
+    directCmd = `node /app/server/scripts/phase-c-coupons.js`;
+    extraEnvExports.push(
+      `export BASE_URL=http://127.0.0.1:${process.env.PORT || 3000}`,
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export COUPONS=${se(JSON.stringify([]))}`,
+      `export URGENCY_MODE=1`,
+      `export URGENCY_MIN_DAYS=7`,
+      `export COOLDOWN_HOURS=${se(String(cfg2.pipeline?.cooldown_between_engagements_hours ?? 48))}`,
+      `export MAX_DMS=${se(String(cfg2.pipeline?.max_dms_per_run ?? 10))}`,
+      `export IS_AMBASSADOR=${se(clientConfig.is_ambassador ? '1' : '0')}`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   if (command.startsWith('precision-post:')) {
     const pBriefId  = command.slice('precision-post:'.length);
     const pLgDir    = path.join(clientDir, 'leadgen');
