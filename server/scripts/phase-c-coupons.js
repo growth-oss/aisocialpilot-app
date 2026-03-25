@@ -88,7 +88,47 @@ async function dismissOverlays(page) {
   }
 }
 
-// Send DM via inbox compose flow (fallback when profile Message button fails)
+// Find an existing DM thread in the inbox and send a message to it
+async function sendViaExistingThread(page, lead, msg) {
+  await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(3000);
+  await dismissOverlays(page);
+
+  // Look for existing thread in inbox thread list
+  const threadSel = `[role="listitem"]:has-text("${lead.username}"), div[tabindex]:has-text("${lead.username}")`;
+  let thread = page.locator(threadSel).first();
+  if (!await thread.isVisible({ timeout: 4000 }).catch(() => false)) {
+    // Try inbox search bar if present
+    const inboxSearch = page.locator('input[placeholder*="Search" i]').first();
+    if (await inboxSearch.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await inboxSearch.click({ force: true }).catch(() => {});
+      await page.keyboard.type(lead.username, { delay: 80 });
+      await delay(2000);
+      thread = page.locator(threadSel).first();
+    }
+  }
+  if (!await thread.isVisible({ timeout: 4000 }).catch(() => false)) {
+    console.log(`[phase-c] inbox: thread for @${lead.username} not visible`);
+    return false;
+  }
+  await thread.click({ force: true }).catch(() => thread.click());
+  await delay(2500);
+
+  const inputSel = '[contenteditable="true"][role="textbox"], textarea[placeholder*="essage" i], [placeholder*="essage" i], [contenteditable="true"], div[role="textbox"]';
+  const input = page.locator(inputSel).last();
+  if (!await input.isVisible({ timeout: 10000 }).catch(() => false)) {
+    console.log(`[phase-c] inbox: message input not found for @${lead.username} — URL: ${page.url()}`);
+    return false;
+  }
+  await input.click({ force: true }).catch(() => input.click());
+  await page.keyboard.type(msg, { delay: 55 + Math.random() * 90 });
+  await delay(800);
+  await page.keyboard.press('Enter');
+  await delay(2000);
+  return true;
+}
+
+// Send DM via compose new message flow (for contacts not yet in inbox)
 async function sendCouponViaDirect(page, lead, msg) {
   await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await delay(3000);
@@ -111,7 +151,6 @@ async function sendCouponViaDirect(page, lead, msg) {
     console.log(`[phase-c] direct: no search input — URL: ${page.url()}`);
     return false;
   }
-  // force:true bypasses overlay interception
   try {
     await searchInput.click({ force: true, timeout: 5000 });
   } catch {
@@ -120,13 +159,31 @@ async function sendCouponViaDirect(page, lead, msg) {
     else await searchInput.focus().catch(() => {});
   }
   await page.keyboard.type(lead.username, { delay: 80 + Math.random() * 40 });
-  await delay(2500);
+  await delay(3000);
 
-  const resultSel = `[role="option"]:has-text("${lead.username}"), [role="listitem"]:has-text("${lead.username}"), div:has-text("${lead.username}")[tabindex]`;
-  const userResult = page.locator(resultSel).first();
-  if (!await userResult.isVisible({ timeout: 6000 }).catch(() => false)) {
-    console.log(`[phase-c] direct: @${lead.username} not found in results`);
-    return false;
+  // Try multiple result selectors — Instagram uses different DOM structures
+  const username = lead.username;
+  const resultSels = [
+    `[role="option"]:has-text("${username}")`,
+    `[role="listitem"]:has-text("${username}")`,
+    `div:has-text("${username}")[tabindex]`,
+    `[tabindex]:has-text("${username}")`,
+  ];
+  let userResult = null;
+  for (const sel of resultSels) {
+    const el = page.locator(sel).first();
+    if (await el.isVisible({ timeout: 2000 }).catch(() => false)) { userResult = el; break; }
+  }
+  if (!userResult) {
+    // Last resort: click first result in dropdown
+    const firstResult = page.locator('[role="option"], [role="listitem"]').first();
+    if (await firstResult.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log(`[phase-c] direct: username not matched — clicking first result for @${username}`);
+      userResult = firstResult;
+    } else {
+      console.log(`[phase-c] direct: @${username} not found in results`);
+      return false;
+    }
   }
   await userResult.click({ force: true }).catch(() => userResult.click());
   await delay(1000);
@@ -296,8 +353,8 @@ async function fetchLeads(params) {
       const msgBtn = page.locator(msgBtnSel).first();
       if (!await msgBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
         const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
-        console.log(`[phase-c] No Message button for @${lead.username} — Visible: ${btns.slice(0,8).join(' | ')} — trying direct fallback`);
-        const dmSentDirect = await sendCouponViaDirect(page, lead, msg);
+        console.log(`[phase-c] No Message button for @${lead.username} — Visible: ${btns.slice(0,8).join(' | ')} — trying inbox thread`);
+        const dmSentDirect = await sendViaExistingThread(page, lead, msg) || await sendCouponViaDirect(page, lead, msg);
         if (!dmSentDirect) continue;
         sent++;
         console.log(`[phase-c] ✅ Coupon DM (direct) sent to @${lead.username}: code=${coupon.code}`);
@@ -309,7 +366,9 @@ async function fetchLeads(params) {
       }
       await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
       await msgBtn.click({ force: true }).catch(() => msgBtn.click());
-      await delay(3500);
+      // Wait for navigation to /direct/ (happens when opening an existing thread or message request)
+      await page.waitForURL(/direct\//, { timeout: 8000 }).catch(() => {});
+      await delay(1500);
 
       // Handle message request confirm dialog
       const confirmBtn = page.locator('div[role="button"]:has-text("Send Message"), button:has-text("Send Message"), div[role="button"]:has-text("Send Request"), button:has-text("Send Request")').first();
@@ -332,8 +391,9 @@ async function fetchLeads(params) {
         dmSent = true;
       } else {
         const elems = await page.locator('div[role="button"], [placeholder]').allTextContents().catch(() => []);
-        console.log(`[phase-c] Profile DM failed for @${lead.username} — trying direct/new fallback | Elements: ${elems.slice(0,5).join(' | ')}`);
-        dmSent = await sendCouponViaDirect(page, lead, msg);
+        console.log(`[phase-c] Profile DM failed for @${lead.username} — trying inbox thread | Elements: ${elems.slice(0,5).join(' | ')}`);
+        dmSent = await sendViaExistingThread(page, lead, msg);
+        if (!dmSent) dmSent = await sendCouponViaDirect(page, lead, msg);
       }
 
       if (!dmSent) { console.log(`[phase-c] Both DM methods failed for @${lead.username} — skipping`); continue; }
