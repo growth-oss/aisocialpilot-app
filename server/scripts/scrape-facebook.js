@@ -181,14 +181,69 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
 
       await page.screenshot({ path: path.join(SCREENSHOTS_DIR, `fb-scrape-group-${Date.now()}.png`) });
 
+      // Broader page-level profile link extraction (bypass article containers)
+      const pageProfiles = await page.$$eval('a[href]', links => {
+        const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/', 'javascript:', 'mailto:'];
+        const seen = new Set();
+        return links
+          .map(a => ({ href: a.href || '', name: (a.textContent || '').trim() }))
+          .filter(({ href, name }) => {
+            if (!href || !name || name.length < 2 || name.length > 60) return false;
+            if (SKIP.some(s => href.includes(s))) return false;
+            if (!href.includes('facebook.com')) return false;
+            const isProfile = href.includes('/user/') || href.includes('profile.php') ||
+              /facebook\.com\/[a-zA-Z0-9._]{3,}\/?(\?|$)/.test(href);
+            if (!isProfile) return false;
+            if (seen.has(href)) return false;
+            seen.add(href);
+            return true;
+          });
+      }).catch(() => []);
+
       // Extract post authors + text from articles
       const articles = await page.$$('[role="article"]');
-      console.log(`[fb-scrape] Found ${articles.length} articles`);
+      console.log(`[fb-scrape] Found ${articles.length} articles, ${pageProfiles.length} profile links on page`);
 
       const leads    = loadLeads();
       const existing = new Set(leads.map(l => `${l.platform}:${l.username?.toLowerCase()}`));
       let nextId     = leads.length > 0 ? Math.max(...leads.map(l => l.id || 0)) + 1 : 1;
       let groupLeads = 0;
+
+      // For high-intent groups: add ALL profile links found on the page (all authors are targets)
+      if (isHighIntent && pageProfiles.length > 0) {
+        console.log(`[fb-scrape] High-intent: adding ${Math.min(pageProfiles.length, MAX_POSTS_PER_GROUP)} profiles from page`);
+        for (const { href: authorUrl, name: authorName } of pageProfiles.slice(0, MAX_POSTS_PER_GROUP)) {
+          if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
+          let fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
+          if (!fbUsername || ['groups','pages','events','marketplace','watch','login','sharer','share'].includes(fbUsername)) continue;
+          if (fbUsername === 'profile.php') {
+            const uid = authorUrl.match(/id=(\d+)/)?.[1];
+            if (!uid) continue;
+            fbUsername = `uid_${uid}`;
+          }
+          const key = `facebook:${fbUsername.toLowerCase()}`;
+          if (existing.has(key)) continue;
+          const score = 40; // high-intent group member
+          const lead = {
+            id: nextId++, username: fbUsername, display_name: authorName,
+            platform: 'facebook', profile_url: authorUrl, follower_count: null,
+            bio_snippet: '', source_handle: groupLabel, source_type: 'facebook_group_post',
+            total_score: score, engagement_stage: 0, ig_checked: false,
+            notes: `Member of high-intent FB group: ${groupLabel} (keyword: ${group.keyword || ''})`,
+            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            last_engaged_at: null, is_do_not_engage: false,
+            coupon_referenced: 0, coupon_code: null, dm_pivot_attempted: 0, dm_channel: null,
+          };
+          leads.push(lead);
+          existing.add(key);
+          groupLeads++;
+          totalNewLeads++;
+          logOutreach({ action_type: 'discovery', platform: 'facebook', username: fbUsername, source_type: 'facebook_group_post', source_handle: groupLabel, score, client_id: CLIENT_ID });
+        }
+        saveLeads(leads);
+        console.log(`[fb-scrape] ${groupLeads} new leads from: ${groupLabel}`);
+        continue; // skip per-article loop for high-intent groups
+      }
 
       for (let ai = 0; ai < Math.min(articles.length, MAX_POSTS_PER_GROUP); ai++) {
         if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
@@ -202,10 +257,9 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
             el => el.textContent?.trim() || ''
           ).catch(() => '');
 
-          if (!postText && !isHighIntent) continue;
-          if (postText && !isHighIntent && !isRelevantPost(postText)) continue;
+          if (!postText || !isRelevantPost(postText)) continue;
 
-          // Get post author via page.evaluate — more reliable on FB's obfuscated DOM
+          // Get post author via page.evaluate
           const authorData = await article.evaluate(el => {
             const links = Array.from(el.querySelectorAll('a[href]'));
             const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/'];
@@ -214,7 +268,6 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
               const name = (a.textContent || '').trim();
               if (!href || !name || name.length < 2 || name.length > 60) continue;
               if (SKIP.some(s => href.includes(s))) continue;
-              // Match profile patterns
               if (href.includes('/user/') || href.includes('profile.php') ||
                   /facebook\.com\/[a-zA-Z0-9._]{2,}(\/|$)/.test(href)) {
                 return { href, name };
