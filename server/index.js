@@ -1744,6 +1744,46 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     }
   }
 
+  // ── Phase B (pipeline DMs/comments) — run script directly ──────────────────
+  if (command === 'phase-b' || command === 'phase-b-only') {
+    const lgDir2 = path.join(clientDir, 'leadgen');
+    const cfg2   = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'leadgen-config.json'), 'utf8')); } catch { return {}; } })();
+    directCmd = `node /app/server/scripts/phase-b-pipeline.js`;
+    extraEnvExports.push(
+      `export BASE_URL=http://127.0.0.1:${process.env.PORT || 3000}`,
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export COOLDOWN_HOURS=${se(String(cfg2.pipeline?.cooldown_between_engagements_hours ?? 48))}`,
+      `export DM_FOLLOWBACK_DAYS=${se(String(cfg2.pipeline?.dm_followback_wait_days ?? 1))}`,
+      `export DM_SCORE_THRESHOLD=${se(String(cfg2.thresholds?.min_score_for_dm ?? 50))}`,
+      `export COMMENT_SCORE_THRESHOLD=${se(String(cfg2.thresholds?.min_score_for_comment ?? 40))}`,
+      `export MAX_DMS=${se(String(cfg2.pipeline?.max_dms_per_run ?? 8))}`,
+      `export MAX_COMMENTS=${se(String(cfg2.pipeline?.max_comments_per_run ?? 10))}`,
+      `export IS_AMBASSADOR=${se(clientConfig.is_ambassador ? '1' : '0')}`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
+  // ── Phase C (coupon DMs) — run script directly ───────────────────────────────
+  if (command === 'phase-c' || command === 'phase-c-only') {
+    const lgDir2  = path.join(clientDir, 'leadgen');
+    const cfg2    = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'leadgen-config.json'), 'utf8')); } catch { return {}; } })();
+    const coupons = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'coupon-config.json'), 'utf8')); } catch { return {}; } })();
+    const activeCoupons2 = (coupons.active_coupons || []).filter(c => c.enabled);
+    directCmd = `node /app/server/scripts/phase-c-coupons.js`;
+    extraEnvExports.push(
+      `export BASE_URL=http://127.0.0.1:${process.env.PORT || 3000}`,
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export COUPONS=${se(JSON.stringify(activeCoupons2))}`,
+      `export COOLDOWN_HOURS=${se(String(cfg2.pipeline?.cooldown_between_engagements_hours ?? 48))}`,
+      `export MAX_DMS=${se(String(cfg2.pipeline?.max_dms_per_run ?? 10))}`,
+      `export MIN_SCORE=${se(String(cfg2.thresholds?.min_score_for_coupon ?? 30))}`,
+      `export IS_AMBASSADOR=${se(clientConfig.is_ambassador ? '1' : '0')}`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   if (command.startsWith('precision-post:')) {
     const pBriefId  = command.slice('precision-post:'.length);
     const pLgDir    = path.join(clientDir, 'leadgen');
