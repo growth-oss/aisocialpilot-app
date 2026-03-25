@@ -149,12 +149,16 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
   for (const group of memberGroups) {
     if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
     const groupLabel = group.group_name || group.group_url || '';
-    // High-intent groups: scrape ALL post authors, not just sleep-keyword posts
-    const isHighIntent = HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
+    const groupKeyword = (group.keyword || '').toLowerCase();
+    // High-intent: scrape ALL post authors (no keyword filter) when:
+    // - group name or search keyword mentions sleep/bedroom/decor/women
+    // - OR the search keyword is NOT a URL (i.e. it's a meaningful search term)
+    const keywordIsUrl = groupKeyword.startsWith('http') || groupKeyword.includes('facebook.com');
+    const isHighIntent = !keywordIsUrl || HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
       groupLabel.toLowerCase().includes(kw.toLowerCase()) ||
-      (group.keyword || '').toLowerCase().includes(kw.toLowerCase())
+      groupKeyword.includes(kw.toLowerCase())
     );
-    console.log(`\n[fb-scrape] Group: ${groupLabel} | high-intent: ${isHighIntent}`);
+    console.log(`\n[fb-scrape] Group: ${groupLabel} | keyword: "${groupKeyword.slice(0,40)}" | high-intent: ${isHighIntent}`);
 
     try {
       await page.goto(group.group_url, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -201,30 +205,33 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
           if (!postText && !isHighIntent) continue;
           if (postText && !isHighIntent && !isRelevantPost(postText)) continue;
 
-          // Get post author — try multiple selectors for different FB layouts
-          let authorUrl = '', authorName = '';
-          const authorSelectors = [
-            'h2 a[href]', 'h3 a[href]',
-            'a[href*="/user/"]', 'a[href*="profile.php"]',
-            'a[href*="facebook.com"]:not([href*="/groups/"])',
-            'strong a[href]',
-          ];
-          for (const sel of authorSelectors) {
-            const el = await article.$(sel).catch(() => null);
-            if (!el) continue;
-            const href = await el.getAttribute('href').catch(() => '');
-            const name = (await el.textContent().catch(() => ''))?.trim() || '';
-            if (href && name && name.length >= 2) { authorUrl = href; authorName = name; break; }
-          }
+          // Get post author via page.evaluate — more reliable on FB's obfuscated DOM
+          const authorData = await article.evaluate(el => {
+            const links = Array.from(el.querySelectorAll('a[href]'));
+            const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/'];
+            for (const a of links) {
+              const href = a.href || '';
+              const name = (a.textContent || '').trim();
+              if (!href || !name || name.length < 2 || name.length > 60) continue;
+              if (SKIP.some(s => href.includes(s))) continue;
+              // Match profile patterns
+              if (href.includes('/user/') || href.includes('profile.php') ||
+                  /facebook\.com\/[a-zA-Z0-9._]{2,}(\/|$)/.test(href)) {
+                return { href, name };
+              }
+            }
+            return null;
+          }).catch(() => null);
 
-          if (!authorUrl || !authorName || authorName.length < 2) continue;
+          if (!authorData) continue;
+          let { href: authorUrl, name: authorName } = authorData;
 
           // Resolve relative URLs
           if (authorUrl.startsWith('/')) authorUrl = 'https://www.facebook.com' + authorUrl;
 
           // Parse username from URL
           let fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
-          if (!fbUsername || fbUsername === 'groups' || fbUsername === 'pages') continue;
+          if (!fbUsername || ['groups', 'pages', 'events', 'marketplace', 'watch'].includes(fbUsername)) continue;
           // profile.php?id=NNNNN — use numeric ID as username
           if (fbUsername === 'profile.php') {
             const uid = authorUrl.match(/id=(\d+)/)?.[1];
