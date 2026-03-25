@@ -1747,6 +1747,41 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     }
   }
 
+  // ── Facebook scrape — run script directly ───────────────────────────────────
+  if (command === 'facebook-scrape') {
+    const lgDir2       = path.join(clientDir, 'leadgen');
+    const fbGroupsFile = path.join(clientDir, 'facebook-groups.json');
+    const leadsFile    = path.join(lgDir2, 'leads.json');
+    directCmd = `node /app/server/scripts/scrape-facebook.js`;
+    extraEnvExports.push(
+      `export FB_SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'facebook'))}`,
+      `export FB_GROUPS_FILE=${se(fbGroupsFile)}`,
+      `export LEADS_FILE=${se(leadsFile)}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
+  // ── Facebook group join — discover + join groups by keyword ─────────────────
+  if (command === 'facebook-join') {
+    const lgDir2       = path.join(clientDir, 'leadgen');
+    const fbGroupsFile = path.join(clientDir, 'facebook-groups.json');
+    const allSources   = (() => { try { return JSON.parse(fs.readFileSync(path.join(clientDir, 'knowledge', 'hot-sources.json'), 'utf8')); } catch { return []; } })();
+    const lgSources    = (() => { try { return JSON.parse(fs.readFileSync(path.join(lgDir2, 'hot-sources.json'), 'utf8')); } catch { return []; } })();
+    const fbKeywords   = [...allSources, ...lgSources]
+      .filter(s => s.platform === 'facebook' && s.enabled !== false)
+      .map(s => s.handle_or_url);
+    directCmd = `node /app/server/scripts/facebook-group-join.js`;
+    extraEnvExports.push(
+      `export FB_SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'facebook'))}`,
+      `export FB_GROUPS_FILE=${se(fbGroupsFile)}`,
+      `export FB_JOIN_KEYWORDS=${se(JSON.stringify(fbKeywords))}`,
+      `export SCREENSHOTS_DIR=${se(path.join(clientDir, 'logs', 'screenshots'))}`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   // ── Phase B (pipeline DMs/comments) — run script directly ──────────────────
   if (command === 'phase-b' || command === 'phase-b-only') {
     const lgDir2 = path.join(clientDir, 'leadgen');
