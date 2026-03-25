@@ -210,20 +210,20 @@ async function fetchLeads(params) {
   console.log(`[phase-c] Starting coupon DM session for ${CLIENT_ID}`);
   console.log(`[phase-c] Coupons: ${COUPONS.map(c => c.code).join(', ')} | Max DMs: ${MAX_DMS}`);
 
-  // Fetch stage 6 leads without coupon
-  const leads = await fetchLeads({
-    platform: 'instagram',
-    stage: 6,
-    coupon_referenced: 0,
-    minScore: MIN_SCORE,
-    limit: MAX_DMS + 5
-  });
+  // Fetch stage 5 and 6 leads without coupon (stage 5 = DM sent, stage 6 = replied/engaged)
+  const [s5, s6] = await Promise.all([
+    fetchLeads({ platform: 'instagram', stage: 5, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
+    fetchLeads({ platform: 'instagram', stage: 6, coupon_referenced: 0, minScore: MIN_SCORE, limit: MAX_DMS + 5 }),
+  ]);
+  // Dedupe and prioritise stage-6 first (replied), then stage-5 (DM sent)
+  const seen = new Set();
+  const leads = [...s6, ...s5].filter(l => { if (seen.has(l.username)) return false; seen.add(l.username); return true; });
 
   if (!leads.length) {
     console.log('[phase-c] No qualifying leads for coupon DMs');
     process.exit(0);
   }
-  console.log(`[phase-c] ${leads.length} leads eligible for coupon`);
+  console.log(`[phase-c] ${leads.length} leads eligible for coupon (stage 5: ${s5.length}, stage 6: ${s6.length})`);
 
   // Launch browser
   const launchOpts = {
