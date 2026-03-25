@@ -274,6 +274,9 @@ const PLATFORM_URLS = {
   x:         'https://www.x.com',
   whatsapp:  'https://web.whatsapp.com',
   google:    'https://www.youtube.com',
+  facebook:  'https://www.facebook.com',
+  linkedin:  'https://www.linkedin.com',
+  pinterest: 'https://www.pinterest.com',
 };
 
 const app = express();
