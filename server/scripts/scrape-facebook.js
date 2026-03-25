@@ -52,7 +52,15 @@ const SLEEP_KEYWORDS = [
   'sleep', 'sheets', 'bedding', 'mattress', 'pillow', 'hot at night', 'night sweat',
   'waking up', 'insomnia', 'bedroom', 'duvet', 'linen', 'cotton', 'bamboo', 'thread count',
   'humid', 'sweating', 'heat', 'air conditioning', 'cooling',
+  'interior', 'decor', 'furniture', 'home', 'design',
   'نوم', 'شراشف', 'مرتبة', 'وسادة', 'حر', 'تعرق', 'أرق', 'غرفة نوم', 'غطاء', 'مفرش', 'فراش',
+  'ديكور', 'أثاث', 'منزل', 'غرفة', 'تصميم', 'سرير', 'ترتيب', 'فرشة', 'بطانية',
+];
+
+// Groups where ALL posts are relevant — every member is a potential buyer
+const HIGH_INTENT_GROUP_KEYWORDS = [
+  'نوم', 'sleep', 'bedroom', 'غرف', 'insomnia', 'أرق', 'bedding', 'mattress', 'مرتبة',
+  'interior', 'ديكور', 'home', 'منزل', 'سيدات', 'women',
 ];
 
 // High intent bonus keywords
@@ -140,7 +148,13 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
 
   for (const group of memberGroups) {
     if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
-    console.log(`\n[fb-scrape] Group: ${group.group_name}`);
+    const groupLabel = group.group_name || group.group_url || '';
+    // High-intent groups: scrape ALL post authors, not just sleep-keyword posts
+    const isHighIntent = HIGH_INTENT_GROUP_KEYWORDS.some(kw =>
+      groupLabel.toLowerCase().includes(kw.toLowerCase()) ||
+      (group.keyword || '').toLowerCase().includes(kw.toLowerCase())
+    );
+    console.log(`\n[fb-scrape] Group: ${groupLabel} | high-intent: ${isHighIntent}`);
 
     try {
       await page.goto(group.group_url, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -184,21 +198,37 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
             el => el.textContent?.trim() || ''
           ).catch(() => '');
 
-          if (!postText || !isRelevantPost(postText)) continue;
+          if (!postText && !isHighIntent) continue;
+          if (postText && !isHighIntent && !isRelevantPost(postText)) continue;
 
-          // Get post author
-          const authorEl  = await article.$('a[href*="facebook.com"]:not([aria-label])');
-          const authorUrl = authorEl ? await authorEl.getAttribute('href') : '';
-          const authorName = authorEl ? (await authorEl.textContent())?.trim() : '';
+          // Get post author — try multiple selectors for different FB layouts
+          let authorUrl = '', authorName = '';
+          const authorSelectors = [
+            'h2 a[href]', 'h3 a[href]',
+            'a[href*="/user/"]', 'a[href*="profile.php"]',
+            'a[href*="facebook.com"]:not([href*="/groups/"])',
+            'strong a[href]',
+          ];
+          for (const sel of authorSelectors) {
+            const el = await article.$(sel).catch(() => null);
+            if (!el) continue;
+            const href = await el.getAttribute('href').catch(() => '');
+            const name = (await el.textContent().catch(() => ''))?.trim() || '';
+            if (href && name && name.length >= 2) { authorUrl = href; authorName = name; break; }
+          }
 
           if (!authorUrl || !authorName || authorName.length < 2) continue;
 
+          // Resolve relative URLs
+          if (authorUrl.startsWith('/')) authorUrl = 'https://www.facebook.com' + authorUrl;
+
           // Parse username from URL
           let fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
-          if (!fbUsername || fbUsername === 'groups') continue;
-          // Skip profile.php?id=... style — use display name as username
+          if (!fbUsername || fbUsername === 'groups' || fbUsername === 'pages') continue;
+          // profile.php?id=NNNNN — use numeric ID as username
           if (fbUsername === 'profile.php') {
-            fbUsername = authorName.trim().replace(/\s+/g, '.').toLowerCase();
+            const uid = authorUrl.match(/id=(\d+)/)?.[1];
+            fbUsername = uid ? `uid_${uid}` : authorName.trim().replace(/\s+/g, '.').toLowerCase();
           }
 
           const key = `facebook:${fbUsername.toLowerCase()}`;
