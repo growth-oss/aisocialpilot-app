@@ -183,17 +183,39 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
 
       // Broader page-level profile link extraction (bypass article containers)
       const pageProfiles = await page.$$eval('a[href]', links => {
-        const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/', 'javascript:', 'mailto:'];
+        const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/',
+                      '/friends/', '/notifications/', '/messages/', '/watch/', '/gaming/', '/bookmarks/',
+                      '/help/', '/settings/', '/privacy/', '/about/', '/login', '/logout', '/recover',
+                      'l.facebook.com/l.php', 'javascript:', 'mailto:'];
+        const FB_SYSTEM = ['friends','notifications','messages','watch','gaming','bookmarks','help',
+                           'settings','privacy','about','login','logout','home','feed','reels','stories',
+                           'marketplace','events','groups','pages','saved','ads','pay','fundraisers'];
         const seen = new Set();
         return links
-          .map(a => ({ href: a.href || '', name: (a.textContent || '').trim() }))
+          .map(a => {
+            // Strip tracking params — keep only clean base URL
+            let href = a.href || '';
+            try {
+              const u = new URL(href);
+              // Keep only 'id' param for profile.php, strip everything else
+              const cleanParams = new URLSearchParams();
+              if (u.pathname === '/profile.php' && u.searchParams.has('id')) {
+                cleanParams.set('id', u.searchParams.get('id'));
+              }
+              href = u.origin + u.pathname + (cleanParams.toString() ? '?' + cleanParams.toString() : '');
+            } catch {}
+            return { href, name: (a.textContent || '').trim() };
+          })
           .filter(({ href, name }) => {
             if (!href || !name || name.length < 2 || name.length > 60) return false;
             if (SKIP.some(s => href.includes(s))) return false;
             if (!href.includes('facebook.com')) return false;
             const isProfile = href.includes('/user/') || href.includes('profile.php') ||
-              /facebook\.com\/[a-zA-Z0-9._]{3,}\/?(\?|$)/.test(href);
+              /facebook\.com\/[a-zA-Z0-9._]{3,}\/?$/.test(href);
             if (!isProfile) return false;
+            // Check username is not a system page
+            const slug = href.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
+            if (FB_SYSTEM.includes(slug.toLowerCase())) return false;
             if (seen.has(href)) return false;
             seen.add(href);
             return true;
@@ -215,7 +237,11 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
         for (const { href: authorUrl, name: authorName } of pageProfiles.slice(0, MAX_POSTS_PER_GROUP)) {
           if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
           let fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
-          if (!fbUsername || ['groups','pages','events','marketplace','watch','login','sharer','share'].includes(fbUsername)) continue;
+          const FB_SYS = ['groups','pages','events','marketplace','watch','login','sharer','share',
+                          'friends','notifications','messages','gaming','bookmarks','help','settings',
+                          'privacy','about','logout','home','feed','reels','stories','saved','ads',
+                          'pay','fundraisers','l.php'];
+          if (!fbUsername || FB_SYS.includes(fbUsername.toLowerCase())) continue;
           if (fbUsername === 'profile.php') {
             const uid = authorUrl.match(/id=(\d+)/)?.[1];
             if (!uid) continue;
