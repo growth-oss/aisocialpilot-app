@@ -183,13 +183,14 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
 
       // Broader page-level profile link extraction (bypass article containers)
       const pageProfiles = await page.$$eval('a[href]', links => {
-        const SKIP = ['/groups/', '/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/',
+        // /groups/XXX/user/YYY is a real person link — do NOT skip those
+        const SKIP = ['/pages/', '/hashtag/', '/photo', '/video', '/posts/', '/events/', '/marketplace/',
                       '/friends/', '/notifications/', '/messages/', '/watch/', '/gaming/', '/bookmarks/',
                       '/help/', '/settings/', '/privacy/', '/about/', '/login', '/logout', '/recover',
                       'l.facebook.com/l.php', 'javascript:', 'mailto:'];
         const FB_SYSTEM = ['friends','notifications','messages','watch','gaming','bookmarks','help',
                            'settings','privacy','about','login','logout','home','feed','reels','stories',
-                           'marketplace','events','groups','pages','saved','ads','pay','fundraisers'];
+                           'marketplace','events','pages','saved','ads','pay','fundraisers'];
         const seen = new Set();
         return links
           .map(a => {
@@ -210,9 +211,12 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
             if (!href || !name || name.length < 2 || name.length > 60) return false;
             if (SKIP.some(s => href.includes(s))) return false;
             if (!href.includes('facebook.com')) return false;
+            // Accept: /groups/XXX/user/YYY, /user/YYY, profile.php?id=, or direct /username
             const isProfile = href.includes('/user/') || href.includes('profile.php') ||
               /facebook\.com\/[a-zA-Z0-9._]{3,}\/?$/.test(href);
             if (!isProfile) return false;
+            // Skip group links that don't have /user/ (i.e. bare group page links)
+            if (href.includes('/groups/') && !href.includes('/user/')) return false;
             // Check username is not a system page
             const slug = href.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
             if (FB_SYSTEM.includes(slug.toLowerCase())) return false;
@@ -236,7 +240,14 @@ for (const f of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
         console.log(`[fb-scrape] High-intent: adding ${Math.min(pageProfiles.length, MAX_POSTS_PER_GROUP)} profiles from page`);
         for (const { href: authorUrl, name: authorName } of pageProfiles.slice(0, MAX_POSTS_PER_GROUP)) {
           if (totalNewLeads >= MAX_LEADS_PER_RUN) break;
-          let fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
+          // Handle /groups/XXX/user/YYY paths — extract YYY as username
+          let fbUsername;
+          const groupUserMatch = authorUrl.match(/\/groups\/[^/]+\/user\/([^/?#]+)/);
+          if (groupUserMatch) {
+            fbUsername = groupUserMatch[1];
+          } else {
+            fbUsername = authorUrl.match(/facebook\.com\/([^/?#]+)/)?.[1] || '';
+          }
           const FB_SYS = ['groups','pages','events','marketplace','watch','login','sharer','share',
                           'friends','notifications','messages','gaming','bookmarks','help','settings',
                           'privacy','about','logout','home','feed','reels','stories','saved','ads',
