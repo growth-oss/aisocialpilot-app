@@ -463,9 +463,14 @@ async function fetchLeads(params) {
 
     } catch (err) {
       console.error(`[phase-c] Error for @${lead.username}:`, err.message);
-      // Reset browser to a known-good page so subsequent leads aren't affected
-      // by chrome-error:// or interrupted navigation state
-      try { await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 15000 }); } catch {}
+      // Reset browser to a stable page and wait for it to fully settle
+      // before the next iteration — prevents cascade "interrupted" errors
+      try {
+        await page.goto('about:blank', { waitUntil: 'load', timeout: 5000 });
+        await delay(2000);
+        await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await delay(2000);
+      } catch {}
     }
   }
 
