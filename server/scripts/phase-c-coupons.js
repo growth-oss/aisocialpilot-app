@@ -463,14 +463,17 @@ async function fetchLeads(params) {
 
     } catch (err) {
       console.error(`[phase-c] Error for @${lead.username}:`, err.message);
-      // Reset browser to a stable page and wait for it to fully settle
-      // before the next iteration — prevents cascade "interrupted" errors
+      // Close the stuck page and open a fresh one — the only reliable way to
+      // escape a chrome-error:// or interrupted-navigation state in Playwright
+      try { await page.close(); } catch {}
       try {
-        await page.goto('about:blank', { waitUntil: 'load', timeout: 5000 });
-        await delay(2000);
+        page = await context.newPage();
+        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8' });
         await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await delay(2000);
-      } catch {}
+        await delay(3000);
+      } catch (resetErr) {
+        console.error('[phase-c] Page reset failed:', resetErr.message);
+      }
     }
   }
 
