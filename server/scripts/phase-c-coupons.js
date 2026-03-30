@@ -392,21 +392,7 @@ async function fetchLeads(params) {
       const msgBtn = page.locator(msgBtnSel).first();
       if (!await msgBtn.isVisible({ timeout: 10000 }).catch(() => false)) {
         const btns = await page.locator('div[role="button"], button').allTextContents().catch(() => []);
-        console.log(`[phase-c] No Message button for @${lead.username} — Visible: ${btns.slice(0,8).join(' | ')} — trying inbox thread`);
-        const dmSentDirect = await sendViaExistingThread(page, lead, msg) || await sendCouponViaDirect(page, lead, msg);
-        if (!dmSentDirect) continue;
-        sent++;
-        if (URGENCY_MODE) {
-          console.log(`[phase-c] ✅ Urgency follow-up (direct) sent to @${lead.username}`);
-          await patchLead(lead.username, { urgency_used: 1, last_engaged_at: new Date().toISOString() });
-          logOutreach({ action_type: 'urgency_dm', platform: 'instagram', username: lead.username, content_used: msg, result: 'sent' });
-        } else {
-          console.log(`[phase-c] ✅ Coupon DM (direct) sent to @${lead.username}: code=${coupon.code}`);
-          await patchLead(lead.username, { coupon_referenced: 1, coupon_code: coupon.code, last_engaged_at: new Date().toISOString() });
-          logOutreach({ action_type: 'coupon_dm', platform: 'instagram', username: lead.username, coupon_code: coupon.code, content_used: msg, result: 'sent' });
-        }
-        await randDelay();
-        await delay(20000 + Math.random() * 30000);
+        console.log(`[phase-c] No Message button for @${lead.username} — skipping (DMs restricted or not following). Visible: ${btns.slice(0,8).join(' | ')}`);
         continue;
       }
       await msgBtn.scrollIntoViewIfNeeded().catch(() => {});
@@ -463,17 +449,10 @@ async function fetchLeads(params) {
 
     } catch (err) {
       console.error(`[phase-c] Error for @${lead.username}:`, err.message);
-      // Close the stuck page and open a fresh one — the only reliable way to
-      // escape a chrome-error:// or interrupted-navigation state in Playwright
-      try { await page.close(); } catch {}
-      try {
-        page = await context.newPage();
-        await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8' });
-        await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await delay(3000);
-      } catch (resetErr) {
-        console.error('[phase-c] Page reset failed:', resetErr.message);
-      }
+      // Stop any pending navigation (cancels chrome-error:// or stuck pages)
+      // then wait for the page to go idle before the next lead
+      try { await page.evaluate('window.stop()'); } catch {}
+      await delay(3000);
     }
   }
 
