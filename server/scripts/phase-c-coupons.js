@@ -95,7 +95,14 @@ const randDelay = () => delay(DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN
 
 // Dismiss common Instagram overlays
 async function dismissOverlays(page) {
-  for (const sel of ['button:has-text("Not Now")', 'button:has-text("Not now")', 'div[role="button"]:has-text("Not Now")', '[aria-label="Close"]']) {
+  for (const sel of [
+    'button:has-text("Not Now")', 'button:has-text("Not now")',
+    'div[role="button"]:has-text("Not Now")',
+    '[aria-label="Close"]',
+    // "Which account do you want to view this as?" / profile-switch dialog
+    'div[role="button"]:has-text("Continue"):not(:has-text("Continue as"))',
+    'button:has-text("Continue"):not(:has-text("Continue as"))',
+  ]) {
     try {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 1500 }).catch(() => false)) { await btn.click(); await delay(800); }
@@ -381,6 +388,7 @@ async function fetchLeads(params) {
       await page.waitForSelector('header, main[role="main"], section', { timeout: 12000 }).catch(() => {});
       await delay(3000 + Math.random() * 1500);
       await dismissOverlays(page);
+      await delay(1500); // wait for any dismissed overlay animation before checking buttons
 
       const msgBtnSel = [
         'header div[role="button"]:has-text("Message")',
