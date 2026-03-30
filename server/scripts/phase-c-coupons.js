@@ -105,7 +105,8 @@ async function dismissOverlays(page) {
 
 // Find an existing DM thread in the inbox and send a message to it
 async function sendViaExistingThread(page, lead, msg) {
-  await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  try { await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+  catch (e) { console.log(`[phase-c] inbox navigation error: ${e.message}`); return false; }
   await delay(3000);
   await dismissOverlays(page);
 
@@ -145,7 +146,8 @@ async function sendViaExistingThread(page, lead, msg) {
 
 // Send DM via compose new message flow (for contacts not yet in inbox)
 async function sendCouponViaDirect(page, lead, msg) {
-  await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  try { await page.goto('https://www.instagram.com/direct/inbox/', { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+  catch (e) { console.log(`[phase-c] inbox navigation error: ${e.message}`); return false; }
   await delay(3000);
   await dismissOverlays(page);
 
@@ -461,6 +463,9 @@ async function fetchLeads(params) {
 
     } catch (err) {
       console.error(`[phase-c] Error for @${lead.username}:`, err.message);
+      // Reset browser to a known-good page so subsequent leads aren't affected
+      // by chrome-error:// or interrupted navigation state
+      try { await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 15000 }); } catch {}
     }
   }
 
