@@ -2648,26 +2648,58 @@ app.post('/api/clients/:id/run', requireLicense, async (req, res) => {
 // ─── Scheduled run engine ───
 // Maps platform names to automation command names
 const SCHEDULE_COMMAND_MAP = {
-  instagram: 'reply-instagram',
-  tiktok:    'reply-tiktok',
-  x:         'reply-x',
-  whatsapp:  'check-whatsapp',
-  leadgen:   'leadgen',
-  intercept: 'intercept',
+  instagram:        'reply-instagram',
+  tiktok:           'reply-tiktok',
+  x:                'reply-x',
+  whatsapp:         'check-whatsapp',
+  leadgen:          'leadgen',
+  intercept:        'intercept',
+  'facebook-scrape':'facebook-scrape',
+  'facebook-join':  'facebook-join',
+  'phase-b':        'phase-b',
+  'phase-c':        'phase-c',
+  'phase-d':        'phase-d',
 };
 
-// Tracks already-triggered scheduled runs: "clientId:command:YYYY-MM-DD:HH:MM"
-const scheduledRunsTriggered = new Set();
-let _scheduleLastClearDate = '';
+// ── Scheduler persistence ────────────────────────────────────────────────────
+// Persist triggered-run keys to DATA_DIR so they survive Railway restarts.
+// File: {DATA_DIR}/logs/scheduled-triggered.json  →  { date, triggered: [...] }
+const SCHED_TRIGGERED_FILE = path.join(DATA_DIR, 'logs', 'scheduled-triggered.json');
+
+function _loadTriggeredSet() {
+  try {
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    const d = JSON.parse(fs.readFileSync(SCHED_TRIGGERED_FILE, 'utf8'));
+    if (d.date === todayUTC && Array.isArray(d.triggered)) {
+      console.log(`[scheduler] Restored ${d.triggered.length} triggered keys from disk`);
+      return new Set(d.triggered);
+    }
+  } catch {}
+  return new Set();
+}
+
+function _saveTriggeredSet(set, date) {
+  try {
+    fs.mkdirSync(path.join(DATA_DIR, 'logs'), { recursive: true });
+    fs.writeFileSync(SCHED_TRIGGERED_FILE, JSON.stringify({ date, triggered: [...set] }));
+  } catch (e) {
+    console.error('[scheduler] Failed to persist triggered set:', e.message);
+  }
+}
+
+// Restore from volume on startup — survives container restarts
+const scheduledRunsTriggered = _loadTriggeredSet();
+let _scheduleLastClearDate = new Date().toISOString().slice(0, 10);
 
 setInterval(async () => {
   const now = new Date();
   const todayUTC = now.toISOString().slice(0, 10); // YYYY-MM-DD
   const currentHHMM = now.toISOString().slice(11, 16); // HH:MM
 
-  // Clear triggered set daily at midnight UTC
+  // Clear triggered set daily at midnight UTC and persist the empty set
   if (_scheduleLastClearDate && _scheduleLastClearDate !== todayUTC) {
     scheduledRunsTriggered.clear();
+    _saveTriggeredSet(scheduledRunsTriggered, todayUTC);
     console.log('[scheduler] Daily reset — cleared triggered run set');
   }
   _scheduleLastClearDate = todayUTC;
@@ -2715,6 +2747,7 @@ setInterval(async () => {
         }
 
         scheduledRunsTriggered.add(triggerKey);
+        _saveTriggeredSet(scheduledRunsTriggered, todayUTC);
         console.log(`[scheduler] Triggering scheduled run: ${triggerKey}`);
 
         // Ensure logs dir exists
@@ -2761,6 +2794,62 @@ setInterval(async () => {
             logLine(`\n[${new Date().toISOString()}] Scheduled run FAILED to start: ${err.message}\n`);
             console.error(`[scheduler] Failed to start ${triggerKey}:`, err.message);
           }
+        }
+      }
+    }
+
+    // ── Pipeline autopilot ────────────────────────────────────────────────────
+    // Runs pipeline phases + facebook-scrape daily for any client that has a
+    // leadgen schedule — no manual schedule entries needed for these commands.
+    // Times are UTC. All use the same persistence + dedup logic as above.
+    if (client.schedule?.leadgen) {
+      const PIPELINE_SCHEDULE = [
+        { command: 'facebook-scrape', hhmm: '02:30' },
+        { command: 'phase-b',         hhmm: '08:00' },
+        { command: 'phase-c',         hhmm: '09:30' },
+        { command: 'phase-d',         hhmm: '11:00' },
+      ];
+
+      for (const { command: pCmd, hhmm: pTime } of PIPELINE_SCHEDULE) {
+        if (pTime !== currentHHMM) continue;
+        const triggerKey = `${client.clientId}:${pCmd}:${todayUTC}:${pTime}`;
+        if (scheduledRunsTriggered.has(triggerKey)) continue;
+
+        const alreadyRunning = [...runningProcesses.values()].some(e => e.clientId === client.clientId);
+        if (alreadyRunning) {
+          console.log(`[pipeline-autopilot] Skipping ${triggerKey} — run already in progress`);
+          continue;
+        }
+
+        const capCheck = await checkGlobalBudget(config);
+        if (capCheck.blocked) {
+          console.log(`[pipeline-autopilot] Skipping ${triggerKey} — global cap reached`);
+          continue;
+        }
+
+        scheduledRunsTriggered.add(triggerKey);
+        _saveTriggeredSet(scheduledRunsTriggered, todayUTC);
+        console.log(`[pipeline-autopilot] Triggering: ${triggerKey}`);
+
+        const pLogsDir = path.join(CLIENTS_DIR, client.clientId, 'logs');
+        if (!fs.existsSync(pLogsDir)) fs.mkdirSync(pLogsDir, { recursive: true });
+        const pLogFile = path.join(pLogsDir, 'scheduled.log');
+        const pLog = text => { try { fs.appendFileSync(pLogFile, text); } catch {} };
+        pLog(`\n[${new Date().toISOString()}] Pipeline autopilot started: ${pCmd}\n`);
+
+        try {
+          spawnRun(
+            client.clientId,
+            pCmd,
+            (type, text) => { if (type === 'output' || type === 'error') pLog(text); },
+            (runId, code, signal, startedAt, status) => {
+              pLog(`\n[${new Date().toISOString()}] Pipeline autopilot finished: ${pCmd} runId=${runId} status=${status} code=${code}\n`);
+              console.log(`[pipeline-autopilot] Finished: ${triggerKey} runId=${runId} status=${status}`);
+            }
+          );
+        } catch (err) {
+          pLog(`\n[${new Date().toISOString()}] Pipeline autopilot FAILED to start ${pCmd}: ${err.message}\n`);
+          console.error(`[pipeline-autopilot] Failed to start ${triggerKey}:`, err.message);
         }
       }
     }
