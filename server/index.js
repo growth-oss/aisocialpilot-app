@@ -4079,7 +4079,7 @@ function readApiCallLog(maxLines = 2000) {
 }
 
 // GET /api/admin/competitor-api-logs
-app.get('/api/admin/competitor-api-logs', requireAuth, (req, res) => {
+app.get('/api/admin/competitor-api-logs', requireLicense, (req, res) => {
   const entries = readApiCallLog(2000);
   const active  = Array.from(activeApiCalls.values()).map(c => ({
     ...c, elapsedMs: Date.now() - new Date(c.startedAt).getTime(),
