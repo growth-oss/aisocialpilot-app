@@ -1841,6 +1841,34 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     );
   }
 
+  // ── Check Instagram inbox for unread replies ────────────────────────────────
+  if (command === 'check-inbox') {
+    const lgDir2    = path.join(clientDir, 'leadgen');
+    directCmd = `node /app/server/scripts/check-instagram-inbox.js`;
+    extraEnvExports.push(
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export LEADS_FILE=${se(path.join(lgDir2, 'leads.json'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export REPLIES_LOG=${se(path.join(clientDir, 'logs', 'inbox-replies.json'))}`,
+      `export MAX_THREADS=60`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
+  // ── Facebook → Instagram cross-match ─────────────────────────────────────────
+  if (command === 'facebook-to-instagram') {
+    const lgDir2 = path.join(clientDir, 'leadgen');
+    directCmd = `node /app/server/scripts/facebook-to-instagram.js`;
+    extraEnvExports.push(
+      `export BASE_URL=http://127.0.0.1:${process.env.PORT || 3000}`,
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export LEADS_FILE=${se(path.join(lgDir2, 'leads.json'))}`,
+      `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
+      `export MAX_CHECKS=40`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   if (command.startsWith('precision-post:')) {
     const pBriefId  = command.slice('precision-post:'.length);
     const pLgDir    = path.join(clientDir, 'leadgen');
@@ -2657,8 +2685,10 @@ const SCHEDULE_COMMAND_MAP = {
   'facebook-scrape':'facebook-scrape',
   'facebook-join':  'facebook-join',
   'phase-b':        'phase-b',
-  'phase-c':        'phase-c',
-  'phase-d':        'phase-d',
+  'phase-c':             'phase-c',
+  'phase-d':             'phase-d',
+  'check-inbox':         'check-inbox',
+  'facebook-to-instagram': 'facebook-to-instagram',
 };
 
 // ── Scheduler persistence ────────────────────────────────────────────────────
@@ -2804,10 +2834,13 @@ setInterval(async () => {
     // Times are UTC. All use the same persistence + dedup logic as above.
     if (client.schedule?.leadgen) {
       const PIPELINE_SCHEDULE = [
-        { command: 'facebook-scrape', hhmm: '02:30' },
-        { command: 'phase-b',         hhmm: '08:00' },
-        { command: 'phase-c',         hhmm: '09:30' },
-        { command: 'phase-d',         hhmm: '11:00' },
+        { command: 'facebook-scrape',       hhmm: '02:30' },
+        { command: 'facebook-to-instagram', hhmm: '05:00' },
+        { command: 'phase-b',               hhmm: '08:00' },
+        { command: 'check-inbox',           hhmm: '08:45' },
+        { command: 'phase-c',               hhmm: '09:30' },
+        { command: 'phase-d',               hhmm: '11:00' },
+        { command: 'check-inbox',           hhmm: '14:00' },
       ];
 
       for (const { command: pCmd, hhmm: pTime } of PIPELINE_SCHEDULE) {

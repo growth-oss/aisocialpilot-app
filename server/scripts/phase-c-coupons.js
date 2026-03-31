@@ -63,30 +63,30 @@ if (!COUPONS.length && !URGENCY_MODE) {
 const BIO_HANDLE = '@bamboo_sleep_professor';
 
 const EN_TEMPLATES = [
-  (name, code) => `hey ${name}! I have a discount code I can share — ${code} — you can find the store link in my bio if you want to try the bamboo bedding 😊`,
-  (name, code) => `${name}! thought of you — here's a code: ${code} — link to order is in my bio whenever you're curious 🌿`,
-  (name, code) => `hi ${name}! passing this along — code ${code} — store link is in my bio, no pressure at all 🙂`,
-  (name, code) => `hey ${name}! grabbed you a code — ${code} — just click the link in my bio and enter it at checkout ✨`,
-  (name, code) => `${name}! random but — code ${code} — it works on the bamboo bedding, link in my bio if you want to check it out 😴`,
+  (name, code) => `hey ${name}! I wanted to share a discount code with you — ${code} — it's valid for 48 hours and works on our bamboo fitted sheet set (our top seller in UAE right now 🌿). Store link is in my bio!`,
+  (name, code) => `${name}! thought of you — code ${code} gets you a discount on the bamboo bedding set. It expires in 48 hours so wanted to make sure you had it! Link to order in my bio 😊`,
+  (name, code) => `hi ${name}! passing this along before it expires — code ${code} — works on the bamboo sheet set, hundreds of UAE customers have switched to it for the heat. Link in my bio ✨`,
+  (name, code) => `hey ${name}! grabbed you a code — ${code} — 48 hours to use it on the bamboo fitted sheets. It's honestly a game changer for sleeping in the UAE heat 😴 link in my bio`,
+  (name, code) => `${name}! quick one — code ${code} works on the bamboo bedding, expires in 48h. It's been our #1 product this season. Check my bio link whenever you're ready 🌿`,
 ];
 const AR_TEMPLATES = [
-  (name, code) => `هلا ${name}! عندي كود خصم — ${code} — الرابط موجود في البايو تبعي لو تبين تطلبين 😊`,
-  (name, code) => `${name}! فكرت فيكِ — كودك هو ${code} — رابط الطلب في البايو تبعي لو فضولك 🌿`,
-  (name, code) => `هلا ${name}! أشاركك كود لو حابة: ${code} — الرابط في البايو تبعي، بدون أي ضغط 🙂`,
-  (name, code) => `${name}! جبت لك كود — ${code} — تقدرين تطلبين من رابط البايو تبعي وتحطين الكود ✨`,
-  (name, code) => `${name}! جاء على بالي أشاركك كود — ${code} — الرابط في البايو. يمكن يفيدك لو تحبين نوم مريح 😴`,
+  (name, code) => `هلا ${name}! أبغى أشاركك كود خصم — ${code} — صالح ٤٨ ساعة على طقم شراشف البامبو (الأكثر مبيعاً عندنا في الإمارات 🌿). الرابط في البايو تبعي!`,
+  (name, code) => `${name}! فكرت فيكِ — كود ${code} يعطيكِ خصم على طقم شراشف البامبو. ينتهي خلال ٤٨ ساعة، أبغاكِ تستفيدين منه! رابط الطلب في البايو 😊`,
+  (name, code) => `هلا ${name}! أشاركك الكود قبل ما ينتهي — ${code} — يشتغل على طقم الشراشف البامبو، ومئات العملاء في الإمارات غيروا نومهم معه. الرابط في البايو ✨`,
+  (name, code) => `${name}! جبت لك كود — ${code} — عندك ٤٨ ساعة تستخدمينه على الشراشف البامبو. والله غيّرت حياتي للنوم في حر الإمارات 😴 الرابط في البايو`,
+  (name, code) => `${name}! سريعة — كود ${code} يشتغل على المفارش البامبو، ينتهي خلال ٤٨ ساعة. هو أكثر منتج مطلوب عندنا هالموسم. شوفي الرابط في البايو 🌿`,
 ];
 
 // Urgency follow-up templates (for leads who already got the coupon)
 const EN_URGENCY = [
-  (name) => `hey ${name}! just checking in — did you get a chance to try the discount code I sent? happy to help if you need anything 😊`,
-  (name) => `${name}! wanted to make sure the code reached you okay — let me know if you have any questions before ordering 🌿`,
-  (name) => `hi ${name}! following up on that discount I shared — the bamboo sheets have been so popular lately, wanted to make sure you didn't miss out ✨`,
+  (name) => `hey ${name}! just checking in on that discount code I sent — did you get a chance to try the bamboo sheet set? It's been flying off the shelves lately 😊 happy to answer any questions before you order!`,
+  (name) => `${name}! following up on the code I shared — our bamboo fitted sheets are honestly the best thing for UAE heat, hundreds of customers have switched. Let me know if you have any questions 🌿`,
+  (name) => `hi ${name}! wanted to make sure you didn't miss out — the bamboo bedding set has been our #1 seller this season in UAE. The code I sent you still works if you want to grab it! Just ask if you need help ✨`,
 ];
 const AR_URGENCY = [
-  (name) => `هلا ${name}! بس أتأكد — وصلك الكود اللي أرسلته؟ قوليني لو تحتاجين أي مساعدة 😊`,
-  (name) => `${name}! أبغى أتأكد وصلك الكود — قوليني لو عندك أي سؤال قبل الطلب 🌿`,
-  (name) => `هلا ${name}! بس أتابع معك على الخصم — الشراشف البامبو طلبت كثير هالفترة، ما أبغاك تفوتينك الفرصة ✨`,
+  (name) => `هلا ${name}! بس أتأكد على الكود اللي أرسلته — هل جربتِ طقم شراشف البامبو؟ الطلبات عليه كثيرت بشكل ما توقعنا 😊 قوليني أي سؤال قبل ما تطلبين!`,
+  (name) => `${name}! أتابع معك على الكود — شراشف البامبو المدرجة بصراحة أفضل شيء للنوم في حر الإمارات، وعندنا مئات العملاء غيروا نومهم معها. قوليني لو عندك أي سؤال 🌿`,
+  (name) => `هلا ${name}! ما أبغاك تفوتينك — طقم المفارش البامبو صار الأكثر مبيعاً هالموسم في الإمارات. الكود اللي أرسلته لك لسا شغال لو حابة تطلبين! أنا هنا أساعد ✨`,
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
