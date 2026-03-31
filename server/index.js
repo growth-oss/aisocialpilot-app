@@ -3450,6 +3450,20 @@ app.get('/api/clients/:id/next-runs', requireLicense, (req, res) => {
   res.json(result);
 });
 
+// ─── Force-clear stale zombie run entries for a client ───
+app.post('/api/clients/:id/run/clear-zombie', requireLicense, (req, res) => {
+  let cleared = 0;
+  for (const [key, entry] of runningProcesses.entries()) {
+    if (entry.clientId === req.params.id) {
+      if (entry.proc) { try { entry.proc.kill('SIGTERM'); } catch {} }
+      else if (entry.abort) { try { entry.abort.abort(); } catch {} }
+      runningProcesses.delete(key);
+      cleared++;
+    }
+  }
+  res.json({ success: true, cleared });
+});
+
 // ─── Stop a running automation ───
 app.post('/api/clients/:id/run/stop', requireLicense, (req, res) => {
   const { runId } = req.body;
