@@ -1844,10 +1844,12 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // ── Competitor post scraper ──────────────────────────────────────────────────
   if (command === 'scrape-competitor-posts') {
     const lgDir2 = path.join(clientDir, 'leadgen');
-    // Clear stale SingletonLock before spawning browser
-    const igSessionDir  = path.join(clientDir, 'browser-sessions', 'instagram');
-    const singletonLock = path.join(igSessionDir, 'SingletonLock');
-    if (fs.existsSync(singletonLock)) { try { fs.unlinkSync(singletonLock); } catch {} }
+    // Clear all stale Chrome singleton files before spawning browser
+    const igSessionDir = path.join(clientDir, 'browser-sessions', 'instagram');
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      const fp = path.join(igSessionDir, f);
+      if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+    }
     directCmd = `node /app/server/scripts/scrape-competitor-posts.js`;
     extraEnvExports.push(
       `export SESSION_DIR=${se(igSessionDir)}`,
@@ -1862,9 +1864,13 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // ── Check Instagram inbox for unread replies ────────────────────────────────
   if (command === 'check-inbox') {
     const lgDir2    = path.join(clientDir, 'leadgen');
+    const igSessDir2 = path.join(clientDir, 'browser-sessions', 'instagram');
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      const fp = path.join(igSessDir2, f); if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+    }
     directCmd = `node /app/server/scripts/check-instagram-inbox.js`;
     extraEnvExports.push(
-      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export SESSION_DIR=${se(igSessDir2)}`,
       `export LEADS_FILE=${se(path.join(lgDir2, 'leads.json'))}`,
       `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
       `export REPLIES_LOG=${se(path.join(clientDir, 'logs', 'inbox-replies.json'))}`,
@@ -1876,10 +1882,14 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // ── Facebook → Instagram cross-match ─────────────────────────────────────────
   if (command === 'facebook-to-instagram') {
     const lgDir2 = path.join(clientDir, 'leadgen');
+    const igSessDir3 = path.join(clientDir, 'browser-sessions', 'instagram');
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      const fp = path.join(igSessDir3, f); if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+    }
     directCmd = `node /app/server/scripts/facebook-to-instagram.js`;
     extraEnvExports.push(
       `export BASE_URL=http://127.0.0.1:${process.env.PORT || 3000}`,
-      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export SESSION_DIR=${se(igSessDir3)}`,
       `export LEADS_FILE=${se(path.join(lgDir2, 'leads.json'))}`,
       `export OUTREACH_LOG=${se(path.join(clientDir, 'logs', 'outreach-log.ndjson'))}`,
       `export MAX_CHECKS=40`,
