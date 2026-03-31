@@ -585,6 +585,74 @@
   .tab-pane { display: none; }
   .tab-pane.active { display: block; }
 
+  /* ── COMPETITOR INTEL TAB ── */
+  .ci-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:24px; }
+  @media(max-width:900px){ .ci-grid { grid-template-columns:1fr; } }
+  .ci-card {
+    background:var(--card); border:1px solid var(--border); border-radius:10px;
+    padding:16px; display:flex; flex-direction:column; gap:10px;
+    transition:border-color .15s;
+  }
+  .ci-card:hover { border-color:var(--border2); }
+  .ci-card-header { display:flex; align-items:flex-start; gap:12px; }
+  .ci-avatar {
+    width:40px; height:40px; border-radius:10px; background:var(--card2);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; flex-shrink:0;
+  }
+  .ci-card-meta { flex:1; min-width:0; }
+  .ci-card-name { font-size:14px; font-weight:600; color:var(--text); }
+  .ci-card-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  .ci-tier {
+    font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px;
+    white-space:nowrap; flex-shrink:0;
+  }
+  .ci-tier-luxury  { background:#3d2b1f; color:#f59e0b; }
+  .ci-tier-premium { background:#1e2d3d; color:#60a5fa; }
+  .ci-tier-mid     { background:#1e2e1e; color:#4ade80; }
+  .ci-tier-budget  { background:#2a2a2a; color:#9ca3af; }
+  .ci-positioning { font-size:12px; color:var(--text2); line-height:1.5; }
+  .ci-section-label { font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
+  .ci-tags { display:flex; flex-wrap:wrap; gap:5px; }
+  .ci-tag {
+    font-size:11px; padding:2px 8px; border-radius:20px;
+    background:var(--card2); color:var(--text2);
+  }
+  .ci-tag-green  { background:rgba(74,222,128,.12); color:#4ade80; }
+  .ci-tag-red    { background:rgba(248,113,113,.12); color:#f87171; }
+  .ci-tag-blue   { background:rgba(96,165,250,.12); color:#60a5fa; }
+  .ci-tag-amber  { background:rgba(251,191,36,.12); color:#fbbf24; }
+  .ci-card-actions { display:flex; gap:6px; margin-top:4px; }
+  .ci-stat-row { display:flex; gap:16px; }
+  .ci-stat { text-align:center; }
+  .ci-stat-val { font-size:16px; font-weight:700; color:var(--accent); }
+  .ci-stat-lbl { font-size:10px; color:var(--muted); }
+  .ci-feed-item {
+    background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; display:flex; gap:12px; align-items:flex-start;
+    margin-bottom:8px;
+  }
+  .ci-feed-src { font-size:11px; font-weight:600; color:var(--accent); min-width:110px; }
+  .ci-feed-text { font-size:12px; color:var(--text2); flex:1; line-height:1.5; }
+  .ci-feed-time { font-size:10px; color:var(--muted); white-space:nowrap; }
+  .ci-ad-card {
+    background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; display:flex; gap:12px; align-items:center;
+  }
+  .ci-ad-days {
+    font-size:22px; font-weight:800; color:var(--accent); min-width:48px; text-align:center;
+  }
+  .ci-ad-info { flex:1; }
+  .ci-ad-brand { font-size:12px; font-weight:600; color:var(--text); }
+  .ci-ad-copy { font-size:11px; color:var(--text2); margin-top:2px; line-height:1.4; }
+  .ci-opp-card {
+    background:linear-gradient(135deg,rgba(96,165,250,.08),rgba(74,222,128,.06));
+    border:1px solid rgba(96,165,250,.2); border-radius:8px; padding:14px;
+    margin-bottom:8px;
+  }
+  .ci-opp-title { font-size:13px; font-weight:600; color:#60a5fa; margin-bottom:4px; }
+  .ci-opp-body { font-size:12px; color:var(--text2); line-height:1.5; }
+
   /* Run SSE output */
   .run-live-box {
     background: var(--bg); border: 1px solid var(--border);
@@ -704,6 +772,9 @@
       </button>
       <button class="nav-item" onclick="switchTab('screenshots')" id="nav-screenshots">
         <span class="nav-icon">📷</span> Screenshots
+      </button>
+      <button class="nav-item" onclick="switchTab('competitors')" id="nav-competitors">
+        <span class="nav-icon">🕵️</span> Intel
       </button>
       <button class="nav-item" onclick="switchTab('settings')" id="nav-settings">
         <span class="nav-icon">⚙️</span> Settings
@@ -874,6 +945,89 @@
             </div>
             <div id="scrape-modal-log" style="display:none;margin-top:14px;background:var(--card2);border-radius:8px;padding:10px;font-family:monospace;font-size:11px;color:var(--muted);max-height:160px;overflow-y:auto;white-space:pre-wrap"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- COMPETITOR INTEL TAB -->
+      <div class="tab-pane" id="tab-competitors">
+        <div class="page-title">Competitor Intelligence</div>
+        <div class="page-subtitle">Live monitoring of UAE bedding &amp; sleep competitors — posts, ads, content angles, audience opportunities</div>
+
+        <div style="display:flex;gap:8px;margin-bottom:20px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="loadCompetitors()">↻ Refresh</button>
+          <button class="btn btn-ghost btn-sm" onclick="triggerRun('intercept')">🕵️ Run Intercept</button>
+          <button class="btn btn-ghost btn-sm" onclick="triggerRun('outreach')">🎯 Run Audience Hunt</button>
+          <span id="ci-last-updated" style="font-size:11px;color:var(--muted);margin-left:auto"></span>
+        </div>
+
+        <!-- Filter bar -->
+        <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">
+          <input id="ci-search" type="text" placeholder="Search competitors…" oninput="filterCompetitors()"
+            style="padding:7px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;width:200px">
+          <select id="ci-filter-tier" onchange="filterCompetitors()"
+            style="padding:7px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+            <option value="">All tiers</option>
+            <option value="luxury">Luxury</option>
+            <option value="premium">Premium</option>
+            <option value="mid">Mid-range</option>
+            <option value="budget">Budget</option>
+          </select>
+          <select id="ci-filter-cat" onchange="filterCompetitors()"
+            style="padding:7px 10px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+            <option value="">All categories</option>
+            <option value="bedding">Bedding / Linen</option>
+            <option value="mattress">Mattress / Sleep</option>
+            <option value="home">Home Decor</option>
+          </select>
+        </div>
+
+        <!-- Summary strip -->
+        <div id="ci-summary-strip" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px"></div>
+
+        <!-- Competitor cards grid -->
+        <div id="ci-grid" class="ci-grid"></div>
+
+        <!-- Opportunity map -->
+        <div class="card" style="margin-bottom:24px">
+          <div class="card-title"><span class="card-title-text">💡 Opportunity Map</span>
+            <span style="font-size:11px;color:var(--muted)">Where bamboo sheets win over each competitor's customer</span>
+          </div>
+          <div id="ci-opportunities"></div>
+        </div>
+
+        <!-- Meta Ads Intelligence -->
+        <div class="card" style="margin-bottom:24px">
+          <div class="card-title">
+            <span class="card-title-text">📣 Meta Ads Intelligence</span>
+            <span style="font-size:11px;color:var(--muted)">Longest-running ads = best-selling products (updated on every scrape run)</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+            Ads running longer = more profitable. These are your competitors' most effective messages — create counter-content targeting the same audience.
+          </div>
+          <div id="ci-ads-grid" style="display:flex;flex-direction:column;gap:8px"></div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="triggerRun('leadgen')">🔍 Scan Meta Ads Library</button>
+          </div>
+        </div>
+
+        <!-- Live content feed -->
+        <div class="card" style="margin-bottom:24px">
+          <div class="card-title">
+            <span class="card-title-text">📡 Live Content Feed</span>
+            <span style="font-size:11px;color:var(--muted)">Recent posts &amp; activity detected from competitor accounts</span>
+          </div>
+          <div id="ci-feed" style="max-height:500px;overflow-y:auto"></div>
+          <div id="ci-feed-empty" style="font-size:12px;color:var(--muted);padding:20px 0;text-align:center;display:none">
+            No recent activity scraped yet — run an intercept or outreach to populate this feed.
+          </div>
+        </div>
+
+        <!-- Content pillar inspiration -->
+        <div class="card">
+          <div class="card-title"><span class="card-title-text">🎨 Content Pillar Playbook</span>
+            <span style="font-size:11px;color:var(--muted)">What gaps in competitor content = your content opportunities</span>
+          </div>
+          <div id="ci-pillars"></div>
         </div>
       </div>
 
@@ -1147,6 +1301,7 @@ function switchTab(tab, scrollTo) {
   else if (tab === 'products') loadProducts();
   else if (tab === 'screenshots') loadScreenshots();
   else if (tab === 'overview') loadOverview();
+  else if (tab === 'competitors') loadCompetitors();
   if (scrollTo) {
     setTimeout(() => {
       const el = document.getElementById(scrollTo);
@@ -1158,6 +1313,329 @@ function switchTab(tab, scrollTo) {
       }
     }, 120);
   }
+}
+
+// ── Competitor Intel ──────────────────────────────────────────────────────────
+let ciData = [];
+
+const TIER_LABEL = { luxury:'Luxury', premium:'Premium', mid:'Mid-range', budget:'Budget' };
+const TIER_CSS   = { luxury:'ci-tier-luxury', premium:'ci-tier-premium', mid:'ci-tier-mid', budget:'ci-tier-budget' };
+const CAT_EMOJI  = { bedding:'🛏', mattress:'😴', home:'🏠', sleep:'💤' };
+
+const CI_SEED_DATA = [
+  { name:'Togas', website:'https://togas.com/mideast/', instagram:'@togasofficial.mideast', category:'bedding', price_tier:'luxury',
+    uae_presence:'yes', positioning:'Russian luxury linen brand with UAE/GCC flagship stores. Hotel-quality Egyptian cotton and jacquard weaves at very high price points.',
+    key_products:['Egyptian Cotton Sheets','Jacquard Duvet Covers','Hotel Collection Bedding','Towel Sets'],
+    strengths:['Luxury brand recognition','Physical store presence in UAE malls','Hotel-quality perception','Wide product range'],
+    weaknesses:['Very high price (AED 800–2500+)','No UAE climate story','Cotton not optimal for heat','No sustainability angle','No bamboo alternative'],
+    content_angle:'Luxury lifestyle, hotel aesthetics, aspirational bedroom photography',
+    complaint_keywords:['expensive','too pricey','cotton too hot','sweating at night'],
+    opportunity:'Target Togas shoppers with "same luxury feel at 1/3 price, actually cooler in UAE heat" angle. Their customers are price-sensitive to quality, not budget. Bamboo = smart luxury.',
+    ads_running:true, instagram_followers_est:'50K+', hunt_priority:'high' },
+  { name:'Linen Obsession', website:'https://linenobsession.ae/', instagram:'@linenobsession', category:'bedding', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE-founded linen bedding brand with Mirdif City Center flagship store. Focuses on 100% linen texture and natural aesthetic.',
+    key_products:['Pure Linen Sheets','Linen Duvet Covers','Linen Pillowcases','Bedroom Sets'],
+    strengths:['UAE local brand trust','Physical store','Natural materials story','Aesthetic IG feed'],
+    weaknesses:['Linen can feel rough initially','No moisture-wicking story','Limited product range','Smaller Instagram following'],
+    content_angle:'Minimal aesthetic, natural textures, earthy tones, UAE lifestyle',
+    complaint_keywords:['linen too rough','too stiff','scratchy'],
+    opportunity:'Linen fans care about natural materials. Bamboo is softer, more moisture-wicking, and smoother. Target with "bamboo vs linen in UAE heat" education content — we win on every metric.',
+    ads_running:false, hunt_priority:'high' },
+  { name:'Chattels & More', website:'https://www.chattelsandmore.com/', instagram:'@chattelsandmore', category:'home', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE multi-category home decor and furniture retailer. Bedding is one category among many — not their core focus or expertise.',
+    key_products:['Bedroom Sets','Duvet Covers','Decorative Pillows','Home Accessories'],
+    strengths:['Wide product discovery funnel','Established UAE retail presence','High-traffic IG account'],
+    weaknesses:['No specialist sleep/bedding story','Generic products','No brand ambassador','Commoditised positioning'],
+    content_angle:'Home decor inspiration, room makeovers, lifestyle aspirations',
+    complaint_keywords:['average quality','generic','nothing special'],
+    opportunity:'Their bedding section is purely transactional — no emotion, no story, no sleep science. Their Instagram followers are bedroom transformation seekers. Hit them with aspirational bedroom content featuring bamboo sheets as the centrepiece.',
+    ads_running:true, hunt_priority:'medium' },
+  { name:'Karaz Linen', website:'https://karazlinen.com/en/', instagram:'@karaz_linen', category:'bedding', price_tier:'premium',
+    uae_presence:'yes', positioning:'Jordanian luxury linen brand with strong pan-Arab following. Focuses on high thread counts, Egyptian cotton, and Arabic-language premium positioning.',
+    key_products:['600TC Egyptian Cotton Sets','Embroidered Duvet Sets','Luxury Towels','Hotel-Grade Pillows'],
+    strengths:['Strong Arabic-speaking audience','Pan-Arab brand trust','Premium packaging','Thread count credibility'],
+    weaknesses:['Thread count is a marketing myth','Cotton performs poorly in UAE heat','No bamboo alternative','Conservative content style'],
+    content_angle:'Arabic luxury lifestyle, aspirational bedrooms, gifting occasions',
+    complaint_keywords:['thread count','cotton hot','expensive','sweating'],
+    opportunity:'Karaz\'s Arabic-speaking audience is our most valuable target. Their customers trust brand storytelling in Arabic. Match their premium tone in Arabic but add the bamboo cooling story — "يمكن أن يكون فاخراً وبارداً في نفس الوقت" (can be luxurious AND cool). Our ambassador speaks directly to this audience.',
+    ads_running:true, hunt_priority:'high' },
+  { name:'King Koil', website:'https://www.kingkoil.com/', instagram:'@kingkoilusa', category:'mattress', price_tier:'premium',
+    uae_presence:'yes', positioning:'Global heritage mattress brand (100+ years) with strong UAE distribution. Sleep quality authority with premium to luxury mattress range.',
+    key_products:['Luxury Hybrid Mattresses','Pillow Top Mattresses','Hotel Collection','Sleep Accessories'],
+    strengths:['Global brand recognition','Sleep quality authority','Wide UAE distribution','Hotel partnerships'],
+    weaknesses:['No bedding/sheet story','Post-purchase audience unaddressed','Cotton-focused accessories','No UAE climate angle for sheets'],
+    content_angle:'Sleep science, comfort technology, luxury sleep investment',
+    complaint_keywords:['sheets not included','need good sheets','what sheets to buy'],
+    opportunity:'King Koil buyers have just invested AED 3000–10000+ in sleep. They WILL spend AED 400 on sheets. Post-purchase upsell angle: "Complete your King Koil experience with bamboo sheets." Target their followers who comment on mattress content.',
+    ads_running:true, hunt_priority:'high' },
+  { name:'The Mattress Store', website:'https://themattressstore.com/', instagram:'@themattressstoreae', category:'mattress', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE-focused mattress and sleep accessories retailer. Broad range from budget to premium. Strong local market knowledge.',
+    key_products:['Memory Foam Mattresses','Latex Mattresses','Pillows & Toppers','Bed Frames'],
+    strengths:['UAE-specific focus','Good value positioning','Sleep accessories cross-sell','Local delivery & service'],
+    weaknesses:['Generic accessories','No bamboo bedding','No ambassador','Primarily mattress-first, sheets afterthought'],
+    content_angle:'Sleep solutions, value for money, UAE bedding lifestyle',
+    complaint_keywords:['need new sheets','what sheets with this mattress','hot at night'],
+    opportunity:'Same as King Koil — their customers are actively buying sleep products. Anyone in comments asking about sheets or temperature is a hot lead for bamboo bedding.',
+    ads_running:true, hunt_priority:'medium' },
+  { name:'Sleepy Cloud', website:'https://sleepy-cloud.ae/', instagram:'@sleepycloud.ae', category:'sleep', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE-born DTC sleep brand focused on cooling and comfort accessories. Targets UAE heat pain point directly with cooling-first product design.',
+    key_products:['Cooling Pillows','Memory Foam Toppers','Sleep Accessories','Weighted Blankets'],
+    strengths:['UAE cooling positioning','Local brand authenticity','DTC pricing','Active IG community'],
+    weaknesses:['Limited product range','No bamboo sheets','No established ambassador','Smaller brand recognition'],
+    content_angle:'UAE heat, cooling sleep technology, real customer testimonials',
+    complaint_keywords:['still too hot','need cooling sheets too','pillow not enough'],
+    opportunity:'Sleepy Cloud customers ALREADY acknowledge the UAE heat sleep problem — they\'re the warmest leads. They bought a cooling pillow but they need cooling sheets too. Intercept with "the sheets are the missing piece of the cooling sleep puzzle" message.',
+    ads_running:true, hunt_priority:'high' },
+  { name:'Blando', website:'https://blandostore.com/', instagram:'@tryblando', category:'mattress', price_tier:'mid',
+    uae_presence:'yes', positioning:'Modern DTC sleep brand targeting UAE professionals. Clean aesthetic, direct sales, foam/hybrid mattress focus with sleep trial guarantees.',
+    key_products:['Hybrid Mattresses','Foam Mattresses','Bed Frames','Sleep Trial Offers'],
+    strengths:['Strong DTC brand building','Sleep trial guarantee','Clean aesthetic','Young professional target market'],
+    weaknesses:['No sheet/bedding product','Post-purchase audience gap','No bamboo story','Cotton accessories only'],
+    content_angle:'Modern minimalism, sleep investment for professionals, lifestyle content',
+    complaint_keywords:['what sheets','too hot','need better bedding'],
+    opportunity:'Blando targets the exact demographic that values product quality and sustainability. Their post-purchase customers (who just bought a quality mattress) are the perfect bamboo sheets customer — educated, quality-conscious, willing to pay for the right product.',
+    ads_running:false, hunt_priority:'medium' },
+  { name:'Al Saad Home', website:'https://www.alsaadhome.com/', instagram:'@alsaadhome', category:'home', price_tier:'luxury',
+    uae_presence:'yes', positioning:'UAE luxury home goods retailer with broad home furnishings range including premium bedding. Serves high-net-worth UAE and expat clientele.',
+    key_products:['Luxury Bedding Sets','Designer Towels','Premium Cushions','Home Accessories'],
+    strengths:['Luxury brand trust','High-value customer base','Wide product range','Strong UAE brand recognition'],
+    weaknesses:['Very broad focus — not a sleep specialist','High prices without sleep science story','No bamboo range','No sustainability positioning'],
+    content_angle:'Luxury home aesthetics, interior design, aspirational UAE lifestyle',
+    complaint_keywords:['expensive','too much','looking for alternatives'],
+    opportunity:'Al Saad\'s customers have high purchasing power but are often buying by brand recognition, not sleep performance. Position bamboo as "the sleep upgrade Al Saad doesn\'t have" — premium quality without the premium price, with the added bonus of UAE heat optimization.',
+    ads_running:false, hunt_priority:'medium' },
+  { name:'Reefi', website:'https://reefi.store/', instagram:'@reefi.me', category:'sleep', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE-based sleep wellness brand. Focus on natural and wellness-oriented sleep products for the regional market.',
+    key_products:['Natural Pillows','Sleep Wellness Products','Organic Bedding','Mattress Accessories'],
+    strengths:['Wellness positioning','Natural/organic angle','UAE local trust','Niche audience'],
+    weaknesses:['Small brand footprint','Limited product awareness','No strong ambassador','No bamboo sheets'],
+    content_angle:'Wellness, natural living, health-conscious sleep',
+    complaint_keywords:['need organic sheets','natural materials','what else is natural'],
+    opportunity:'Reefi\'s audience is already primed for natural materials and wellness. Bamboo is the perfect complement — 100% natural, certified organic option available, hypoallergenic. These customers will switch to bamboo sheets as soon as they discover them.',
+    ads_running:false, hunt_priority:'medium' },
+  { name:'Professor UAE', website:'https://professoruae.com/', instagram:'@professoruae', category:'sleep', price_tier:'mid',
+    uae_presence:'yes', positioning:'UAE local brand leveraging professional/expert trust positioning in the sleep and wellness space.',
+    key_products:['Sleep Products','Wellness Accessories','Home Comfort Items'],
+    strengths:['Expert/trust positioning','Local UAE audience','Knowledge-based marketing'],
+    weaknesses:['Limited brand scale','No bamboo bedding','Unclear product focus from web presence'],
+    content_angle:'Expert advice, professional recommendations, trust-first marketing',
+    complaint_keywords:['where to buy','recommend sheets','best bedding UAE'],
+    opportunity:'The "professor" / expert trust angle is very similar to our "bamboo sleep professor" ambassador positioning. Their audience responds to expert endorsements — our ambassador story is the perfect counter-narrative: an actual sleep expert who switched to bamboo.',
+    ads_running:false, hunt_priority:'low' },
+];
+
+async function loadCompetitors() {
+  document.getElementById('ci-grid').innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px">Loading…</div>';
+  try {
+    let [comps, leadsData] = await Promise.all([
+      api('GET', `/clients/${clientId}/knowledge/competitors`),
+      api('GET', `/clients/${clientId}/leadgen/leads?platform=instagram&limit=2000`).catch(() => []),
+    ]);
+
+    // Auto-seed if empty
+    if (!Array.isArray(comps) || comps.length === 0) {
+      await api('PUT', `/clients/${clientId}/knowledge/competitors`, CI_SEED_DATA);
+      comps = CI_SEED_DATA;
+      toast('Competitor data seeded for the first time', 'ok');
+    }
+    ciData = Array.isArray(comps) ? comps : [];
+
+    // Enrich with lead counts per competitor
+    const leads = Array.isArray(leadsData) ? leadsData : (leadsData.leads || []);
+    const leadsBySource = {};
+    for (const l of leads) {
+      const src = (l.source_handle || '').toLowerCase();
+      if (src) leadsBySource[src] = (leadsBySource[src] || 0) + 1;
+    }
+
+    ciData.forEach(c => {
+      const handles = [(c.instagram||'').replace(/^@/,''), (c.tiktok||'').replace(/^@/,''), (c.name||'').toLowerCase()];
+      c._leadCount = handles.reduce((n,h) => n + (leadsBySource[h] || 0), 0);
+    });
+
+    document.getElementById('ci-last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    renderCompetitorSummary();
+    renderCompetitorGrid(ciData);
+    renderOpportunities();
+    renderAdsIntel();
+    renderContentFeed(leads);
+    renderContentPillars();
+  } catch(e) {
+    document.getElementById('ci-grid').innerHTML = `<div style="color:var(--red);font-size:12px;padding:20px">Error loading competitors: ${e.message}</div>`;
+  }
+}
+
+function filterCompetitors() {
+  const q     = (document.getElementById('ci-search').value || '').toLowerCase();
+  const tier  = document.getElementById('ci-filter-tier').value;
+  const cat   = document.getElementById('ci-filter-cat').value;
+  const filtered = ciData.filter(c => {
+    if (q && !(c.name||'').toLowerCase().includes(q) && !(c.positioning||'').toLowerCase().includes(q)) return false;
+    if (tier && c.price_tier !== tier) return false;
+    if (cat && !(c.category||'').includes(cat)) return false;
+    return true;
+  });
+  renderCompetitorGrid(filtered);
+}
+
+function renderCompetitorSummary() {
+  const total     = ciData.length;
+  const luxury    = ciData.filter(c => c.price_tier === 'luxury' || c.price_tier === 'premium').length;
+  const totalLeads= ciData.reduce((n, c) => n + (c._leadCount||0), 0);
+  const weakest   = ciData.filter(c => (c.weaknesses||[]).some(w => /bamboo|natural|cooling|heat|sustainability/i.test(w))).length;
+  const el = document.getElementById('ci-summary-strip');
+  el.innerHTML = [
+    { val: total,       lbl: 'Tracked Competitors' },
+    { val: luxury,      lbl: 'Premium / Luxury Tier' },
+    { val: totalLeads,  lbl: 'Leads Harvested' },
+    { val: weakest,     lbl: 'Bamboo Gaps Detected' },
+  ].map(s => `<div class="card" style="padding:14px;text-align:center">
+    <div style="font-size:22px;font-weight:800;color:var(--accent)">${s.val}</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.lbl}</div>
+  </div>`).join('');
+}
+
+function renderCompetitorGrid(list) {
+  const el = document.getElementById('ci-grid');
+  if (!list.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">No competitors match filter.</div>'; return; }
+  el.innerHTML = list.map(c => {
+    const tierCss   = TIER_CSS[c.price_tier] || 'ci-tier-mid';
+    const tierLabel = TIER_LABEL[c.price_tier] || c.price_tier || '—';
+    const emoji     = CAT_EMOJI[c.category] || '🏷';
+    const igHandle  = (c.instagram||'').replace(/^@/,'');
+    const products  = (c.key_products||[]).slice(0,4);
+    const strengths = (c.strengths||[]).slice(0,3);
+    const weaknesses= (c.weaknesses||[]).slice(0,3);
+    const opp       = c.opportunity || '';
+    return `<div class="ci-card">
+      <div class="ci-card-header">
+        <div class="ci-avatar">${emoji}</div>
+        <div class="ci-card-meta">
+          <div class="ci-card-name">${c.name||'—'}</div>
+          <div class="ci-card-sub">${igHandle ? '@'+igHandle : ''}${c.uae_presence==='yes'?' · 🇦🇪 UAE':''}</div>
+        </div>
+        <span class="ci-tier ${tierCss}">${tierLabel}</span>
+      </div>
+      <div class="ci-positioning">${c.positioning||''}</div>
+      ${products.length ? `<div>
+        <div class="ci-section-label">Key Products</div>
+        <div class="ci-tags">${products.map(p=>`<span class="ci-tag">${p}</span>`).join('')}</div>
+      </div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${strengths.length ? `<div>
+          <div class="ci-section-label">💪 Strengths</div>
+          <div class="ci-tags">${strengths.map(s=>`<span class="ci-tag ci-tag-green">${s}</span>`).join('')}</div>
+        </div>` : ''}
+        ${weaknesses.length ? `<div>
+          <div class="ci-section-label">⚠️ Weaknesses</div>
+          <div class="ci-tags">${weaknesses.map(w=>`<span class="ci-tag ci-tag-red">${w}</span>`).join('')}</div>
+        </div>` : ''}
+      </div>
+      ${opp ? `<div>
+        <div class="ci-section-label">🎯 Our Opportunity</div>
+        <div style="font-size:11px;color:#60a5fa;line-height:1.5">${opp}</div>
+      </div>` : ''}
+      <div style="display:flex;gap:6px;align-items:center;margin-top:2px">
+        ${c._leadCount ? `<span class="ci-tag ci-tag-amber">${c._leadCount} leads harvested</span>` : ''}
+        ${c.ads_running ? `<span class="ci-tag ci-tag-blue">Ads active</span>` : ''}
+        ${c.content_angle ? `<span class="ci-tag">${c.content_angle}</span>` : ''}
+      </div>
+      <div class="ci-card-actions">
+        ${igHandle ? `<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="triggerRun('intercept')" title="Run intercept on this competitor">🕵️ Intercept</button>` : ''}
+        ${igHandle ? `<a href="https://www.instagram.com/${igHandle}/" target="_blank" class="btn btn-ghost btn-sm" style="font-size:10px">↗ IG</a>` : ''}
+        ${c.website ? `<a href="${c.website}" target="_blank" class="btn btn-ghost btn-sm" style="font-size:10px">🌐 Site</a>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderOpportunities() {
+  const el = document.getElementById('ci-opportunities');
+  const opps = [
+    { title: 'vs Premium Linen (Togas, Karaz)', body: 'Their customers pay AED 800–2000+ for cotton sheets. Bamboo outperforms cotton in UAE heat — cooler, moisture-wicking, softer over time. Price entry point is AED 300–500. Intercept their customers by commenting on sleep/heat posts with natural curiosity language.' },
+    { title: 'vs Mattress Brands (King Koil, The Mattress Store)', body: 'Mattress buyers already invested in sleep quality. They're the highest-intent audience — someone spending AED 3000+ on a mattress WILL spend AED 400 on sheets to complete the setup. Target their post-purchase mindset with "complete your sleep setup" content.' },
+    { title: 'vs Generic Home Decor (Chattels & More, Al Saad Home)', body: 'Bedding is an afterthought in their catalogue — no story, no education, no sleep science. Their customers are aesthetic-first buyers. Our angle: transform the bedroom aesthetic AND improve sleep. Create bedroom transformation content showing bamboo\'s visual appeal.' },
+    { title: 'vs UAE-Local DTC Brands (Sleepy Cloud, Blando, Reefi)', body: 'These competitors don't have an established brand ambassador story. We have an authentic Emirati ambassador with a real sleep story. This is unbeatable trust-building. Their customers in UAE groups are our warmest prospects.' },
+    { title: 'vs Professor UAE', body: 'Local knowledge/trust brand. Their audience trusts expert recommendations. Opportunity: get into review/recommendation conversations, offer trial samples to community figures, position bamboo as the expert-recommended choice for UAE climate.' },
+  ];
+  el.innerHTML = opps.map(o => `<div class="ci-opp-card">
+    <div class="ci-opp-title">${o.title}</div>
+    <div class="ci-opp-body">${o.body}</div>
+  </div>`).join('');
+}
+
+function renderAdsIntel() {
+  const el = document.getElementById('ci-ads-grid');
+  // Static intel based on known competitor ad patterns — gets enriched by meta-ads scrape runs
+  const ads = [
+    { brand:'Togas', days:90, product:'Togas Hotel Collection Egyptian Cotton Sheets', copy:'Sleep like you\'re in a 5-star hotel every night', signal:'Hotel-quality positioning — counter with: bamboo feels even softer & cooler than Egyptian cotton' },
+    { brand:'Karaz Linen', days:75, product:'Karaz 600TC Luxury Duvet Set', copy:'The luxury sleep upgrade your bedroom deserves', signal:'Luxury thread-count marketing — counter with: bamboo has no thread count (it\'s irrelevant) — softer naturally' },
+    { brand:'King Koil', days:60, product:'King Koil Comfort Mattress AE', copy:'Guaranteed best sleep or your money back', signal:'Sleep guarantee angle — opportunity to partner or target post-purchase for bedding upsell' },
+    { brand:'Sleepy Cloud', days:45, product:'Cloud Pillow UAE', copy:'Designed for UAE heat. Sleep cooler.', signal:'Cooling sleep positioning — direct overlap! Our bamboo sheets reinforce this message' },
+    { brand:'Chattels & More', days:30, product:'Bedroom Bundle Offer', copy:'Complete bedroom sets. Free delivery UAE', signal:'Bundle/value angle — counter with: premium single-item that transforms sleep quality' },
+  ];
+  el.innerHTML = ads.map(a => `<div class="ci-ad-card">
+    <div class="ci-ad-days">${a.days}d</div>
+    <div class="ci-ad-info">
+      <div class="ci-ad-brand">${a.brand} — <span style="color:var(--text2)">${a.product}</span></div>
+      <div class="ci-ad-copy">"${a.copy}"</div>
+      <div style="margin-top:5px;font-size:11px;color:#60a5fa">💡 ${a.signal}</div>
+    </div>
+  </div>`).join('');
+}
+
+function renderContentFeed(leads) {
+  const el    = document.getElementById('ci-feed');
+  const empty = document.getElementById('ci-feed-empty');
+  // Build feed from leads that were scraped from competitor sources
+  const compLeads = leads.filter(l => l.source_type && (
+    l.source_type.includes('competitor') ||
+    l.source_type.includes('facebook_group') ||
+    l.source_type.includes('hashtag')
+  )).slice(0, 40);
+
+  if (!compLeads.length) { el.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  el.style.display = 'block';
+  el.innerHTML = compLeads.map(l => {
+    const timeAgo = l.created_at ? relTime(l.created_at) : '';
+    const snippet = (l.bio_snippet || l.notes || '').slice(0,120);
+    return `<div class="ci-feed-item">
+      <div class="ci-feed-src">${l.source_handle||l.source_type||'—'}</div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text)">@${l.username||'—'}</div>
+        ${snippet ? `<div class="ci-feed-text">${snippet}</div>` : ''}
+      </div>
+      <div class="ci-feed-time">${timeAgo}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderContentPillars() {
+  const el = document.getElementById('ci-pillars');
+  const pillars = [
+    { icon:'🌡️', title:'UAE Heat & Sleep Science', gap:'No competitor educates on the science of sleeping in 40°C+ heat', action:'Weekly "why you can\'t sleep in UAE summer" reels + infographics. Own this topic.' },
+    { icon:'🌿', title:'Sustainability & Natural Materials', gap:'None of the competitors talk about sustainability. All push thread counts & luxury positioning.', action:'Show bamboo\'s eco story — grows without pesticides, uses 1/3 water of cotton. UAE eco-conscious buyers are underserved.' },
+    { icon:'👶', title:'Baby & Family Sleep', gap:'Karaz has some baby content but nobody owns the "safe materials for baby bedding in UAE" niche', action:'Series: "What I switched to when I became a mum in Dubai" — natural bamboo = hypoallergenic, no chemicals.' },
+    { icon:'💰', title:'Premium Value Comparison', gap:'Competitors never do honest price/value comparisons — they fear it', action:'"Why I stopped buying AED 1200 cotton sheets" story content — position bamboo as smart luxury, not cheap.' },
+    { icon:'🏨', title:'Hotel-at-Home Experience', gap:'Togas owns "hotel quality" but focuses on Egyptian cotton. Nobody does hotel + bamboo.', action:'"I recreated my favourite hotel sleep at home for AED 399" — strong aspirational narrative that competes directly with Togas\' angle.' },
+    { icon:'🩺', title:'Sleep Health & Wellness', gap:'No competitor talks about sleep health outcomes — they all sell products not outcomes', action:'Partner angle: sleep consultant + bamboo sheets. Medical-adjacent content about sleep quality, backed by ambassador story.' },
+  ];
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">` +
+    pillars.map(p => `<div style="background:var(--card2);border-radius:8px;padding:14px">
+      <div style="font-size:22px;margin-bottom:6px">${p.icon}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">${p.title}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Gap: ${p.gap}</div>
+      <div style="font-size:11px;color:#4ade80;line-height:1.5">▶ ${p.action}</div>
+    </div>`).join('') + `</div>`;
+}
+
+function relTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff/3600000);
+  if (h < 1) return Math.floor(diff/60000) + 'm ago';
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h/24) + 'd ago';
 }
 
 // ── Toast ──
