@@ -1844,9 +1844,13 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   // ── Competitor post scraper ──────────────────────────────────────────────────
   if (command === 'scrape-competitor-posts') {
     const lgDir2 = path.join(clientDir, 'leadgen');
+    // Clear stale SingletonLock before spawning browser
+    const igSessionDir  = path.join(clientDir, 'browser-sessions', 'instagram');
+    const singletonLock = path.join(igSessionDir, 'SingletonLock');
+    if (fs.existsSync(singletonLock)) { try { fs.unlinkSync(singletonLock); } catch {} }
     directCmd = `node /app/server/scripts/scrape-competitor-posts.js`;
     extraEnvExports.push(
-      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export SESSION_DIR=${se(igSessionDir)}`,
       `export COMPETITORS_FILE=${se(path.join(clientDir, 'knowledge', 'competitors.json'))}`,
       `export COMPETITOR_POSTS_FILE=${se(path.join(lgDir2, 'competitor-posts.json'))}`,
       `export POSTS_PER_ACCOUNT=12`,
