@@ -1845,10 +1845,11 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
   if (command === 'scrape-competitor-posts') {
     const lgDir2 = path.join(clientDir, 'leadgen');
     // Clear all stale Chrome singleton files before spawning browser
+    // Use lstatSync (not existsSync) — SingletonLock is a symlink; existsSync returns false for dangling symlinks
     const igSessionDir = path.join(clientDir, 'browser-sessions', 'instagram');
     for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
       const fp = path.join(igSessionDir, f);
-      if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+      try { fs.lstatSync(fp); fs.unlinkSync(fp); } catch {}
     }
     directCmd = `node /app/server/scripts/scrape-competitor-posts.js`;
     extraEnvExports.push(
@@ -1866,7 +1867,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const lgDir2    = path.join(clientDir, 'leadgen');
     const igSessDir2 = path.join(clientDir, 'browser-sessions', 'instagram');
     for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-      const fp = path.join(igSessDir2, f); if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+      const fp = path.join(igSessDir2, f); try { fs.lstatSync(fp); fs.unlinkSync(fp); } catch {}
     }
     directCmd = `node /app/server/scripts/check-instagram-inbox.js`;
     extraEnvExports.push(
@@ -1884,7 +1885,7 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     const lgDir2 = path.join(clientDir, 'leadgen');
     const igSessDir3 = path.join(clientDir, 'browser-sessions', 'instagram');
     for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-      const fp = path.join(igSessDir3, f); if (fs.existsSync(fp)) { try { fs.unlinkSync(fp); } catch {} }
+      const fp = path.join(igSessDir3, f); try { fs.lstatSync(fp); fs.unlinkSync(fp); } catch {}
     }
     directCmd = `node /app/server/scripts/facebook-to-instagram.js`;
     extraEnvExports.push(
