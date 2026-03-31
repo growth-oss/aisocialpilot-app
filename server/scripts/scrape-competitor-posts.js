@@ -206,6 +206,12 @@ async function scrapePostData(page, shortCode, handle, competitorName) {
     if (u.password) launchOpts.proxy.password = decodeURIComponent(u.password);
   }
 
+  // Clear stale SingletonLock before launch (per CLAUDE.md: delete lock and retry once)
+  const lockFile = path.join(SESSION_DIR, 'SingletonLock');
+  if (fs.existsSync(lockFile)) {
+    try { fs.unlinkSync(lockFile); console.log('[ci-scrape] Removed stale SingletonLock'); } catch {}
+  }
+
   let context, page;
   try {
     context = await chromium.launchPersistentContext(SESSION_DIR, launchOpts);

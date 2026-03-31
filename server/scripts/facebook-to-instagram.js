@@ -252,6 +252,12 @@ async function searchInstagramByName(page, displayName) {
     if (u.password) launchOpts.proxy.password = decodeURIComponent(u.password);
   }
 
+  // Clear stale SingletonLock before launch
+  const lockFile = path.join(SESSION_DIR, 'SingletonLock');
+  if (fs.existsSync(lockFile)) {
+    try { fs.unlinkSync(lockFile); console.log('[fb2ig] Removed stale SingletonLock'); } catch {}
+  }
+
   let context, page;
   try {
     context = await chromium.launchPersistentContext(SESSION_DIR, launchOpts);
