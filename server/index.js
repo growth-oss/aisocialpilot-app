@@ -4061,9 +4061,40 @@ function getAllClientIds() {
   });
 }
 
+const COMPETITOR_API_LOG = path.join(DATA_DIR, 'competitor-api-calls.ndjson');
+const activeApiCalls = new Map(); // callId → { endpoint, params, startedAt, ip }
+let apiCallSeq = 0;
+
+function appendApiCallLog(entry) {
+  try {
+    fs.appendFileSync(COMPETITOR_API_LOG, JSON.stringify(entry) + '\n');
+  } catch {}
+}
+
+function readApiCallLog(maxLines = 2000) {
+  try {
+    const lines = fs.readFileSync(COMPETITOR_API_LOG, 'utf8').trim().split('\n').filter(Boolean);
+    return lines.slice(-maxLines).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+}
+
+// GET /api/admin/competitor-api-logs
+app.get('/api/admin/competitor-api-logs', requireAuth, (req, res) => {
+  const entries = readApiCallLog(2000);
+  const active  = Array.from(activeApiCalls.values()).map(c => ({
+    ...c, elapsedMs: Date.now() - new Date(c.startedAt).getTime(),
+  }));
+  res.json({ entries, total: entries.length, active });
+});
+
 // GET /api/external/competitor-intel
 // Full profiles + filtered posts + ads + lead counts for all tracked competitors
 app.get('/api/external/competitor-intel', requireExternalApiKey, (req, res) => {
+  const callId    = ++apiCallSeq;
+  const startedAt = new Date().toISOString();
+  const callerIp  = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+  activeApiCalls.set(callId, { callId, endpoint: 'competitor-intel', params: req.query, startedAt, ip: callerIp });
+
   const {
     handles      = '',
     from         = '',
@@ -4139,6 +4170,15 @@ app.get('/api/external/competitor-intel', requireExternalApiKey, (req, res) => {
     }
   }
 
+  const latencyMs = Date.now() - new Date(startedAt).getTime();
+  activeApiCalls.delete(callId);
+  appendApiCallLog({
+    ts: startedAt, endpoint: 'competitor-intel', ip: callerIp,
+    params: { handles, from, to, sort, limit, min_comments, min_likes, include },
+    result: { competitorsReturned: allComps.length, postsReturned: totalAllPosts, empty: totalAllPosts === 0 },
+    latencyMs,
+  });
+
   res.json({
     competitors: allComps,
     meta: {
@@ -4157,6 +4197,11 @@ app.get('/api/external/competitor-intel', requireExternalApiKey, (req, res) => {
 // GET /api/external/competitor-top-posts
 // Lightweight flat list — called hourly by DrSleeepSocial to pick where to comment
 app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) => {
+  const callId    = ++apiCallSeq;
+  const startedAt = new Date().toISOString();
+  const callerIp  = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+  activeApiCalls.set(callId, { callId, endpoint: 'competitor-top-posts', params: req.query, startedAt, ip: callerIp });
+
   const {
     sort             = 'comments',
     limit            = '20',
@@ -4200,6 +4245,15 @@ app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) 
     caption: p.caption, likesCount: p.likesCount, commentsCount: p.commentsCount,
     timestamp: p.timestamp, isSponsored: p.isSponsored,
   }));
+
+  const latencyMs = Date.now() - new Date(startedAt).getTime();
+  activeApiCalls.delete(callId);
+  appendApiCallLog({
+    ts: startedAt, endpoint: 'competitor-top-posts', ip: callerIp,
+    params: { sort, limit, from, min_comments, min_likes, exclude_handles },
+    result: { postsReturned: result.length, totalBefore, empty: result.length === 0 },
+    latencyMs,
+  });
 
   res.json({
     posts: result,

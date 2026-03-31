@@ -718,6 +718,7 @@
   .cmd-item-icon { font-size: 18px; }
   .cmd-item-label { font-weight: 600; }
   .cmd-item-sub { font-size: 11px; color: var(--muted); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 </style>
 </head>
 <body>
@@ -775,6 +776,9 @@
       </button>
       <button class="nav-item" onclick="switchTab('competitors')" id="nav-competitors">
         <span class="nav-icon">🕵️</span> Intel
+      </button>
+      <button class="nav-item" onclick="switchTab('api-logs')" id="nav-api-logs">
+        <span class="nav-icon">📡</span> API
       </button>
       <button class="nav-item" onclick="switchTab('settings')" id="nav-settings">
         <span class="nav-icon">⚙️</span> Settings
@@ -1041,6 +1045,93 @@
         <div id="screenshots-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px"></div>
       </div>
 
+      <!-- API LOGS TAB -->
+      <div class="tab-pane" id="tab-api-logs">
+        <div class="page-title">Competitor API Dashboard</div>
+        <div class="page-subtitle">Every call DrSleeepSocial makes to the competitor intelligence endpoints</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="loadApiLogs()">↻ Refresh</button>
+          <label style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="api-auto-refresh" onchange="toggleApiAutoRefresh(this.checked)"> Auto-refresh 10s
+          </label>
+          <span id="api-last-refresh" style="color:var(--text-muted);font-size:11px;margin-left:auto"></span>
+        </div>
+
+        <!-- Live active calls -->
+        <div id="api-active-wrap" style="display:none;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;animation:pulse 1s infinite"></span>
+            LIVE — calls in progress
+          </div>
+          <div id="api-active-list"></div>
+        </div>
+
+        <!-- Summary strip -->
+        <div id="api-summary-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px"></div>
+
+        <!-- Calls per hour chart -->
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Calls per hour — last 24h</div>
+          <div id="api-hourly-chart" style="display:flex;align-items:flex-end;gap:3px;height:80px;overflow:hidden"></div>
+          <div id="api-hourly-labels" style="display:flex;gap:3px;margin-top:4px;font-size:9px;color:var(--text-muted)"></div>
+        </div>
+
+        <!-- Endpoint split + empty rate -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Endpoint split</div>
+            <div id="api-endpoint-split"></div>
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Posts returned distribution</div>
+            <div id="api-posts-dist"></div>
+          </div>
+        </div>
+
+        <!-- Recent calls table -->
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:20px">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;font-weight:600;color:var(--text)">Recent calls</span>
+            <select id="api-filter-endpoint" onchange="renderApiTable()" style="background:var(--input-bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="">All endpoints</option>
+              <option value="competitor-top-posts">top-posts</option>
+              <option value="competitor-intel">intel</option>
+            </select>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border)">
+                  <th style="padding:8px 12px;font-weight:500">Time</th>
+                  <th style="padding:8px 12px;font-weight:500">Endpoint</th>
+                  <th style="padding:8px 12px;font-weight:500">Posts returned</th>
+                  <th style="padding:8px 12px;font-weight:500">Filters</th>
+                  <th style="padding:8px 12px;font-weight:500">Latency</th>
+                  <th style="padding:8px 12px;font-weight:500">Caller IP</th>
+                  <th style="padding:8px 12px;font-weight:500">Status</th>
+                </tr>
+              </thead>
+              <tbody id="api-calls-tbody"></tbody>
+            </table>
+          </div>
+          <div id="api-table-empty" style="display:none;padding:32px;text-align:center;color:var(--text-muted);font-size:13px">
+            No API calls logged yet — calls will appear here once DrSleeepSocial starts polling.
+          </div>
+        </div>
+
+        <!-- Insights -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Most excluded handles (already commented)</div>
+            <div id="api-excluded-handles"></div>
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Call frequency pattern</div>
+            <div id="api-freq-pattern"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- SETTINGS TAB -->
       <div class="tab-pane" id="tab-settings">
         <div class="page-title">Settings</div>
@@ -1302,6 +1393,7 @@ function switchTab(tab, scrollTo) {
   else if (tab === 'screenshots') loadScreenshots();
   else if (tab === 'overview') loadOverview();
   else if (tab === 'competitors') loadCompetitors();
+  else if (tab === 'api-logs') loadApiLogs();
   if (scrollTo) {
     setTimeout(() => {
       const el = document.getElementById(scrollTo);
@@ -2199,6 +2291,226 @@ async function saveSmartSchedule() {
 
 // ── Products tab ──────────────────────────────────────────────────────────────
 let _pullStatusTimer = null;
+
+// ─── API Logs ─────────────────────────────────────────────────────────────────
+let apiLogsData = [];
+let apiAutoRefreshTimer = null;
+
+async function loadApiLogs() {
+  try {
+    const data = await api('GET', '/admin/competitor-api-logs');
+    apiLogsData = data.entries || [];
+    renderApiSummary(apiLogsData, data.active || []);
+    renderApiHourlyChart(apiLogsData);
+    renderApiEndpointSplit(apiLogsData);
+    renderApiPostsDist(apiLogsData);
+    renderApiTable();
+    renderApiInsights(apiLogsData);
+    renderApiActive(data.active || []);
+    document.getElementById('api-last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    console.error('loadApiLogs error', e);
+  }
+}
+
+function toggleApiAutoRefresh(on) {
+  clearInterval(apiAutoRefreshTimer);
+  if (on) apiAutoRefreshTimer = setInterval(loadApiLogs, 10000);
+}
+
+function renderApiActive(active) {
+  const wrap = document.getElementById('api-active-wrap');
+  const list = document.getElementById('api-active-list');
+  if (!active.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  list.innerHTML = active.map(c => `
+    <div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:8px;padding:10px 14px;margin-bottom:6px;font-size:12px;display:flex;gap:12px;align-items:center">
+      <span style="color:#22c55e;font-weight:600">${c.endpoint}</span>
+      <span style="color:var(--text-muted)">from ${c.ip || '?'}</span>
+      <span style="color:var(--text-muted)">started ${new Date(c.startedAt).toLocaleTimeString()}</span>
+      <span style="margin-left:auto;color:#22c55e">${c.elapsedMs}ms elapsed</span>
+    </div>`).join('');
+}
+
+function renderApiSummary(entries, active) {
+  const el = document.getElementById('api-summary-strip');
+  if (!entries.length && !active.length) { el.innerHTML = ''; return; }
+  const today = new Date().toISOString().slice(0,10);
+  const todayCalls = entries.filter(e => e.ts?.slice(0,10) === today).length;
+  const totalPosts = entries.reduce((s,e) => s + (e.result?.postsReturned || 0), 0);
+  const avgPosts   = entries.length ? (totalPosts / entries.length).toFixed(1) : 0;
+  const emptyRate  = entries.length ? Math.round(entries.filter(e => e.result?.empty).length / entries.length * 100) : 0;
+  const avgLatency = entries.length ? Math.round(entries.reduce((s,e) => s + (e.latencyMs||0), 0) / entries.length) : 0;
+  const topEndpoint = entries.filter(e => e.endpoint === 'competitor-top-posts').length;
+  const items = [
+    { label: 'Total calls', value: entries.length, color: '#a78bfa' },
+    { label: 'Today', value: todayCalls, color: '#60a5fa' },
+    { label: 'Avg posts/call', value: avgPosts, color: '#34d399' },
+    { label: 'Empty rate', value: emptyRate + '%', color: emptyRate > 30 ? '#f87171' : '#fbbf24' },
+    { label: 'Avg latency', value: avgLatency + 'ms', color: '#94a3b8' },
+    { label: 'top-posts calls', value: topEndpoint, color: '#fb923c' },
+    { label: 'Active now', value: active.length, color: active.length ? '#22c55e' : '#94a3b8' },
+  ];
+  el.innerHTML = items.map(i => `
+    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+      <div style="font-size:22px;font-weight:700;color:${i.color}">${i.value}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${i.label}</div>
+    </div>`).join('');
+}
+
+function renderApiHourlyChart(entries) {
+  const chartEl  = document.getElementById('api-hourly-chart');
+  const labelEl  = document.getElementById('api-hourly-labels');
+  const now   = new Date();
+  const hours = [];
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(now - i * 3600000);
+    hours.push({ label: d.getHours() + 'h', count: 0, key: d.toISOString().slice(0,13) });
+  }
+  for (const e of entries) {
+    const key = (e.ts || '').slice(0,13);
+    const h = hours.find(h => h.key === key);
+    if (h) h.count++;
+  }
+  const max = Math.max(...hours.map(h => h.count), 1);
+  const barW = 'calc((100% - ' + (23*3) + 'px) / 24)';
+  chartEl.innerHTML = hours.map(h => `
+    <div title="${h.label}: ${h.count} calls" style="flex:1;min-width:8px;background:${h.count ? '#7c3aed' : 'var(--border)'};border-radius:3px 3px 0 0;height:${Math.max(4, Math.round(h.count/max*80))}px;cursor:default"></div>`).join('');
+  labelEl.innerHTML = hours.map((h,i) => `
+    <div style="flex:1;text-align:center;overflow:hidden">${i%4===0 ? h.label : ''}</div>`).join('');
+}
+
+function renderApiEndpointSplit(entries) {
+  const el = document.getElementById('api-endpoint-split');
+  const topPosts = entries.filter(e => e.endpoint === 'competitor-top-posts').length;
+  const intel    = entries.filter(e => e.endpoint === 'competitor-intel').length;
+  const total    = entries.length || 1;
+  const tpPct    = Math.round(topPosts / total * 100);
+  const inPct    = 100 - tpPct;
+  el.innerHTML = `
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text)">top-posts (hourly poll)</span>
+        <span style="color:#fb923c;font-weight:600">${topPosts} (${tpPct}%)</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:8px">
+        <div style="background:#fb923c;width:${tpPct}%;height:100%;border-radius:4px"></div>
+      </div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text)">competitor-intel</span>
+        <span style="color:#60a5fa;font-weight:600">${intel} (${inPct}%)</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:8px">
+        <div style="background:#60a5fa;width:${inPct}%;height:100%;border-radius:4px"></div>
+      </div>
+    </div>`;
+}
+
+function renderApiPostsDist(entries) {
+  const el = document.getElementById('api-posts-dist');
+  const buckets = { '0 (empty)': 0, '1–5': 0, '6–10': 0, '11–20': 0, '20+': 0 };
+  for (const e of entries) {
+    const n = e.result?.postsReturned || 0;
+    if (n === 0)      buckets['0 (empty)']++;
+    else if (n <= 5)  buckets['1–5']++;
+    else if (n <= 10) buckets['6–10']++;
+    else if (n <= 20) buckets['11–20']++;
+    else              buckets['20+']++;
+  }
+  const max = Math.max(...Object.values(buckets), 1);
+  const colors = { '0 (empty)': '#f87171', '1–5': '#fbbf24', '6–10': '#34d399', '11–20': '#60a5fa', '20+': '#a78bfa' };
+  el.innerHTML = Object.entries(buckets).map(([k,v]) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px">
+      <span style="width:64px;color:var(--text-muted);text-align:right">${k}</span>
+      <div style="flex:1;background:var(--border);border-radius:3px;height:10px">
+        <div style="background:${colors[k]};width:${Math.round(v/max*100)}%;height:100%;border-radius:3px"></div>
+      </div>
+      <span style="width:20px;color:var(--text);font-weight:600">${v}</span>
+    </div>`).join('');
+}
+
+function renderApiTable() {
+  const tbody   = document.getElementById('api-calls-tbody');
+  const emptyEl = document.getElementById('api-table-empty');
+  const filter  = document.getElementById('api-filter-endpoint')?.value || '';
+  let rows = [...apiLogsData].reverse();
+  if (filter) rows = rows.filter(e => e.endpoint === filter);
+  rows = rows.slice(0, 100);
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  tbody.innerHTML = rows.map(e => {
+    const ts       = e.ts ? new Date(e.ts).toLocaleString() : '—';
+    const ep       = e.endpoint === 'competitor-top-posts' ? '<span style="color:#fb923c">top-posts</span>' : '<span style="color:#60a5fa">intel</span>';
+    const posts    = e.result?.postsReturned ?? '—';
+    const empty    = e.result?.empty;
+    const latency  = e.latencyMs != null ? e.latencyMs + 'ms' : '—';
+    const ip       = e.ip || '—';
+    const status   = empty
+      ? '<span style="color:#f87171;font-size:11px">empty</span>'
+      : '<span style="color:#22c55e;font-size:11px">ok</span>';
+    const params   = e.endpoint === 'competitor-top-posts'
+      ? `min_c:${e.params?.min_comments??'—'} min_l:${e.params?.min_likes??'—'}`
+      : `inc:${e.params?.include??'all'} min_c:${e.params?.min_comments??'—'}`;
+    return `<tr style="border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--hover)'" onmouseout="this.style.background=''">
+      <td style="padding:8px 12px;color:var(--text-muted)">${ts}</td>
+      <td style="padding:8px 12px">${ep}</td>
+      <td style="padding:8px 12px;font-weight:600;color:${empty ? '#f87171' : 'var(--text)'}">${posts}</td>
+      <td style="padding:8px 12px;color:var(--text-muted);font-size:11px">${params}</td>
+      <td style="padding:8px 12px;color:var(--text-muted)">${latency}</td>
+      <td style="padding:8px 12px;color:var(--text-muted);font-size:11px">${ip}</td>
+      <td style="padding:8px 12px">${status}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderApiInsights(entries) {
+  // Most excluded handles — from top-posts calls that pass exclude_handles
+  const handleCounts = {};
+  for (const e of entries) {
+    if (e.endpoint !== 'competitor-top-posts') continue;
+    const excl = e.params?.exclude_handles || '';
+    for (const h of excl.split(',').map(x => x.trim()).filter(Boolean)) {
+      handleCounts[h] = (handleCounts[h] || 0) + 1;
+    }
+  }
+  const topHandles = Object.entries(handleCounts).sort((a,b) => b[1]-a[1]).slice(0, 8);
+  const exclEl = document.getElementById('api-excluded-handles');
+  if (!topHandles.length) {
+    exclEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px">No exclude_handles seen yet</div>';
+  } else {
+    const maxH = topHandles[0][1];
+    exclEl.innerHTML = topHandles.map(([h,c]) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px">
+        <span style="width:120px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${h}</span>
+        <div style="flex:1;background:var(--border);border-radius:3px;height:8px">
+          <div style="background:#7c3aed;width:${Math.round(c/maxH*100)}%;height:100%;border-radius:3px"></div>
+        </div>
+        <span style="color:var(--text-muted)">${c}x</span>
+      </div>`).join('');
+  }
+
+  // Call frequency pattern — by hour of day
+  const hourCounts = Array(24).fill(0);
+  for (const e of entries) {
+    if (!e.ts) continue;
+    hourCounts[new Date(e.ts).getHours()]++;
+  }
+  const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
+  const avgPerHour = entries.length ? (entries.length / 24).toFixed(1) : 0;
+  const freqEl = document.getElementById('api-freq-pattern');
+  const maxHC = Math.max(...hourCounts, 1);
+  freqEl.innerHTML = `
+    <div style="display:flex;align-items:flex-end;gap:2px;height:40px;margin-bottom:6px">
+      ${hourCounts.map((c,i) => `<div title="${i}:00 — ${c} calls" style="flex:1;background:${c ? '#7c3aed' : 'var(--border)'};border-radius:2px;height:${Math.max(2,Math.round(c/maxHC*40))}px"></div>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--text-muted)">Peak hour: <strong style="color:var(--text)">${peakHour}:00</strong> · Avg ${avgPerHour} calls/hr (all time)</div>`;
+}
 
 async function loadScreenshots() {
   const grid = document.getElementById('screenshots-grid');
