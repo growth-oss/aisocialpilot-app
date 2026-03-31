@@ -1451,7 +1451,7 @@ const CI_SEED_DATA = [
     complaint_keywords:['thread count','cotton hot','expensive','sweating'],
     opportunity:'Karaz\'s Arabic-speaking audience is our most valuable target. Their customers trust brand storytelling in Arabic. Match their premium tone in Arabic but add the bamboo cooling story — "يمكن أن يكون فاخراً وبارداً في نفس الوقت" (can be luxurious AND cool). Our ambassador speaks directly to this audience.',
     ads_running:true, hunt_priority:'high' },
-  { name:'King Koil', website:'https://www.kingkoil.com/', instagram:'@kingkoilusa', category:'mattress', price_tier:'premium',
+  { name:'King Koil ME', website:'https://www.kingkoil.com/', instagram:'@kingkoilme', category:'mattress', price_tier:'premium',
     uae_presence:'yes', positioning:'Global heritage mattress brand (100+ years) with strong UAE distribution. Sleep quality authority with premium to luxury mattress range.',
     key_products:['Luxury Hybrid Mattresses','Pillow Top Mattresses','Hotel Collection','Sleep Accessories'],
     strengths:['Global brand recognition','Sleep quality authority','Wide UAE distribution','Hotel partnerships'],
@@ -1524,11 +1524,16 @@ async function loadCompetitors() {
       api('GET', `/clients/${clientId}/leadgen/leads?platform=instagram&limit=2000`).catch(() => []),
     ]);
 
-    // Auto-seed if empty
-    if (!Array.isArray(comps) || comps.length === 0) {
+    // Auto-seed if empty or if stored handles don't match canonical list
+    const canonicalHandles = CI_SEED_DATA.map(c => c.instagram?.replace(/^@/,'').toLowerCase());
+    const storedHandles    = Array.isArray(comps) ? comps.map(c => c.instagram?.replace(/^@/,'').toLowerCase()) : [];
+    const needsReseed = !Array.isArray(comps) || comps.length === 0 ||
+      canonicalHandles.some(h => !storedHandles.includes(h)) ||
+      storedHandles.some(h => !canonicalHandles.includes(h));
+    if (needsReseed) {
       await api('PUT', `/clients/${clientId}/knowledge/competitors`, CI_SEED_DATA);
       comps = CI_SEED_DATA;
-      toast('Competitor data seeded for the first time', 'ok');
+      toast('Competitor data seeded / updated', 'ok');
     }
     ciData = Array.isArray(comps) ? comps : [];
 
