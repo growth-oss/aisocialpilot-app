@@ -1841,6 +1841,20 @@ function spawnRun(clientId, command, onData, onClose, promptOverride = null) {
     );
   }
 
+  // ── Competitor post scraper ──────────────────────────────────────────────────
+  if (command === 'scrape-competitor-posts') {
+    const lgDir2 = path.join(clientDir, 'leadgen');
+    directCmd = `node /app/server/scripts/scrape-competitor-posts.js`;
+    extraEnvExports.push(
+      `export SESSION_DIR=${se(path.join(clientDir, 'browser-sessions', 'instagram'))}`,
+      `export COMPETITORS_FILE=${se(path.join(clientDir, 'knowledge', 'competitors.json'))}`,
+      `export COMPETITOR_POSTS_FILE=${se(path.join(lgDir2, 'competitor-posts.json'))}`,
+      `export POSTS_PER_ACCOUNT=12`,
+      `export MIN_COMMENTS=0`,
+      `export PROXY=${se(clientConfig.proxy?.url || '')}`,
+    );
+  }
+
   // ── Check Instagram inbox for unread replies ────────────────────────────────
   if (command === 'check-inbox') {
     const lgDir2    = path.join(clientDir, 'leadgen');
@@ -2687,8 +2701,9 @@ const SCHEDULE_COMMAND_MAP = {
   'phase-b':        'phase-b',
   'phase-c':             'phase-c',
   'phase-d':             'phase-d',
-  'check-inbox':         'check-inbox',
-  'facebook-to-instagram': 'facebook-to-instagram',
+  'check-inbox':              'check-inbox',
+  'facebook-to-instagram':    'facebook-to-instagram',
+  'scrape-competitor-posts':  'scrape-competitor-posts',
 };
 
 // ── Scheduler persistence ────────────────────────────────────────────────────
@@ -2834,13 +2849,14 @@ setInterval(async () => {
     // Times are UTC. All use the same persistence + dedup logic as above.
     if (client.schedule?.leadgen) {
       const PIPELINE_SCHEDULE = [
-        { command: 'facebook-scrape',       hhmm: '02:30' },
-        { command: 'facebook-to-instagram', hhmm: '05:00' },
-        { command: 'phase-b',               hhmm: '08:00' },
-        { command: 'check-inbox',           hhmm: '08:45' },
-        { command: 'phase-c',               hhmm: '09:30' },
-        { command: 'phase-d',               hhmm: '11:00' },
-        { command: 'check-inbox',           hhmm: '14:00' },
+        { command: 'facebook-scrape',          hhmm: '02:30' },
+        { command: 'facebook-to-instagram',    hhmm: '05:00' },
+        { command: 'scrape-competitor-posts',  hhmm: '06:30' },
+        { command: 'phase-b',                  hhmm: '08:00' },
+        { command: 'check-inbox',              hhmm: '08:45' },
+        { command: 'phase-c',                  hhmm: '09:30' },
+        { command: 'phase-d',                  hhmm: '11:00' },
+        { command: 'check-inbox',              hhmm: '14:00' },
       ];
 
       for (const { command: pCmd, hhmm: pTime } of PIPELINE_SCHEDULE) {
@@ -4010,6 +4026,189 @@ app.get('/api/clients/:id/leadgen/competitor-view', requireLicense, (req, res) =
   }
 
   res.json({ intel, ...view, leadLogs });
+});
+
+// ─── External Competitor Intelligence API ─────────────────────────────────────
+// Used by DrSleeepSocial (external service) to decide where to comment.
+// Auth: X-API-Key header must match COMPETITOR_INTEL_API_KEY env var.
+
+function requireExternalApiKey(req, res, next) {
+  const key = process.env.COMPETITOR_INTEL_API_KEY;
+  if (!key) return res.status(503).json({ error: 'COMPETITOR_INTEL_API_KEY not configured on server' });
+  if ((req.headers['x-api-key'] || '') !== key) return res.status(401).json({ error: 'Invalid API key' });
+  next();
+}
+
+function loadCompetitorPosts(cid) {
+  const f = path.join(CLIENTS_DIR, cid, 'leadgen', 'competitor-posts.json');
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return []; }
+}
+
+function loadCompetitorProfiles(cid) {
+  const f = path.join(CLIENTS_DIR, cid, 'knowledge', 'competitors.json');
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return []; }
+}
+
+function parseDateParam(str, fallbackDaysAgo) {
+  if (str) { const d = new Date(str); if (!isNaN(d)) return d; }
+  return new Date(Date.now() - fallbackDaysAgo * 86400000);
+}
+
+function getAllClientIds() {
+  if (!fs.existsSync(CLIENTS_DIR)) return [];
+  return fs.readdirSync(CLIENTS_DIR).filter(d => {
+    try { return fs.statSync(path.join(CLIENTS_DIR, d)).isDirectory(); } catch { return false; }
+  });
+}
+
+// GET /api/external/competitor-intel
+// Full profiles + filtered posts + ads + lead counts for all tracked competitors
+app.get('/api/external/competitor-intel', requireExternalApiKey, (req, res) => {
+  const {
+    handles      = '',
+    from         = '',
+    to           = '',
+    sort         = 'comments',
+    limit        = '10',
+    min_comments = '10',
+    min_likes    = '50',
+    include      = 'all',
+  } = req.query;
+
+  const fromDate     = parseDateParam(from, 30);
+  const toDate       = parseDateParam(to, 0);
+  const maxPosts     = Math.min(parseInt(limit, 10) || 10, 50);
+  const minCmts      = parseInt(min_comments, 10) || 0;
+  const minLikes     = parseInt(min_likes,    10) || 0;
+  const handleFilter = handles ? handles.split(',').map(h => h.trim().replace(/^@/, '').toLowerCase()) : [];
+  const inclSet      = new Set(include === 'all' ? ['profile','posts','ads','leads'] : include.split(',').map(s => s.trim()));
+
+  const allComps = [];
+  let totalAllPosts = 0, totalAds = 0;
+
+  for (const cid of getAllClientIds()) {
+    const profiles = loadCompetitorProfiles(cid);
+    const rawPosts = loadCompetitorPosts(cid);
+
+    // Lead counts per handle from this client's leads.json
+    const leadsByHandle = {};
+    try {
+      const leads = JSON.parse(fs.readFileSync(path.join(CLIENTS_DIR, cid, 'leadgen', 'leads.json'), 'utf8'));
+      for (const l of leads) {
+        const sh = (l.source_handle || '').replace(/^@/, '').toLowerCase();
+        if (sh) leadsByHandle[sh] = (leadsByHandle[sh] || 0) + 1;
+      }
+    } catch {}
+
+    for (const comp of profiles) {
+      const handle = (comp.instagram || '').replace(/^@/, '').toLowerCase();
+      if (!handle) continue;
+      if (handleFilter.length && !handleFilter.includes(handle)) continue;
+
+      let posts = rawPosts.filter(p =>
+        (p.ownerUsername || '').toLowerCase() === handle &&
+        new Date(p.timestamp) >= fromDate &&
+        new Date(p.timestamp) <= toDate &&
+        p.commentsCount >= minCmts &&
+        p.likesCount    >= minLikes
+      );
+
+      if (sort === 'comments')    posts.sort((a,b) => b.commentsCount - a.commentsCount);
+      else if (sort === 'likes')  posts.sort((a,b) => b.likesCount - a.likesCount);
+      else if (sort === 'recent') posts.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+      else if (sort === 'engagement') posts.sort((a,b) => (b.commentsCount+b.likesCount) - (a.commentsCount+a.likesCount));
+      posts = posts.slice(0, maxPosts);
+
+      const ads = comp.active_ads || [];
+      totalAds += ads.length;
+      totalAllPosts += posts.length;
+
+      const entry = { handle, clientId: cid };
+      if (inclSet.has('profile')) entry.profile = {
+        name: comp.name, followers: comp.instagram_followers_est || null,
+        category: comp.category, price_tier: comp.price_tier,
+        positioning: comp.positioning, strengths: comp.strengths,
+        weaknesses: comp.weaknesses, opportunity: comp.opportunity,
+        hunt_priority: comp.hunt_priority, uae_presence: comp.uae_presence,
+        website: comp.website,
+      };
+      if (inclSet.has('posts'))  entry.posts     = posts;
+      if (inclSet.has('ads'))    entry.activeAds  = ads;
+      if (inclSet.has('leads'))  entry.leadCount  = leadsByHandle[handle] || 0;
+      allComps.push(entry);
+    }
+  }
+
+  res.json({
+    competitors: allComps,
+    meta: {
+      totalCompetitors: allComps.length,
+      totalPosts: totalAllPosts,
+      totalAds,
+      filtersApplied: {
+        min_comments: minCmts, min_likes: minLikes,
+        dateRange: `${fromDate.toISOString().slice(0,10)} to ${toDate.toISOString().slice(0,10)}`,
+      },
+      scannedAt: new Date().toISOString(),
+    },
+  });
+});
+
+// GET /api/external/competitor-top-posts
+// Lightweight flat list — called hourly by DrSleeepSocial to pick where to comment
+app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) => {
+  const {
+    sort             = 'comments',
+    limit            = '20',
+    from             = '',
+    min_comments     = '15',
+    min_likes        = '100',
+    exclude_handles  = '',
+  } = req.query;
+
+  const fromDate  = parseDateParam(from, 14);
+  const maxPosts  = Math.min(parseInt(limit, 10) || 20, 100);
+  const minCmts   = parseInt(min_comments, 10) || 0;
+  const minLikes  = parseInt(min_likes,    10) || 0;
+  const excluded  = exclude_handles
+    ? new Set(exclude_handles.split(',').map(h => h.trim().replace(/^@/, '').toLowerCase()))
+    : new Set();
+
+  let allPosts = [];
+  let totalBefore = 0;
+
+  for (const cid of getAllClientIds()) {
+    const raw = loadCompetitorPosts(cid);
+    totalBefore += raw.length;
+    for (const p of raw) {
+      if (excluded.has((p.ownerUsername || '').toLowerCase())) continue;
+      if (new Date(p.timestamp) < fromDate)  continue;
+      if (p.commentsCount < minCmts)         continue;
+      if (p.likesCount    < minLikes)        continue;
+      allPosts.push(p);
+    }
+  }
+
+  if (sort === 'comments')    allPosts.sort((a,b) => b.commentsCount - a.commentsCount);
+  else if (sort === 'likes')  allPosts.sort((a,b) => b.likesCount - a.likesCount);
+  else if (sort === 'recent') allPosts.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  else if (sort === 'engagement') allPosts.sort((a,b) => (b.commentsCount+b.likesCount) - (a.commentsCount+a.likesCount));
+
+  const result = allPosts.slice(0, maxPosts).map(p => ({
+    url: p.url, shortCode: p.shortCode,
+    ownerUsername: p.ownerUsername, competitorName: p.competitorName,
+    caption: p.caption, likesCount: p.likesCount, commentsCount: p.commentsCount,
+    timestamp: p.timestamp, isSponsored: p.isSponsored,
+  }));
+
+  res.json({
+    posts: result,
+    meta: {
+      totalBeforeFilter: totalBefore,
+      totalAfterFilter:  result.length,
+      filtersApplied: { min_comments: minCmts, min_likes: minLikes, from: fromDate.toISOString().slice(0,10) },
+    },
+  });
 });
 
 // ─── Backup ───────────────────────────────────────────────────────────────────
