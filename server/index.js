@@ -4336,9 +4336,11 @@ function spawnCompetitorScrape(clientId, { postsPerAccount = 12, filterHandles =
     recentLines: [], lastActivity: '',
   });
 
-  fs.mkdirSync(path.join(clientDir, 'logs'), { recursive: true });
-  const logFile   = path.join(clientDir, 'logs', `run-${runId}.log`);
+  const runLogsDir = path.join(clientDir, 'logs', 'runs');
+  fs.mkdirSync(runLogsDir, { recursive: true });
+  const logFile   = path.join(runLogsDir, `${runId}.log`);
   const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+  logStream.write(`=== Run ${runId} | scrape-competitor-posts | ${startedAt} ===\n\n`);
 
   proc.stdout.on('data', chunk => {
     const text = chunk.toString();
@@ -4452,6 +4454,23 @@ app.get('/api/external/competitor-posts-debug', requireExternalApiKey, (req, res
     .filter(e => e.command === 'scrape-competitor-posts')
     .map(e => ({ clientId: e.clientId, startedAt: e.startedAt, lastActivity: e.lastActivity }));
   res.json({ activeScrapes, clients: results });
+});
+
+// GET /api/external/run-log/:runId
+// Read the log file for a scrape run (external API key auth).
+app.get('/api/external/run-log/:runId', requireExternalApiKey, (req, res) => {
+  const { runId } = req.params;
+  if (!/^[0-9a-f]{6,8}$/.test(runId)) return res.status(400).json({ error: 'Invalid runId' });
+
+  // Search all clients for the log file
+  for (const cid of getAllClientIds()) {
+    const f = path.join(CLIENTS_DIR, cid, 'logs', 'runs', `${runId}.log`);
+    if (fs.existsSync(f)) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.send(fs.readFileSync(f, 'utf8'));
+    }
+  }
+  res.status(404).json({ error: `Log not found for runId ${runId}` });
 });
 
 // ─── Backup ───────────────────────────────────────────────────────────────────
