@@ -4273,7 +4273,8 @@ app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) 
   const result = allPosts.slice(0, maxPosts).map(p => ({
     url: p.url, shortCode: p.shortCode,
     ownerUsername: p.ownerUsername, competitorName: p.competitorName,
-    caption: p.caption, likesCount: p.likesCount, commentsCount: p.commentsCount,
+    caption: p.caption, imageUrl: p.imageUrl || '',
+    likesCount: p.likesCount, commentsCount: p.commentsCount,
     timestamp: p.timestamp, isSponsored: p.isSponsored, is_meta_ad: p.is_meta_ad ?? false,
   }));
 

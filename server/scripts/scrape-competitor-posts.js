@@ -97,15 +97,27 @@ async function getProfilePostsViaIntercept(page, handle) {
       let data;
       try { data = JSON.parse(body); } catch { return; }
 
-      // web_profile_info response shape
+      // web_profile_info response shape — two variants
       if (isProfileInfo) {
+        // Older format: edge_owner_to_timeline_media.edges
         const edges = data?.data?.user?.edge_owner_to_timeline_media?.edges;
-        if (!Array.isArray(edges) || edges.length === 0) return;
-        for (const edge of edges.slice(0, POSTS_PER_ACCOUNT)) {
-          const node = edge.node || {};
-          posts.push(shapeProfileInfoNode(node, handle));
+        // Newer format: media.items
+        const items = data?.data?.user?.media?.items;
+
+        if (Array.isArray(edges) && edges.length > 0) {
+          for (const edge of edges.slice(0, POSTS_PER_ACCOUNT)) {
+            posts.push(shapeProfileInfoNode(edge.node || {}, handle));
+          }
+          resolved = true;
+          return;
         }
-        resolved = true;
+        if (Array.isArray(items) && items.length > 0) {
+          for (const item of items.slice(0, POSTS_PER_ACCOUNT)) {
+            posts.push(shapeFeedItem(item, handle));
+          }
+          resolved = true;
+          return;
+        }
         return;
       }
 
@@ -174,12 +186,14 @@ function shapeProfileInfoNode(node, handle) {
   const timestamp = node.taken_at_timestamp
     ? new Date(node.taken_at_timestamp * 1000).toISOString()
     : '';
+  const imageUrl  = node.display_url || node.thumbnail_src || '';
   return {
     ownerUsername:  handle,
     competitorName: '', // filled in by caller
     shortCode,
     url:           `https://www.instagram.com/p/${shortCode}/`,
-    caption:        caption.slice(0, 400),
+    caption:        caption.slice(0, 500),
+    imageUrl,
     likesCount:     node.edge_liked_by?.count ?? node.edge_media_preview_like?.count ?? 0,
     commentsCount:  node.edge_media_to_comment?.count ?? 0,
     timestamp:      timestamp || new Date().toISOString(),
@@ -200,12 +214,17 @@ function shapeFeedItem(item, handle) {
   const timestamp = item.taken_at
     ? new Date(item.taken_at * 1000).toISOString()
     : '';
+  const imageUrl  =
+    item.image_versions2?.candidates?.[0]?.url ||
+    item.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url ||
+    item.display_url || item.thumbnail_src || '';
   return {
     ownerUsername:  handle,
     competitorName: '', // filled in by caller
     shortCode,
     url:           `https://www.instagram.com/p/${shortCode}/`,
-    caption:        caption.slice(0, 400),
+    caption:        caption.slice(0, 500),
+    imageUrl,
     likesCount:     item.like_count ?? 0,
     commentsCount:  item.comment_count ?? 0,
     timestamp:      timestamp || new Date().toISOString(),
@@ -242,6 +261,7 @@ async function getPostsViaDom(page, handle) {
         shortCode:      sc,
         url:           `https://www.instagram.com/p/${sc}/`,
         caption:        '',
+        imageUrl:       '',
         likesCount:     0,
         commentsCount:  0,
         timestamp:      new Date().toISOString(),
@@ -439,6 +459,7 @@ async function scrapeMetaAds(context, competitorName, handle) {
           shortCode:      sc,
           url:           `https://www.instagram.com/p/${sc}/`,
           caption:        '',
+          imageUrl:       '',
           likesCount:     0,
           commentsCount:  0,
           timestamp:      new Date().toISOString(),
