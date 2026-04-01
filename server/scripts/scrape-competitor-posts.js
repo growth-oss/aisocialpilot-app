@@ -207,15 +207,23 @@ function shapeFeedItem(item, handle) {
  * session cookies. Instagram's ?__a=1&__d=dis endpoint returns JSON for logged-in users.
  * Returns null if the request fails or returns an unexpected format.
  */
-async function fetchPostDetails(page, shortCode) {
+async function fetchPostDetails(page, shortCode, debug = false) {
   try {
-    const data = await page.evaluate(async (url) => {
+    const raw = await page.evaluate(async (url) => {
       try {
         const r = await fetch(url, { credentials: 'include' });
-        if (!r.ok) return null;
-        return await r.json();
-      } catch { return null; }
+        const text = await r.text();
+        return { status: r.status, body: text };
+      } catch (e) { return { status: 0, body: String(e) }; }
     }, `https://www.instagram.com/p/${shortCode}/?__a=1&__d=dis`);
+
+    if (debug || !raw || raw.status !== 200) {
+      console.log(`[ci-scrape][DEBUG] /p/${shortCode}/?__a=1 → status=${raw?.status} body=${(raw?.body || '').slice(0, 200)}`);
+    }
+    if (!raw || raw.status !== 200) return null;
+
+    let data;
+    try { data = JSON.parse(raw.body); } catch { return null; }
 
     if (!data) return null;
 
@@ -468,8 +476,9 @@ async function scrapeMetaAds(context, competitorName, handle) {
         if (profilePosts.length > 0) {
           console.log(`[ci-scrape]   Enriching ${profilePosts.length} posts via ?__a=1...`);
           let enriched = 0;
-          for (const post of profilePosts) {
-            const details = await fetchPostDetails(page, post.shortCode);
+          for (let ei = 0; ei < profilePosts.length; ei++) {
+            const post = profilePosts[ei];
+            const details = await fetchPostDetails(page, post.shortCode, ei === 0); // debug first post only
             if (details) {
               post.caption      = details.caption;
               post.imageUrl     = details.imageUrl;
