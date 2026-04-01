@@ -79,117 +79,65 @@ async function dismissOverlays(page) {
 }
 
 /**
- * Intercept Instagram's internal XHR responses while loading the profile page.
- * Instagram sends `web_profile_info?username=X` or `/api/v1/feed/user/{id}/`
- * responses that contain accurate like_count, comment_count, etc. for all posts.
- * Returns array of post objects already shaped for our schema.
+ * Fetch post data directly from Instagram's web API using the browser context's
+ * cookie store (session is already logged in via the persistent context).
+ * Uses context.request so cookies are sent automatically — no page navigation needed.
+ * Falls back to an empty array on any error; caller then uses getPostsViaDom().
  */
-async function getProfilePostsViaIntercept(page, handle) {
-  const posts = [];
-  let resolved = false;
+async function getProfilePostsViaApi(context, handle) {
+  // X-IG-App-ID is Instagram's public web app identifier — required for the API to respond
+  const IG_APP_ID = '936619743392459';
 
-  const responseHandler = async (response) => {
-    if (resolved) return;
-    const url = response.url();
-    // Match profile info or feed API endpoints
-    const isProfileInfo = url.includes('web_profile_info') && url.includes(handle.toLowerCase());
-    const isFeedApi = url.includes('/api/v1/feed/user/');
-    if (!isProfileInfo && !isFeedApi) return;
-    console.log(`[ci-scrape][DEBUG] @${handle} intercept hit: ${url.slice(0, 120)}`);
-
-    try {
-      const body = await response.text().catch(() => null);
-      if (!body) return;
-
-      let data;
-      try { data = JSON.parse(body); } catch { return; }
-
-      // web_profile_info response shape — two variants
-      if (isProfileInfo) {
-        // Older format: edge_owner_to_timeline_media.edges
-        const edges = data?.data?.user?.edge_owner_to_timeline_media?.edges;
-        // Newer format: media.items
-        const items = data?.data?.user?.media?.items;
-
-        if (Array.isArray(edges) && edges.length > 0) {
-          for (const edge of edges.slice(0, POSTS_PER_ACCOUNT)) {
-            posts.push(shapeProfileInfoNode(edge.node || {}, handle));
-          }
-          resolved = true;
-          return;
-        }
-        if (Array.isArray(items) && items.length > 0) {
-          for (const item of items.slice(0, POSTS_PER_ACCOUNT)) {
-            posts.push(shapeFeedItem(item, handle));
-          }
-          resolved = true;
-          return;
-        }
-        return;
-      }
-
-      // /api/v1/feed/user/ response shape
-      if (isFeedApi) {
-        const items = data?.items;
-        if (!Array.isArray(items) || items.length === 0) return;
-        for (const item of items.slice(0, POSTS_PER_ACCOUNT)) {
-          posts.push(shapeFeedItem(item, handle));
-        }
-        resolved = true;
-      }
-    } catch (e) {
-      // silently skip malformed responses
-    }
-  };
-
-  page.on('response', responseHandler);
-
+  // Try web_profile_info first (returns edge_owner_to_timeline_media with captions + counts)
   try {
-    const url = `https://www.instagram.com/${handle}/`;
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await delay(3000);
-    await dismissOverlays(page);
+    const resp = await context.request.get(
+      `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`,
+      {
+        headers: {
+          'X-IG-App-ID':      IG_APP_ID,
+          'Accept':           '*/*',
+          'Accept-Language':  'en-US,en;q=0.9,ar;q=0.8',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer':          `https://www.instagram.com/${handle}/`,
+        },
+        timeout: 15000,
+      }
+    );
 
-    // Check for profile not found
-    const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
-    if (bodyText.includes("Sorry, this page isn't available") || bodyText.includes("Page Not Found")) {
-      console.log(`[ci-scrape]   @${handle} — profile not found`);
-      page.off('response', responseHandler);
-      return [];
-    }
-
-    // Scroll to trigger more XHR requests if needed
-    for (let i = 0; i < 4 && !resolved; i++) {
-      await page.evaluate(() => window.scrollBy(0, 600));
-      await delay(1500);
-    }
-
-    // Wait a bit more for any in-flight XHR to complete
-    if (!resolved) {
-      await delay(3000);
+    if (resp.ok()) {
+      const data = await resp.json().catch(() => null);
+      if (data) {
+        // Older GraphQL format
+        const edges = data?.data?.user?.edge_owner_to_timeline_media?.edges;
+        if (Array.isArray(edges) && edges.length > 0) {
+          const posts = edges.slice(0, POSTS_PER_ACCOUNT).map(e => shapeProfileInfoNode(e.node || {}, handle));
+          console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info ✅`);
+          return posts;
+        }
+        // Newer format
+        const items = data?.data?.user?.media?.items;
+        if (Array.isArray(items) && items.length > 0) {
+          const posts = items.slice(0, POSTS_PER_ACCOUNT).map(item => shapeFeedItem(item, handle));
+          console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info (v2) ✅`);
+          return posts;
+        }
+        console.log(`[ci-scrape]   @${handle} web_profile_info: unexpected shape, top keys: ${Object.keys(data?.data?.user || data || {}).join(', ')}`);
+      }
+    } else {
+      console.log(`[ci-scrape]   @${handle} web_profile_info: HTTP ${resp.status()}`);
     }
   } catch (e) {
-    console.log(`[ci-scrape]   @${handle} profile intercept error: ${e.message}`);
+    console.log(`[ci-scrape]   @${handle} web_profile_info error: ${e.message}`);
   }
 
-  page.off('response', responseHandler);
-
-  if (posts.length > 0) {
-    console.log(`[ci-scrape]   @${handle} — got ${posts.length} posts via API intercept ✅`);
-  } else {
-    console.log(`[ci-scrape]   @${handle} — no XHR intercept hit, will fall back to DOM`);
-  }
-
-  return posts;
+  // Fallback: try the feed/user API (requires knowing the numeric user ID — skip for now)
+  return [];
 }
 
 /**
  * Shape a node from web_profile_info edges into our post schema.
  */
 function shapeProfileInfoNode(node, handle) {
-  // DEBUG: log raw node keys and first 500 chars to diagnose missing caption/imageUrl
-  console.log(`[ci-scrape][DEBUG] node keys: ${Object.keys(node).join(', ')}`);
-  console.log(`[ci-scrape][DEBUG] node sample: ${JSON.stringify(node).slice(0, 500)}`);
   const shortCode = node.shortcode || '';
   const caption   = node.edge_media_to_caption?.edges?.[0]?.node?.text || '';
   const hashtags  = (caption.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10);
@@ -218,9 +166,6 @@ function shapeProfileInfoNode(node, handle) {
  * Shape a feed item from /api/v1/feed/user/ into our post schema.
  */
 function shapeFeedItem(item, handle) {
-  // DEBUG: log raw item keys and first 500 chars
-  console.log(`[ci-scrape][DEBUG] feedItem keys: ${Object.keys(item).join(', ')}`);
-  console.log(`[ci-scrape][DEBUG] feedItem sample: ${JSON.stringify(item).slice(0, 500)}`);
   const shortCode = item.code || item.shortcode || '';
   const caption   = item.caption?.text || '';
   const hashtags  = (caption.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10);
@@ -249,9 +194,9 @@ function shapeFeedItem(item, handle) {
 }
 
 /**
- * Fall back to DOM scraping if XHR intercept didn't fire.
- * Visits individual post pages — slower and returns 0 counts on most accounts
- * but at least captures shortcodes and captions.
+ * DOM fallback — page must already be on the profile URL.
+ * Extracts shortcodes from grid thumbnails only; no captions or counts.
+ * Used when the direct API call returns nothing (rate-limited / session issue).
  */
 async function getPostsViaDom(page, handle) {
   const posts = [];
@@ -446,11 +391,14 @@ async function scrapeMetaAds(context, competitorName, handle) {
     console.log(`\n[ci-scrape] @${handle} (${comp.name}) — priority: ${comp.hunt_priority || 'normal'}`);
 
     try {
-      // ── Step 1: Get posts via API intercept ──────────────────────────────
-      let profilePosts = await getProfilePostsViaIntercept(page, handle);
+      // ── Step 1: Get posts via direct API call (uses session cookies) ─────
+      let profilePosts = await getProfilePostsViaApi(context, handle);
 
-      // Fall back to DOM if intercept didn't fire
+      // Fall back to DOM (navigate to profile page) if API returned nothing
       if (profilePosts.length === 0) {
+        await page.goto(`https://www.instagram.com/${handle}/`, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await delay(3000);
+        await dismissOverlays(page);
         profilePosts = await getPostsViaDom(page, handle);
       }
 
