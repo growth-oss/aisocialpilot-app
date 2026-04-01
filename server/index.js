@@ -4297,6 +4297,121 @@ app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) 
   });
 });
 
+// POST /api/external/scrape-competitor-posts
+// Trigger a fresh competitor scrape run asynchronously.
+// Returns immediately; caller polls /competitor-top-posts for fresh data.
+function spawnCompetitorScrape(clientId, { postsPerAccount = 12, filterHandles = null } = {}) {
+  const clientDir   = path.join(CLIENTS_DIR, clientId);
+  const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
+  const igSessionDir = path.join(clientDir, 'browser-sessions', 'instagram');
+  const lgDir        = path.join(clientDir, 'leadgen');
+
+  // Clear stale Chrome singleton files (lstatSync works for dangling symlinks)
+  for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    const fp = path.join(igSessionDir, f);
+    try { fs.lstatSync(fp); fs.unlinkSync(fp); } catch {}
+  }
+
+  const env = {
+    ...process.env,
+    CLIENT_ID:              clientId,
+    SESSION_DIR:            igSessionDir,
+    COMPETITORS_FILE:       path.join(clientDir, 'knowledge', 'competitors.json'),
+    COMPETITOR_POSTS_FILE:  path.join(lgDir, 'competitor-posts.json'),
+    POSTS_PER_ACCOUNT:      String(postsPerAccount),
+    MIN_COMMENTS:           '0',
+    PROXY:                  clientConfig.proxy?.url || '',
+  };
+  if (filterHandles && filterHandles.length > 0) {
+    env.FILTER_HANDLES = filterHandles.join(',');
+  }
+
+  const runId     = crypto.randomBytes(4).toString('hex');
+  const startedAt = new Date().toISOString();
+
+  const scriptPath = path.join(__dirname, 'scripts', 'scrape-competitor-posts.js');
+  const proc = spawn('node', [scriptPath], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+
+  runningProcesses.set(runId, {
+    proc, clientId, command: 'scrape-competitor-posts', startedAt,
+    recentLines: [], lastActivity: '',
+  });
+
+  fs.mkdirSync(path.join(clientDir, 'logs'), { recursive: true });
+  const logFile   = path.join(clientDir, 'logs', `run-${runId}.log`);
+  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+
+  proc.stdout.on('data', chunk => {
+    const text = chunk.toString();
+    logStream.write(text);
+    const entry = runningProcesses.get(runId);
+    if (entry) {
+      entry.lastActivity = text.slice(-200);
+      entry.recentLines.push(...text.split('\n').filter(Boolean));
+      if (entry.recentLines.length > 100) entry.recentLines = entry.recentLines.slice(-100);
+    }
+  });
+  proc.stderr.on('data', chunk => logStream.write(chunk.toString()));
+
+  proc.on('close', code => {
+    logStream.end();
+    runningProcesses.delete(runId);
+    const status = code === 0 ? 'completed' : code === null ? 'stopped' : 'failed';
+    console.log(`[ci-scrape] external run ${runId} ${status} (exit ${code})`);
+  });
+
+  return { runId, startedAt };
+}
+
+app.post('/api/external/scrape-competitor-posts', requireExternalApiKey, (req, res) => {
+  const body            = req.body || {};
+  const filterHandles   = Array.isArray(body.handles) && body.handles.length ? body.handles : null;
+  const postsPerAccount = Number(body.postsPerAccount) || 12;
+
+  // Find all clients that have a competitors file; scrape each
+  const clientIds   = getAllClientIds().filter(cid => {
+    const f = path.join(CLIENTS_DIR, cid, 'knowledge', 'competitors.json');
+    return fs.existsSync(f);
+  });
+
+  if (!clientIds.length) {
+    return res.status(404).json({ error: 'No clients with competitor data found' });
+  }
+
+  // Reject if any of those clients already have a scraper run in progress
+  const busy = clientIds.find(cid =>
+    [...runningProcesses.values()].some(e => e.clientId === cid && e.command === 'scrape-competitor-posts')
+  );
+  if (busy) {
+    return res.status(409).json({ error: 'Scraper run already in progress', clientId: busy });
+  }
+
+  const runs = [];
+  for (const cid of clientIds) {
+    try {
+      const { runId, startedAt } = spawnCompetitorScrape(cid, { postsPerAccount, filterHandles });
+      runs.push({ clientId: cid, runId, startedAt });
+    } catch (e) {
+      console.error(`[ci-scrape] Failed to start scrape for ${cid}:`, e.message);
+    }
+  }
+
+  if (!runs.length) {
+    return res.status(500).json({ error: 'Failed to start any scrape runs' });
+  }
+
+  const handles = filterHandles || 'all';
+  const handleCount = Array.isArray(handles) ? handles.length : 11;
+  res.json({
+    status:           'started',
+    message:          `Scraping ${Array.isArray(handles) ? handles.length : 'all'} competitor account(s)...`,
+    handles:          filterHandles || null,
+    postsPerAccount,
+    estimatedSeconds: handleCount * 20,
+    runs,
+  });
+});
+
 // ─── Backup ───────────────────────────────────────────────────────────────────
 
 // Status: last backup time, size, whether R2 is configured

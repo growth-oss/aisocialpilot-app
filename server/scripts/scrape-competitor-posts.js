@@ -35,6 +35,10 @@ const PROXY                = process.env.PROXY || process.env.SOCIALPILOT_PROXY 
 const POSTS_PER_ACCOUNT    = parseInt(process.env.POSTS_PER_ACCOUNT || '12', 10);
 const MIN_COMMENTS_SAVE    = parseInt(process.env.MIN_COMMENTS || '0', 10);
 const META_ADS_COUNTRY     = process.env.META_ADS_COUNTRY || 'AE';
+// Optional comma-separated list of handles to restrict this run to a subset of competitors
+const FILTER_HANDLES       = process.env.FILTER_HANDLES
+  ? new Set(process.env.FILTER_HANDLES.split(',').map(h => h.trim().replace(/^@/, '').toLowerCase()))
+  : null;
 
 if (!CLIENT_ID || !SESSION_DIR || !COMPETITORS_FILE || !COMPETITOR_POSTS_FILE) {
   console.error('[ci-scrape] ERROR: CLIENT_ID, SESSION_DIR, COMPETITORS_FILE, COMPETITOR_POSTS_FILE required');
@@ -356,7 +360,11 @@ async function scrapeMetaAds(context, competitorName, handle) {
 
 (async () => {
   const competitors = loadCompetitors();
-  const enabled = competitors.filter(c => c.instagram && c.hunt_priority !== 'disabled');
+  const enabled = competitors.filter(c => {
+    if (!c.instagram || c.hunt_priority === 'disabled') return false;
+    if (FILTER_HANDLES) return FILTER_HANDLES.has(c.instagram.replace(/^@/, '').toLowerCase());
+    return true;
+  });
 
   if (!enabled.length) {
     console.log('[ci-scrape] No competitors with instagram handles found — add them via Intel tab');
