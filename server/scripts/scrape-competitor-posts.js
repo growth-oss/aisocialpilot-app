@@ -95,6 +95,7 @@ async function getProfilePostsViaIntercept(page, handle) {
     const isProfileInfo = url.includes('web_profile_info') && url.includes(handle.toLowerCase());
     const isFeedApi = url.includes('/api/v1/feed/user/');
     if (!isProfileInfo && !isFeedApi) return;
+    console.log(`[ci-scrape][DEBUG] @${handle} intercept hit: ${url.slice(0, 120)}`);
 
     try {
       const body = await response.text().catch(() => null);
@@ -186,6 +187,9 @@ async function getProfilePostsViaIntercept(page, handle) {
  * Shape a node from web_profile_info edges into our post schema.
  */
 function shapeProfileInfoNode(node, handle) {
+  // DEBUG: log raw node keys and first 500 chars to diagnose missing caption/imageUrl
+  console.log(`[ci-scrape][DEBUG] node keys: ${Object.keys(node).join(', ')}`);
+  console.log(`[ci-scrape][DEBUG] node sample: ${JSON.stringify(node).slice(0, 500)}`);
   const shortCode = node.shortcode || '';
   const caption   = node.edge_media_to_caption?.edges?.[0]?.node?.text || '';
   const hashtags  = (caption.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10);
@@ -214,6 +218,9 @@ function shapeProfileInfoNode(node, handle) {
  * Shape a feed item from /api/v1/feed/user/ into our post schema.
  */
 function shapeFeedItem(item, handle) {
+  // DEBUG: log raw item keys and first 500 chars
+  console.log(`[ci-scrape][DEBUG] feedItem keys: ${Object.keys(item).join(', ')}`);
+  console.log(`[ci-scrape][DEBUG] feedItem sample: ${JSON.stringify(item).slice(0, 500)}`);
   const shortCode = item.code || item.shortcode || '';
   const caption   = item.caption?.text || '';
   const hashtags  = (caption.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10);
