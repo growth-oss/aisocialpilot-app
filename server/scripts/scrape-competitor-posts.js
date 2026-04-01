@@ -107,21 +107,22 @@ async function getProfilePostsViaApi(context, handle) {
     if (resp.ok()) {
       const data = await resp.json().catch(() => null);
       if (data) {
-        // Older GraphQL format
-        const edges = data?.data?.user?.edge_owner_to_timeline_media?.edges;
+        // Response shape: { user: { edge_owner_to_timeline_media: { edges: [...] } } }
+        const user  = data?.user || data?.data?.user; // handle both with and without data wrapper
+        const edges = user?.edge_owner_to_timeline_media?.edges;
         if (Array.isArray(edges) && edges.length > 0) {
           const posts = edges.slice(0, POSTS_PER_ACCOUNT).map(e => shapeProfileInfoNode(e.node || {}, handle));
           console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info ✅`);
           return posts;
         }
-        // Newer format
-        const items = data?.data?.user?.media?.items;
+        // Newer format: { user: { media: { items: [...] } } }
+        const items = user?.media?.items;
         if (Array.isArray(items) && items.length > 0) {
           const posts = items.slice(0, POSTS_PER_ACCOUNT).map(item => shapeFeedItem(item, handle));
           console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info (v2) ✅`);
           return posts;
         }
-        console.log(`[ci-scrape]   @${handle} web_profile_info: unexpected shape, top keys: ${Object.keys(data?.data?.user || data || {}).join(', ')}`);
+        console.log(`[ci-scrape]   @${handle} web_profile_info: unexpected shape, user keys: ${Object.keys(user || data || {}).join(', ')}`);
       }
     } else {
       console.log(`[ci-scrape]   @${handle} web_profile_info: HTTP ${resp.status()}`);
