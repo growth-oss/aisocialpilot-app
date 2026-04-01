@@ -110,6 +110,7 @@ async function getProfilePostsViaApi(context, handle) {
         // Response shape: { user: { edge_owner_to_timeline_media: { edges: [...] } } }
         const user  = data?.user || data?.data?.user; // handle both with and without data wrapper
         const edges = user?.edge_owner_to_timeline_media?.edges;
+        console.log(`[ci-scrape][DEBUG] @${handle} etm.count=${user?.edge_owner_to_timeline_media?.count} edges.length=${Array.isArray(edges) ? edges.length : typeof edges}`);
         if (Array.isArray(edges) && edges.length > 0) {
           const posts = edges.slice(0, POSTS_PER_ACCOUNT).map(e => shapeProfileInfoNode(e.node || {}, handle));
           console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info ✅`);
