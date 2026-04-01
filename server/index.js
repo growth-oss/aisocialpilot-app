@@ -4407,9 +4407,51 @@ app.post('/api/external/scrape-competitor-posts', requireExternalApiKey, (req, r
     message:          `Scraping ${Array.isArray(handles) ? handles.length : 'all'} competitor account(s)...`,
     handles:          filterHandles || null,
     postsPerAccount,
+    force,
     estimatedSeconds: handleCount * 20,
     runs,
   });
+});
+
+// GET /api/external/competitor-posts-debug
+// Returns raw file stats + first 3 posts from competitor-posts.json for debugging.
+app.get('/api/external/competitor-posts-debug', requireExternalApiKey, (req, res) => {
+  const results = [];
+  for (const cid of getAllClientIds()) {
+    const f = path.join(CLIENTS_DIR, cid, 'leadgen', 'competitor-posts.json');
+    let stat = null, sample = [], total = 0, error = null;
+    try {
+      stat  = fs.statSync(f);
+      const posts = JSON.parse(fs.readFileSync(f, 'utf8'));
+      total  = posts.length;
+      sample = posts.slice(0, 3).map(p => ({
+        shortCode:    p.shortCode,
+        ownerUsername: p.ownerUsername,
+        caption:      p.caption ? p.caption.slice(0, 80) + (p.caption.length > 80 ? '…' : '') : '',
+        imageUrl:     p.imageUrl ? p.imageUrl.slice(0, 60) + '…' : '',
+        likesCount:   p.likesCount,
+        commentsCount: p.commentsCount,
+        is_meta_ad:   p.is_meta_ad,
+        scrapedAt:    p.scrapedAt,
+        hasCaption:   !!p.caption,
+        hasImageUrl:  !!p.imageUrl,
+      }));
+    } catch (e) { error = e.message; }
+    results.push({
+      clientId: cid,
+      file: f,
+      fileSizeBytes: stat?.size ?? null,
+      lastModified:  stat?.mtime ?? null,
+      totalPosts:    total,
+      error,
+      sample,
+    });
+  }
+  // Also report any currently running scrape processes
+  const activeScrapes = [...runningProcesses.values()]
+    .filter(e => e.command === 'scrape-competitor-posts')
+    .map(e => ({ clientId: e.clientId, startedAt: e.startedAt, lastActivity: e.lastActivity }));
+  res.json({ activeScrapes, clients: results });
 });
 
 // ─── Backup ───────────────────────────────────────────────────────────────────
