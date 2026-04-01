@@ -202,64 +202,60 @@ function shapeFeedItem(item, handle) {
 }
 
 /**
- * Fetch full post details (caption, counts, imageUrl) for a single shortCode
- * using page.evaluate(() => fetch(...)) so the request carries the logged-in
- * session cookies. Instagram's ?__a=1&__d=dis endpoint returns JSON for logged-in users.
- * Returns null if the request fails or returns an unexpected format.
+ * Fetch full post details (caption, imageUrl, counts) for a single shortCode
+ * by navigating to the post page and scraping Open Graph meta tags + JSON-LD.
+ * This is the only reliable approach after ?__a=1&__d=dis was deprecated (404).
  */
 async function fetchPostDetails(page, shortCode, debug = false) {
   try {
-    const raw = await page.evaluate(async (url) => {
-      try {
-        const r = await fetch(url, { credentials: 'include' });
-        const text = await r.text();
-        return { status: r.status, body: text };
-      } catch (e) { return { status: 0, body: String(e) }; }
-    }, `https://www.instagram.com/p/${shortCode}/?__a=1&__d=dis`);
+    await page.goto(`https://www.instagram.com/p/${shortCode}/`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 20000,
+    });
+    await delay(1500 + Math.random() * 1000);
 
-    if (debug || !raw || raw.status !== 200) {
-      console.log(`[ci-scrape][DEBUG] /p/${shortCode}/?__a=1 → status=${raw?.status} body=${(raw?.body || '').slice(0, 200)}`);
-    }
-    if (!raw || raw.status !== 200) return null;
+    const data = await page.evaluate(() => {
+      const caption  = document.querySelector('meta[property="og:description"]')?.content || '';
+      const imageUrl = document.querySelector('meta[property="og:image"]')?.content || '';
 
-    let data;
-    try { data = JSON.parse(raw.body); } catch { return null; }
+      let likesCount = 0;
+      let commentsCount = 0;
+      let timestamp = null;
+      let isSponsored = false;
 
-    if (!data) return null;
+      const ldScript = document.querySelector('script[type="application/ld+json"]');
+      if (ldScript) {
+        try {
+          const j = JSON.parse(ldScript.textContent);
+          const stats = Array.isArray(j.interactionStatistic) ? j.interactionStatistic : [];
+          likesCount    = stats.find(s => s.interactionType?.includes('LikeAction'))?.userInteractionCount ?? 0;
+          commentsCount = stats.find(s => s.interactionType?.includes('CommentAction'))?.userInteractionCount ?? 0;
+          if (j.dateCreated) timestamp = j.dateCreated;
+          if (j.datePublished) timestamp = j.datePublished;
+        } catch {}
+      }
 
-    // Mobile API shape: { items: [{ caption:{text}, like_count, comment_count, image_versions2, ... }] }
-    const item = Array.isArray(data.items) && data.items[0];
-    if (item) {
-      const captionText = item.caption?.text || '';
-      return {
-        caption:      captionText.slice(0, 500),
-        imageUrl:     item.image_versions2?.candidates?.[0]?.url ||
-                      item.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url || '',
-        likesCount:   item.like_count    ?? 0,
-        commentsCount: item.comment_count ?? 0,
-        timestamp:    item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
-        isSponsored:  item.is_paid_partnership ?? false,
-        hashtags:     (captionText.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10),
-      };
-    }
+      return { caption, imageUrl, likesCount, commentsCount, timestamp, isSponsored };
+    });
 
-    // GraphQL shape: { graphql: { shortcode_media: { edge_media_to_caption, edge_liked_by, ... } } }
-    const gql = data.graphql?.shortcode_media;
-    if (gql) {
-      const captionText = gql.edge_media_to_caption?.edges?.[0]?.node?.text || '';
-      return {
-        caption:      captionText.slice(0, 500),
-        imageUrl:     gql.display_url || gql.thumbnail_src || '',
-        likesCount:   gql.edge_liked_by?.count ?? 0,
-        commentsCount: gql.edge_media_to_comment?.count ?? 0,
-        timestamp:    gql.taken_at_timestamp ? new Date(gql.taken_at_timestamp * 1000).toISOString() : null,
-        isSponsored:  gql.is_paid_partnership ?? false,
-        hashtags:     (captionText.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10),
-      };
+    if (debug) {
+      console.log(`[ci-scrape][DEBUG] /p/${shortCode}/ meta → caption="${data.caption.slice(0, 80)}" imageUrl="${data.imageUrl.slice(0, 60)}"`);
     }
 
-    return null;
-  } catch {
+    if (!data.caption && !data.imageUrl) return null;
+
+    const captionText = data.caption;
+    return {
+      caption:       captionText.slice(0, 500),
+      imageUrl:      data.imageUrl,
+      likesCount:    data.likesCount,
+      commentsCount: data.commentsCount,
+      timestamp:     data.timestamp,
+      isSponsored:   data.isSponsored,
+      hashtags:      (captionText.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10),
+    };
+  } catch (err) {
+    if (debug) console.log(`[ci-scrape][DEBUG] fetchPostDetails error for ${shortCode}: ${err.message}`);
     return null;
   }
 }
@@ -472,9 +468,9 @@ async function scrapeMetaAds(context, competitorName, handle) {
         await dismissOverlays(page);
         profilePosts = await getPostsViaDom(page, handle);
 
-        // Enrich DOM stubs with caption + counts via per-post ?__a=1 fetch
+        // Enrich DOM stubs with caption + counts via per-post og:meta tags
         if (profilePosts.length > 0) {
-          console.log(`[ci-scrape]   Enriching ${profilePosts.length} posts via ?__a=1...`);
+          console.log(`[ci-scrape]   Enriching ${profilePosts.length} posts via og:meta tags...`);
           let enriched = 0;
           for (let ei = 0; ei < profilePosts.length; ei++) {
             const post = profilePosts[ei];
@@ -511,23 +507,25 @@ async function scrapeMetaAds(context, competitorName, handle) {
       });
 
       // Any ad shortcodes NOT already in the profile list — create stub entries
-      // These might be older posts not shown in the grid
+      // These might be older posts not shown in the grid; enrich them immediately
       for (const sc of adShortcodes) {
+        const details = await fetchPostDetails(page, sc, false);
         profilePosts.push({
           ownerUsername:  handle,
           competitorName: comp.name,
           shortCode:      sc,
           url:           `https://www.instagram.com/p/${sc}/`,
-          caption:        '',
-          imageUrl:       '',
-          likesCount:     0,
-          commentsCount:  0,
-          timestamp:      new Date().toISOString(),
+          caption:        details?.caption   || '',
+          imageUrl:       details?.imageUrl  || '',
+          likesCount:     details?.likesCount   ?? 0,
+          commentsCount:  details?.commentsCount ?? 0,
+          timestamp:      details?.timestamp || new Date().toISOString(),
           isSponsored:    true,
           is_meta_ad:     true,
-          hashtags:       [],
+          hashtags:       details?.hashtags  || [],
           scrapedAt:      new Date().toISOString(),
         });
+        await delay(1000 + Math.random() * 500);
       }
 
       // ── Step 3: Filter & save new posts ─────────────────────────────────
