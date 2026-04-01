@@ -39,6 +39,8 @@ const META_ADS_COUNTRY     = process.env.META_ADS_COUNTRY || 'AE';
 const FILTER_HANDLES       = process.env.FILTER_HANDLES
   ? new Set(process.env.FILTER_HANDLES.split(',').map(h => h.trim().replace(/^@/, '').toLowerCase()))
   : null;
+// Set FORCE_RESCRAPE=1 to ignore the 30-day cache and re-scrape all posts
+const FORCE_RESCRAPE       = process.env.FORCE_RESCRAPE === '1';
 
 if (!CLIENT_ID || !SESSION_DIR || !COMPETITORS_FILE || !COMPETITOR_POSTS_FILE) {
   console.error('[ci-scrape] ERROR: CLIENT_ID, SESSION_DIR, COMPETITORS_FILE, COMPETITOR_POSTS_FILE required');
@@ -419,10 +421,12 @@ async function scrapeMetaAds(context, competitorName, handle) {
   }
 
   // Load existing posts — keep posts newer than 30 days, replace older ones
-  const existing = loadExistingPosts();
+  // FORCE_RESCRAPE=1 ignores the cache entirely (use after scraper upgrades)
+  const existing = FORCE_RESCRAPE ? [] : loadExistingPosts();
   const cutoff   = Date.now() - 30 * 86400000;
   const retained = existing.filter(p => new Date(p.scrapedAt || 0).getTime() > cutoff);
   const existingKeys = new Set(retained.map(p => p.shortCode));
+  if (FORCE_RESCRAPE) console.log('[ci-scrape] FORCE_RESCRAPE=1 — ignoring cache, re-scraping all posts');
 
   const newPosts = [];
   let totalScraped = 0;

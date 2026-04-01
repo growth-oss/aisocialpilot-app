@@ -4300,7 +4300,7 @@ app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) 
 // POST /api/external/scrape-competitor-posts
 // Trigger a fresh competitor scrape run asynchronously.
 // Returns immediately; caller polls /competitor-top-posts for fresh data.
-function spawnCompetitorScrape(clientId, { postsPerAccount = 12, filterHandles = null } = {}) {
+function spawnCompetitorScrape(clientId, { postsPerAccount = 12, filterHandles = null, force = false } = {}) {
   const clientDir   = path.join(CLIENTS_DIR, clientId);
   const clientConfig = JSON.parse(fs.readFileSync(path.join(clientDir, 'config.json'), 'utf8'));
   const igSessionDir = path.join(clientDir, 'browser-sessions', 'instagram');
@@ -4322,9 +4322,8 @@ function spawnCompetitorScrape(clientId, { postsPerAccount = 12, filterHandles =
     MIN_COMMENTS:           '0',
     PROXY:                  clientConfig.proxy?.url || '',
   };
-  if (filterHandles && filterHandles.length > 0) {
-    env.FILTER_HANDLES = filterHandles.join(',');
-  }
+  if (filterHandles && filterHandles.length > 0) env.FILTER_HANDLES = filterHandles.join(',');
+  if (force) env.FORCE_RESCRAPE = '1';
 
   const runId     = crypto.randomBytes(4).toString('hex');
   const startedAt = new Date().toISOString();
@@ -4367,6 +4366,7 @@ app.post('/api/external/scrape-competitor-posts', requireExternalApiKey, (req, r
   const body            = req.body || {};
   const filterHandles   = Array.isArray(body.handles) && body.handles.length ? body.handles : null;
   const postsPerAccount = Number(body.postsPerAccount) || 12;
+  const force           = body.force === true || body.force === 'true';
 
   // Find all clients that have a competitors file; scrape each
   const clientIds   = getAllClientIds().filter(cid => {
@@ -4389,7 +4389,7 @@ app.post('/api/external/scrape-competitor-posts', requireExternalApiKey, (req, r
   const runs = [];
   for (const cid of clientIds) {
     try {
-      const { runId, startedAt } = spawnCompetitorScrape(cid, { postsPerAccount, filterHandles });
+      const { runId, startedAt } = spawnCompetitorScrape(cid, { postsPerAccount, filterHandles, force });
       runs.push({ clientId: cid, runId, startedAt });
     } catch (e) {
       console.error(`[ci-scrape] Failed to start scrape for ${cid}:`, e.message);
