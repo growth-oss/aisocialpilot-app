@@ -4263,16 +4263,18 @@ app.get('/api/external/competitor-top-posts', requireExternalApiKey, (req, res) 
     }
   }
 
-  if (sort === 'comments')    allPosts.sort((a,b) => b.commentsCount - a.commentsCount);
-  else if (sort === 'likes')  allPosts.sort((a,b) => b.likesCount - a.likesCount);
-  else if (sort === 'recent') allPosts.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-  else if (sort === 'engagement') allPosts.sort((a,b) => (b.commentsCount+b.likesCount) - (a.commentsCount+a.likesCount));
+  const metaAdsFirst = (a,b) => (b.is_meta_ad ? 1 : 0) - (a.is_meta_ad ? 1 : 0);
+  if (sort === 'comments')    allPosts.sort((a,b) => metaAdsFirst(a,b) || b.commentsCount - a.commentsCount);
+  else if (sort === 'likes')  allPosts.sort((a,b) => metaAdsFirst(a,b) || b.likesCount - a.likesCount);
+  else if (sort === 'recent') allPosts.sort((a,b) => metaAdsFirst(a,b) || new Date(b.timestamp) - new Date(a.timestamp));
+  else if (sort === 'engagement') allPosts.sort((a,b) => metaAdsFirst(a,b) || (b.commentsCount+b.likesCount) - (a.commentsCount+a.likesCount));
+  else allPosts.sort((a,b) => metaAdsFirst(a,b) || b.commentsCount - a.commentsCount);
 
   const result = allPosts.slice(0, maxPosts).map(p => ({
     url: p.url, shortCode: p.shortCode,
     ownerUsername: p.ownerUsername, competitorName: p.competitorName,
     caption: p.caption, likesCount: p.likesCount, commentsCount: p.commentsCount,
-    timestamp: p.timestamp, isSponsored: p.isSponsored,
+    timestamp: p.timestamp, isSponsored: p.isSponsored, is_meta_ad: p.is_meta_ad ?? false,
   }));
 
   const latencyMs = Date.now() - new Date(startedAt).getTime();
