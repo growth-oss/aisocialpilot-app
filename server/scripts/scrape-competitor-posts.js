@@ -110,11 +110,17 @@ async function getProfilePostsViaApi(context, handle) {
         // Response shape: { user: { edge_owner_to_timeline_media: { edges: [...] } } }
         const user  = data?.user || data?.data?.user; // handle both with and without data wrapper
         const edges = user?.edge_owner_to_timeline_media?.edges;
-        console.log(`[ci-scrape][DEBUG] @${handle} etm.count=${user?.edge_owner_to_timeline_media?.count} edges.length=${Array.isArray(edges) ? edges.length : typeof edges}`);
+        const etmCount = user?.edge_owner_to_timeline_media?.count ?? 0;
         if (Array.isArray(edges) && edges.length > 0) {
           const posts = edges.slice(0, POSTS_PER_ACCOUNT).map(e => shapeProfileInfoNode(e.node || {}, handle));
           console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info ✅`);
           return posts;
+        }
+        if (etmCount > 0) {
+          // Instagram confirms account has posts but strips edges for automated requests.
+          // Caller will get shortcodes from DOM and enrich via per-post fetch.
+          console.log(`[ci-scrape]   @${handle} — API has ${etmCount} posts but edges stripped (expected) — falling back to DOM+fetch`);
+          return [];
         }
         // Newer format: { user: { media: { items: [...] } } }
         const items = user?.media?.items;
@@ -123,7 +129,7 @@ async function getProfilePostsViaApi(context, handle) {
           console.log(`[ci-scrape]   @${handle} — ${posts.length} posts via web_profile_info (v2) ✅`);
           return posts;
         }
-        console.log(`[ci-scrape]   @${handle} web_profile_info: unexpected shape, user keys: ${Object.keys(user || data || {}).join(', ')}`);
+        console.log(`[ci-scrape]   @${handle} web_profile_info: no posts found, user keys: ${Object.keys(user || data || {}).join(', ')}`);
       }
     } else {
       console.log(`[ci-scrape]   @${handle} web_profile_info: HTTP ${resp.status()}`);
@@ -193,6 +199,61 @@ function shapeFeedItem(item, handle) {
     hashtags,
     scrapedAt:      new Date().toISOString(),
   };
+}
+
+/**
+ * Fetch full post details (caption, counts, imageUrl) for a single shortCode
+ * using page.evaluate(() => fetch(...)) so the request carries the logged-in
+ * session cookies. Instagram's ?__a=1&__d=dis endpoint returns JSON for logged-in users.
+ * Returns null if the request fails or returns an unexpected format.
+ */
+async function fetchPostDetails(page, shortCode) {
+  try {
+    const data = await page.evaluate(async (url) => {
+      try {
+        const r = await fetch(url, { credentials: 'include' });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch { return null; }
+    }, `https://www.instagram.com/p/${shortCode}/?__a=1&__d=dis`);
+
+    if (!data) return null;
+
+    // Mobile API shape: { items: [{ caption:{text}, like_count, comment_count, image_versions2, ... }] }
+    const item = Array.isArray(data.items) && data.items[0];
+    if (item) {
+      const captionText = item.caption?.text || '';
+      return {
+        caption:      captionText.slice(0, 500),
+        imageUrl:     item.image_versions2?.candidates?.[0]?.url ||
+                      item.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url || '',
+        likesCount:   item.like_count    ?? 0,
+        commentsCount: item.comment_count ?? 0,
+        timestamp:    item.taken_at ? new Date(item.taken_at * 1000).toISOString() : null,
+        isSponsored:  item.is_paid_partnership ?? false,
+        hashtags:     (captionText.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10),
+      };
+    }
+
+    // GraphQL shape: { graphql: { shortcode_media: { edge_media_to_caption, edge_liked_by, ... } } }
+    const gql = data.graphql?.shortcode_media;
+    if (gql) {
+      const captionText = gql.edge_media_to_caption?.edges?.[0]?.node?.text || '';
+      return {
+        caption:      captionText.slice(0, 500),
+        imageUrl:     gql.display_url || gql.thumbnail_src || '',
+        likesCount:   gql.edge_liked_by?.count ?? 0,
+        commentsCount: gql.edge_media_to_comment?.count ?? 0,
+        timestamp:    gql.taken_at_timestamp ? new Date(gql.taken_at_timestamp * 1000).toISOString() : null,
+        isSponsored:  gql.is_paid_partnership ?? false,
+        hashtags:     (captionText.match(/#[\w\u0600-\u06FF]+/g) || []).map(h => h.replace('#', '')).slice(0, 10),
+      };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -402,6 +463,27 @@ async function scrapeMetaAds(context, competitorName, handle) {
         await delay(3000);
         await dismissOverlays(page);
         profilePosts = await getPostsViaDom(page, handle);
+
+        // Enrich DOM stubs with caption + counts via per-post ?__a=1 fetch
+        if (profilePosts.length > 0) {
+          console.log(`[ci-scrape]   Enriching ${profilePosts.length} posts via ?__a=1...`);
+          let enriched = 0;
+          for (const post of profilePosts) {
+            const details = await fetchPostDetails(page, post.shortCode);
+            if (details) {
+              post.caption      = details.caption;
+              post.imageUrl     = details.imageUrl;
+              post.likesCount   = details.likesCount;
+              post.commentsCount = details.commentsCount;
+              post.isSponsored  = details.isSponsored;
+              post.hashtags     = details.hashtags;
+              if (details.timestamp) post.timestamp = details.timestamp;
+              enriched++;
+            }
+            await delay(800 + Math.random() * 700); // ~1s between requests
+          }
+          console.log(`[ci-scrape]   Enriched ${enriched}/${profilePosts.length} posts ✅`);
+        }
       }
 
       // Attach competitor name
